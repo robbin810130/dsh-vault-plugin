@@ -1,0 +1,2391 @@
+diff --git a/packages/client/runtime/src/client/contract/session.ts b/packages/client/runtime/src/client/contract/session.ts
+index e07267d487..8d112488b1 100644
+--- a/packages/client/runtime/src/client/contract/session.ts
++++ b/packages/client/runtime/src/client/contract/session.ts
+@@ -15,6 +15,10 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+ import type { ConversationSnapshot } from '../sessions/conversation.ts'
+ import type { ObservableSnapshot } from './store.ts'
+ 
++export type {
++  NavigationAccess, NavigationAccessProvider, NavigationAccessState, NavigationDecision,
++} from '../navigation/access.ts'
++
+ /** Key-addressed projection read face (the useProjection resolution path; see ProjectionValueStore). */
+ export interface ProjectionsFace {
+   /**
+diff --git a/packages/client/runtime/src/client/index.ts b/packages/client/runtime/src/client/index.ts
+index 90a2b2f5f3..6b5c450d28 100644
+--- a/packages/client/runtime/src/client/index.ts
++++ b/packages/client/runtime/src/client/index.ts
+@@ -15,12 +15,17 @@ import type { ConversationSnapshot } from './sessions/conversation.ts'
+ import type { UseProjection } from './sessions/projection-store.ts'
+ import { ConversationEventRegistry } from './conversation/event-registry.ts'
+ import { ConversationViewRegistry } from './conversation/view-registry.ts'
++import { NavigationAccessRegistry } from './navigation/access.ts'
+ 
+ export { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
+ 
+ export { SlotRegistry } from './slots.ts'
+ export { ConversationEventRegistry } from './conversation/event-registry.ts'
+ export { ConversationViewRegistry } from './conversation/view-registry.ts'
++export { NavigationAccessRegistry } from './navigation/access.ts'
++export type {
++  NavigationAccess, NavigationAccessProvider, NavigationAccessState, NavigationDecision,
++} from './navigation/access.ts'
+ export { ConversationNodeAssembler } from './sessions/conversation-assembler.ts'
+ export { ConversationLocationIndex } from './sessions/conversation-location-index.ts'
+ export { conversationContextKey } from './contract/conversation.ts'
+@@ -172,6 +177,8 @@ declare module '@deepseek-ai/cordis' {
+     conversationEvents: import('./conversation/event-registry.ts').ConversationEventRegistry
+     /** Per-target Conversation snapshot builder registry. */
+     conversationViews: import('./conversation/view-registry.ts').ConversationViewRegistry
++    /** Generic ordered access registry for session/workspace navigation targets. */
++    navigationAccess: import('./navigation/access.ts').NavigationAccess
+     /** The outward face only; the concrete service stays inside the runtime. */
+     sessions: import('./contract/sessions.ts').ISessions
+     /** The outward face only; the concrete service stays inside the runtime. */
+@@ -191,6 +198,7 @@ export function apply(ctx: Context): void {
+     events: new ConversationEventRegistry(ctx),
+     views: new ConversationViewRegistry(ctx),
+   }
++  new NavigationAccessRegistry(ctx)
+   const connection = ctx.get('connection') as ConnectionHandle
+   const sessions = new SessionRuntime(ctx, connection.api, ctx.remote, conversation)
+   ctx.typert.contexts.registerClient('agent', {
+diff --git a/packages/client/runtime/src/client/navigation/access.ts b/packages/client/runtime/src/client/navigation/access.ts
+new file mode 100644
+index 0000000000..3a99d4e056
+--- /dev/null
++++ b/packages/client/runtime/src/client/navigation/access.ts
+@@ -0,0 +1,146 @@
++import { Context, Service } from '@deepseek-ai/cordis'
++import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
++
++export type NavigationAccessState =
++  | { readonly kind: 'allow' }
++  | { readonly kind: 'blocked'; readonly reason: string }
++
++export interface NavigationDecision {
++  readonly allow: boolean
++  readonly handled?: boolean
++}
++
++export interface NavigationAccessProvider {
++  matchesWorkspace(id: WorkspaceId): boolean
++  matchesSession(id: SessionId): boolean
++  workspaceState(id: WorkspaceId): NavigationAccessState
++  sessionState(id: SessionId): NavigationAccessState
++  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
++  requestSession(id: SessionId): Promise<NavigationDecision>
++  subscribe(listener: () => void): () => void
++}
++
++export interface NavigationAccess {
++  register(provider: NavigationAccessProvider): () => void
++  workspaceState(id: WorkspaceId): NavigationAccessState
++  sessionState(id: SessionId): NavigationAccessState
++  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
++  requestSession(id: SessionId): Promise<NavigationDecision>
++  subscribe(listener: () => void): () => void
++}
++
++const ALLOW_STATE: NavigationAccessState = { kind: 'allow' }
++const FAILED_STATE: NavigationAccessState = { kind: 'blocked', reason: 'navigation access provider failed' }
++const ALLOW_DECISION: NavigationDecision = { allow: true }
++const DENY_DECISION: NavigationDecision = { allow: false }
++
++interface ProviderEntry {
++  readonly provider: NavigationAccessProvider
++  readonly unsubscribe: () => void
++}
++
++/**
++ * Ordered, observable access registry for navigation-like host targets.
++ * The optional constructor context keeps standalone registry tests lightweight;
++ * runtime mounting passes the real Cordis context and receives a service face.
++ */
++export class NavigationAccessRegistry extends Service implements NavigationAccess {
++  private readonly providers: ProviderEntry[] = []
++  private readonly listeners = new Set<() => void>()
++
++  constructor(ctx: Context = new Context()) {
++    super(ctx, 'navigationAccess')
++  }
++
++  /**
++   * Register a provider for the caller's Cordis fiber lifetime.
++   * @param provider - access provider contribution.
++   * @returns disposer removing the provider and its change listener.
++   */
++  register(provider: NavigationAccessProvider): () => void {
++    const dispose = this.ctx.effect(() => {
++      const entry: ProviderEntry = {
++        provider,
++        unsubscribe: provider.subscribe(() => { this.notify() }),
++      }
++      this.providers.push(entry)
++      this.notify()
++      return () => {
++        const index = this.providers.indexOf(entry)
++        if (index >= 0) this.providers.splice(index, 1)
++        entry.unsubscribe()
++        this.notify()
++      }
++    }, 'navigationAccess.register()')
++    return () => { void dispose() }
++  }
++
++  workspaceState(id: WorkspaceId): NavigationAccessState {
++    for (const entry of this.providers) {
++      try {
++        if (!entry.provider.matchesWorkspace(id)) continue
++        const state = entry.provider.workspaceState(id)
++        if (state.kind === 'blocked') return state
++      } catch {
++        return FAILED_STATE
++      }
++    }
++    return ALLOW_STATE
++  }
++
++  sessionState(id: SessionId): NavigationAccessState {
++    for (const entry of this.providers) {
++      try {
++        if (!entry.provider.matchesSession(id)) continue
++        const state = entry.provider.sessionState(id)
++        if (state.kind === 'blocked') return state
++      } catch {
++        return FAILED_STATE
++      }
++    }
++    return ALLOW_STATE
++  }
++
++  async requestWorkspace(id: WorkspaceId): Promise<NavigationDecision> {
++    for (const entry of this.providers) {
++      try {
++        if (!entry.provider.matchesWorkspace(id)) continue
++        const decision = await entry.provider.requestWorkspace(id)
++        if (!decision.allow) return decision
++      } catch {
++        return DENY_DECISION
++      }
++    }
++    return ALLOW_DECISION
++  }
++
++  async requestSession(id: SessionId): Promise<NavigationDecision> {
++    for (const entry of this.providers) {
++      try {
++        if (!entry.provider.matchesSession(id)) continue
++        const decision = await entry.provider.requestSession(id)
++        if (!decision.allow) return decision
++      } catch {
++        return DENY_DECISION
++      }
++    }
++    return ALLOW_DECISION
++  }
++
++  /**
++   * Observe provider set/state changes for the caller's Cordis fiber lifetime.
++   * @param listener - synchronous invalidation callback.
++   * @returns disposer removing the listener.
++   */
++  subscribe(listener: () => void): () => void {
++    const dispose = this.ctx.effect(() => {
++      this.listeners.add(listener)
++      return () => { this.listeners.delete(listener) }
++    }, 'navigationAccess.subscribe()')
++    return () => { void dispose() }
++  }
++
++  private notify(): void {
++    for (const listener of this.listeners) listener()
++  }
++}
+diff --git a/packages/client/runtime/tests/navigation-access.client.spec.ts b/packages/client/runtime/tests/navigation-access.client.spec.ts
+new file mode 100644
+index 0000000000..97cb975ca6
+--- /dev/null
++++ b/packages/client/runtime/tests/navigation-access.client.spec.ts
+@@ -0,0 +1,187 @@
++import { describe, expect, it, vi } from 'vitest'
++import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
++import {
++  NavigationAccessRegistry,
++  type NavigationAccessProvider,
++  type NavigationAccessState,
++} from '../src/client/navigation/access.ts'
++
++const sid = (id: string): SessionId => id as SessionId
++const wid = (id: string): WorkspaceId => id as WorkspaceId
++const allowState: NavigationAccessState = { kind: 'allow' }
++const failedState: NavigationAccessState = { kind: 'blocked', reason: 'navigation access provider failed' }
++
++interface FakeProviderOptions {
++  readonly matchesSession?: boolean | ((id: SessionId) => boolean)
++  readonly matchesWorkspace?: boolean | ((id: WorkspaceId) => boolean)
++  readonly requestAllow?: boolean
++  readonly requestError?: Error
++  readonly stateError?: Error
++  readonly state?: NavigationAccessState
++}
++
++type FakeNavigationAccessProvider = NavigationAccessProvider & {
++  emit(): void
++  listenerCount(): number
++  requestSessionCallCount(): number
++  requestWorkspaceCallCount(): number
++}
++
++function fakeProvider(options: FakeProviderOptions = {}): FakeNavigationAccessProvider {
++  const listeners = new Set<() => void>()
++  const matchesSession = options.matchesSession ?? true
++  const matchesWorkspace = options.matchesWorkspace ?? true
++  const state = options.state ?? allowState
++  const requestWorkspace = vi.fn(async () => {
++    if (options.requestError !== undefined) throw options.requestError
++    return { allow: options.requestAllow ?? true }
++  })
++  const requestSession = vi.fn(async () => {
++    if (options.requestError !== undefined) throw options.requestError
++    return { allow: options.requestAllow ?? true }
++  })
++  const provider = {
++    matchesWorkspace: vi.fn((id: WorkspaceId) => {
++      if (typeof matchesWorkspace === 'function') return matchesWorkspace(id)
++      return matchesWorkspace
++    }),
++    matchesSession: vi.fn((id: SessionId) => {
++      if (typeof matchesSession === 'function') return matchesSession(id)
++      return matchesSession
++    }),
++    workspaceState: vi.fn(() => {
++      if (options.stateError !== undefined) throw options.stateError
++      return state
++    }),
++    sessionState: vi.fn(() => {
++      if (options.stateError !== undefined) throw options.stateError
++      return state
++    }),
++    requestWorkspace,
++    requestSession,
++    subscribe: vi.fn((listener: () => void) => {
++      listeners.add(listener)
++      return () => { listeners.delete(listener) }
++    }),
++    emit: () => {
++      for (const listener of listeners) listener()
++    },
++    listenerCount: () => listeners.size,
++    requestSessionCallCount: () => requestSession.mock.calls.length,
++    requestWorkspaceCallCount: () => requestWorkspace.mock.calls.length,
++  }
++  return provider
++}
++
++describe('NavigationAccessRegistry', () => {
++  it('bypasses providers that do not match the session', async () => {
++    const provider = fakeProvider({ matchesSession: false })
++    const registry = new NavigationAccessRegistry()
++    registry.register(provider)
++    expect(await registry.requestSession(sid('plain'))).toEqual({ allow: true })
++    expect(provider.requestSessionCallCount()).toBe(0)
++  })
++
++  it('denies a matching provider failure', async () => {
++    const provider = fakeProvider({ matchesSession: true, requestError: new Error('offline') })
++    const registry = new NavigationAccessRegistry()
++    registry.register(provider)
++    await expect(registry.requestSession(sid('locked'))).resolves.toEqual({ allow: false })
++  })
++
++  it('blocks target state when a matching provider state read throws', () => {
++    const provider = fakeProvider({ matchesSession: true, matchesWorkspace: true, stateError: new Error('state offline') })
++    const registry = new NavigationAccessRegistry()
++    registry.register(provider)
++
++    expect(registry.workspaceState(wid('locked'))).toEqual(failedState)
++    expect(registry.sessionState(sid('locked'))).toEqual(failedState)
++  })
++
++  it('denies requests when provider matchers throw before a request is made', async () => {
++    const provider = fakeProvider({
++      matchesSession: () => { throw new Error('match offline') },
++      matchesWorkspace: () => { throw new Error('match offline') },
++    })
++    const registry = new NavigationAccessRegistry()
++    registry.register(provider)
++
++    await expect(registry.requestWorkspace(wid('locked'))).resolves.toEqual({ allow: false })
++    await expect(registry.requestSession(sid('locked'))).resolves.toEqual({ allow: false })
++    expect(provider.requestWorkspaceCallCount()).toBe(0)
++    expect(provider.requestSessionCallCount()).toBe(0)
++  })
++
++  it('requires every matching session provider to allow and lets one denial win', async () => {
++    const registry = new NavigationAccessRegistry()
++    const allow = fakeProvider({ matchesSession: true, requestAllow: true })
++    const deny = fakeProvider({ matchesSession: true, requestAllow: false })
++    const later = fakeProvider({ matchesSession: true, requestAllow: true })
++    registry.register(allow)
++    registry.register(deny)
++    registry.register(later)
++
++    await expect(registry.requestSession(sid('locked'))).resolves.toEqual({ allow: false })
++    expect(allow.requestSessionCallCount()).toBe(1)
++    expect(deny.requestSessionCallCount()).toBe(1)
++    expect(later.requestSessionCallCount()).toBe(0)
++  })
++
++  it('keeps registration order stable for workspace state and requests', async () => {
++    const registry = new NavigationAccessRegistry()
++    const firstBlocked: NavigationAccessState = { kind: 'blocked', reason: 'first' }
++    const secondBlocked: NavigationAccessState = { kind: 'blocked', reason: 'second' }
++    const calls: string[] = []
++    const first = fakeProvider({ matchesWorkspace: true, state: firstBlocked, requestAllow: true })
++    const second = fakeProvider({ matchesWorkspace: true, state: secondBlocked, requestAllow: true })
++    first.requestWorkspace = vi.fn(async () => {
++      calls.push('first')
++      return { allow: true }
++    })
++    second.requestWorkspace = vi.fn(async () => {
++      calls.push('second')
++      return { allow: true }
++    })
++    registry.register(first)
++    registry.register(second)
++
++    expect(registry.workspaceState(wid('locked'))).toEqual(firstBlocked)
++    await expect(registry.requestWorkspace(wid('locked'))).resolves.toEqual({ allow: true })
++    expect(calls).toEqual(['first', 'second'])
++  })
++
++  it('returns allow when no matching provider blocks a target state', () => {
++    const registry = new NavigationAccessRegistry()
++    registry.register(fakeProvider({ matchesWorkspace: false }))
++    registry.register(fakeProvider({ matchesWorkspace: true, state: allowState }))
++
++    expect(registry.workspaceState(wid('plain'))).toEqual({ kind: 'allow' })
++  })
++
++  it('relays provider changes to subscribers', () => {
++    const registry = new NavigationAccessRegistry()
++    const provider = fakeProvider()
++    const listener = vi.fn()
++    registry.register(provider)
++    const unsubscribe = registry.subscribe(listener)
++
++    provider.emit()
++
++    expect(listener).toHaveBeenCalledOnce()
++    unsubscribe()
++    provider.emit()
++    expect(listener).toHaveBeenCalledOnce()
++  })
++
++  it('removes the provider and its listener on disposal', async () => {
++    const registry = new NavigationAccessRegistry()
++    const provider = fakeProvider({ matchesSession: true, requestAllow: false })
++    const dispose = registry.register(provider)
++    expect(provider.listenerCount()).toBe(1)
++
++    dispose()
++
++    expect(provider.listenerCount()).toBe(0)
++    await expect(registry.requestSession(sid('plain'))).resolves.toEqual({ allow: true })
++  })
++})
+diff --git a/packages/client/ui-conversation/src/client/apply.ts b/packages/client/ui-conversation/src/client/apply.ts
+index 7920104d68..e04a5f9a85 100644
+--- a/packages/client/ui-conversation/src/client/apply.ts
++++ b/packages/client/ui-conversation/src/client/apply.ts
+@@ -198,6 +198,7 @@ export function apply(ctx: Context): void {
+     locale: NS,
+     children: {
+       'conversation.session': { kind: 'single', scope: 'session' },
++      'conversation.access.denied': { kind: 'single', scope: 'session' },
+       'conversation.session.header': { kind: 'single', scope: 'session' },
+       'conversation.composer': { kind: 'chain', scope: 'session' },
+       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
+@@ -211,6 +212,7 @@ export function apply(ctx: Context): void {
+       'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
+     },
+     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
++      navigationAccess: ctx.get('navigationAccess'),
+       hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },
+       selectWorkspace: async (workspaceId) => {
+         const nextId = await workspaces.connectWorkspace(workspaceId)
+diff --git a/packages/client/ui-conversation/src/client/contract/slots.ts b/packages/client/ui-conversation/src/client/contract/slots.ts
+index 307ac38482..34016dbe1d 100644
+--- a/packages/client/ui-conversation/src/client/contract/slots.ts
++++ b/packages/client/ui-conversation/src/client/contract/slots.ts
+@@ -69,6 +69,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+      * composer chrome.
+      */
+     'conversation.session': { kind: 'single'; scope: 'session' }
++    /**
++     * Access-denied replacement for the current session content. When this
++     * seat is rendered, the resident conversation shell does not mount the
++     * native session header, body, composer, or message tree.
++     */
++    'conversation.access.denied': {
++      kind: 'single'
++      scope: 'session'
++      owner: ConversationAccessDeniedOwnerProps
++    }
+     /**
+      * The strip above the session's scrollport: title, view tabs, and the
+      * action row. Taking this seat means rendering all three yourself, and it
+@@ -312,6 +322,14 @@ export interface ConversationSessionOwnerProps {
+   wrapActiveBody?: (view: ReactNode) => ReactNode
+ }
+ 
++/** Owner share for a blocked current-session replacement surface. */
++export interface ConversationAccessDeniedOwnerProps {
++  /** Current Session whose content is withheld. */
++  readonly sessionId: SessionId
++  /** Provider-supplied display reason. */
++  readonly reason: string
++}
++
+ /** Header actions derive their state from the standard session/global kit. */
+ export interface ConversationHeaderActionOwnerProps {}
+ 
+@@ -471,6 +489,8 @@ export type ChatStore = ReturnType<typeof createChatStore>
+ 
+ /** Business callbacks injected into the conversation slot. */
+ export interface ConversationInjected {
++  /** Optional navigation access registry; absent test/host paths read as allow. */
++  navigationAccess?: import('@deepseek-ai/dsh-client-runtime/client').NavigationAccess | undefined
+   /**
+    * Connect the selected Workspace and open its reusable/new blank session.
+    * When a blank session is already current, carry its draft to the target.
+@@ -638,7 +658,7 @@ export interface HeroBrandMarkOwnerProps {
+  */
+ export type ConversationSlotProps =
+   PropsRuntime<'conversation'> & PropsRenderSlots<
+-    | 'conversation.session' | 'conversation.session.header'
++    | 'conversation.session' | 'conversation.access.denied' | 'conversation.session.header'
+     | 'conversation.composer' | 'conversation.composer.bar'
+     | 'conversation.input.overlay'
+     | 'conversation.input.dock' | 'conversation.composer.dock'
+diff --git a/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx b/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
+index 07655d7dba..8cf7e3c649 100644
+--- a/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
++++ b/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
+@@ -2,8 +2,9 @@
+ // chain, AND the composer bar (session-maybe slot) stay mounted across
+ // no-session/session transitions — the bar renders inert via owner props.
+ 
+-import { useCallback, useEffect, useRef, useState } from 'react'
++import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+ import clsx from 'clsx'
++import type { NavigationAccess, NavigationAccessState } from '@deepseek-ai/dsh-client-runtime/client'
+ import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+ import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
+ import { HeroGlow, HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
+@@ -12,10 +13,36 @@ import css from './ConversationRoot.module.css'
+ /** Full props composed from the slot contract. */
+ export type ConversationRootProps = ConversationSlotProps
+ 
++const ALLOW_ACCESS: NavigationAccessState = { kind: 'allow' }
++const noopSubscribe = (): (() => void) => () => {}
++
++function sameAccessState(left: NavigationAccessState, right: NavigationAccessState): boolean {
++  if (left.kind === 'allow' && right.kind === 'allow') return true
++  if (left.kind === 'blocked' && right.kind === 'blocked') return left.reason === right.reason
++  return false
++}
++
++function useCurrentSessionAccess(
++  navigationAccess: NavigationAccess | undefined,
++  sessionId: ConversationRootProps['sessionId'],
++): NavigationAccessState {
++  const last = useRef<NavigationAccessState>(ALLOW_ACCESS)
++  const subscribe = useCallback((listener: () => void) =>
++    navigationAccess?.subscribe(listener) ?? noopSubscribe(), [navigationAccess])
++  const getSnapshot = useCallback(() => {
++    const next = sessionId === undefined ? ALLOW_ACCESS : navigationAccess?.sessionState(sessionId) ?? ALLOW_ACCESS
++    if (sameAccessState(last.current, next)) return last.current
++    last.current = next
++    return next
++  }, [navigationAccess, sessionId])
++  return useSyncExternalStore(subscribe, getSnapshot)
++}
++
+ export function ConversationRoot({
+   sessionId, useSession, useSessions, useWorkspaces, useInput, useComposerBlock,
+-  renderSlot, renderSlotChain, selectWorkspace, t,
++  renderSlot, renderSlotChain, selectWorkspace, navigationAccess, t,
+ }: ConversationRootProps) {
++  const access = useCurrentSessionAccess(navigationAccess, sessionId)
+   const openState = useSession(s => s.openState)
+   const composerPhase = useSession(s => s.composerPhase)
+   const pending = useSession(s => s.pending) ?? []
+@@ -65,6 +92,14 @@ export function ConversationRoot({
+     }
+   }, [pendingWorkspaceId, sessionWorkspace?.workspaceId, workspaces.phase, pendingWorkspace])
+ 
++  if (sessionId !== undefined && access.kind === 'blocked') {
++    return (
++      <div className={css.root} data-phase="blocked">
++        {renderSlot('conversation.access.denied', { sessionId, reason: access.reason })}
++      </div>
++    )
++  }
++
+   // While a session is still replaying (loading + blank) the hero/docked
+   // choice is unknowable — render the composer hidden instead of flashing
+   // the centered hero and snapping to the docked bar (or vice versa).
+diff --git a/packages/client/ui-conversation/tests/access-gate.client.spec.tsx b/packages/client/ui-conversation/tests/access-gate.client.spec.tsx
+new file mode 100644
+index 0000000000..c4eb33619b
+--- /dev/null
++++ b/packages/client/ui-conversation/tests/access-gate.client.spec.tsx
+@@ -0,0 +1,191 @@
++// @vitest-environment jsdom
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { cleanup, waitFor } from '@testing-library/react'
++import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
++import type {
++  ISession, NavigationAccess, NavigationAccessState, SessionId,
++} from '@deepseek-ai/dsh-client-runtime/client'
++import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
++import { SlotTestRuntime, stubSettingsScope, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
++import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
++
++usePinnedBrowserLanguages('zh-CN')
++
++const SID = 's1' as SessionId
++const OTHER = 's2' as SessionId
++const ALLOW: NavigationAccessState = { kind: 'allow' }
++
++class ResizeObserverStub {
++  observe(): void {}
++  unobserve(): void {}
++  disconnect(): void {}
++}
++
++afterEach(() => {
++  cleanup()
++  vi.unstubAllGlobals()
++})
++
++beforeEach(() => {
++  localStorage.clear()
++  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
++})
++
++type AppRootProps = PropsRenderSlots<'conversation' | 'details'>
++function AppRoot({ renderSlot }: AppRootProps) {
++  return <>{renderSlot('conversation', {})}</>
++}
++
++const LAYOUT_CHILDREN = {
++  conversation: { kind: 'single', scope: 'session-maybe' },
++  details: { kind: 'single', scope: 'session' },
++} as const
++
++function NativeViewProbe() {
++  return <div data-testid="native-view" />
++}
++
++function AccessDeniedProbe({ sessionId, reason }: { sessionId: SessionId; reason: string }) {
++  return (
++    <div data-testid="access-denied" data-session-id={sessionId} data-reason={reason}>
++      denied
++    </div>
++  )
++}
++
++function accessHarness(initial: NavigationAccessState = ALLOW) {
++  let state = initial
++  const listeners = new Set<() => void>()
++  const navigationAccess: NavigationAccess = {
++    register: vi.fn(() => () => {}),
++    workspaceState: vi.fn(() => ALLOW),
++    sessionState: vi.fn(() => state),
++    requestWorkspace: vi.fn(async () => ({ allow: true })),
++    requestSession: vi.fn(async () => ({ allow: state.kind === 'allow' })),
++    subscribe: vi.fn((listener: () => void) => {
++      listeners.add(listener)
++      return () => { listeners.delete(listener) }
++    }),
++  }
++  return {
++    navigationAccess,
++    setState(next: NavigationAccessState) {
++      state = next
++      for (const listener of [...listeners]) listener()
++    },
++    disposeProvider() {
++      state = ALLOW
++      for (const listener of [...listeners]) listener()
++    },
++  }
++}
++
++async function bench(opts?: {
++  readonly access?: ReturnType<typeof accessHarness>
++  readonly includeOther?: boolean
++}) {
++  const runtime = await SlotTestRuntime.create()
++  runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
++  runtime.provide('remote', { $on: () => () => {} })
++  runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
++  runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
++  if (opts?.access !== undefined) runtime.provide('navigationAccess', opts.access.navigationAccess)
++  const locale = new LocaleRuntime(runtime.ctx)
++  runtime.provide('locale', locale)
++  runtime.slots.installLocale(locale)
++  await runtime.sessions.add({
++    id: SID,
++    summary: { title: 'S', displayTitle: 'S', cwd: '/proj' },
++    session: {
++      loadOlder: vi.fn<ISession['loadOlder']>(),
++      prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),
++    },
++  })
++  if (opts?.includeOther === true) {
++    await runtime.sessions.add({
++      id: OTHER,
++      summary: { title: 'T', displayTitle: 'T', cwd: '/other' },
++      session: {
++        loadOlder: vi.fn<ISession['loadOlder']>(),
++        prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),
++      },
++    }, { current: false })
++  }
++  await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
++  await runtime.mount({ inject: [...inject], apply })
++  runtime.slots.register({ name: 'conversation.view', id: 'chat', priority: -1 } as never, NativeViewProbe)
++  runtime.slots.register({ name: 'conversation.access.denied' } as never, AccessDeniedProbe)
++  const view = runtime.renderRoot()
++  return { runtime, view }
++}
++
++describe('conversation access gate', () => {
++  it('renders only the denied seat for a blocked current session', async () => {
++    const access = accessHarness({ kind: 'blocked', reason: 'locked' })
++    const { runtime, view } = await bench({ access })
++
++    const denied = view.getByTestId('access-denied')
++    expect(denied.getAttribute('data-session-id')).toBe(SID)
++    expect(denied.getAttribute('data-reason')).toBe('locked')
++    expect(view.queryByRole('textbox')).toBeNull()
++    expect(view.queryByRole('navigation', { name: '会话层级' })).toBeNull()
++    expect(view.queryByTestId('native-view')).toBeNull()
++
++    await runtime.dispose()
++  })
++
++  it('remounts the native conversation when the current session is unblocked', async () => {
++    const access = accessHarness({ kind: 'blocked', reason: 'locked' })
++    const { runtime, view } = await bench({ access })
++
++    expect(view.getByTestId('access-denied')).not.toBeNull()
++    access.setState(ALLOW)
++
++    await waitFor(() => {
++      expect(view.queryByTestId('access-denied')).toBeNull()
++      expect(view.queryByRole('textbox')).not.toBeNull()
++      expect(view.queryByTestId('native-view')).not.toBeNull()
++    })
++    await runtime.dispose()
++  })
++
++  it('returns to native rendering when the provider is disposed', async () => {
++    const access = accessHarness({ kind: 'blocked', reason: 'locked' })
++    const { runtime, view } = await bench({ access })
++
++    expect(view.getByTestId('access-denied')).not.toBeNull()
++    access.disposeProvider()
++
++    await waitFor(() => {
++      expect(view.queryByTestId('access-denied')).toBeNull()
++      expect(view.queryByRole('textbox')).not.toBeNull()
++    })
++    await runtime.dispose()
++  })
++
++  it('recomputes access when the current session changes', async () => {
++    const blocked: NavigationAccessState = { kind: 'blocked', reason: 'locked' }
++    const access = accessHarness(blocked)
++    access.navigationAccess.sessionState = vi.fn(id => id === SID ? blocked : ALLOW)
++    const { runtime, view } = await bench({ access, includeOther: true })
++
++    expect(view.getByTestId('access-denied').getAttribute('data-session-id')).toBe(SID)
++    await runtime.sessions.setCurrent(OTHER)
++
++    await waitFor(() => {
++      expect(view.queryByTestId('access-denied')).toBeNull()
++      expect(view.queryByRole('textbox')).not.toBeNull()
++    })
++    await runtime.dispose()
++  })
++
++  it('preserves native behavior when no access service is provided', async () => {
++    const { runtime, view } = await bench()
++
++    expect(view.queryByTestId('access-denied')).toBeNull()
++    expect(view.queryByRole('textbox')).not.toBeNull()
++    expect(view.queryByTestId('native-view')).not.toBeNull()
++
++    await runtime.dispose()
++  })
++})
+diff --git a/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx b/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
+index 1f61399fda..31623df17e 100644
+--- a/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
++++ b/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
+@@ -312,6 +312,14 @@ describe('conversation slot inject API', () => {
+     await b.runtime.dispose()
+   })
+ 
++  it('keeps the navigation access face optional for host compositions without the service', async () => {
++    const b = await bench()
++
++    expect(b.residentApi(ROOT).navigationAccess).toBeUndefined()
++
++    await b.runtime.dispose()
++  })
++
+   it('scopedConversation fails loud when the session resolves no scope', async () => {
+     const b = await bench()
+     // The chat-view inject resolves the scoped conversation service at inject
+diff --git a/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx b/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx
+index 2a2b67b128..783b5d69a6 100644
+--- a/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx
++++ b/packages/client/ui-conversation/tests/assembly-surfaces.client.spec.tsx
+@@ -48,6 +48,10 @@ function WorkspaceProbe({ open }: EmptyWorkspaceOwnerProps) {
+   )
+ }
+ 
++function AccessDeniedProbe() {
++  return <div data-testid="access-denied" />
++}
++
+ async function bench(opts?: { blank?: boolean }) {
+   const runtime = await SlotTestRuntime.create()
+   runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
+@@ -172,6 +176,16 @@ describe('resident composer', () => {
+     expect(view.container.querySelector('textarea')).toBe(hero)
+     await runtime.dispose()
+   })
++
++  it('keeps the native session tree while no access service blocks the current session', async () => {
++    const runtime = await bench()
++    runtime.slots.register({ name: 'conversation.access.denied' }, AccessDeniedProbe)
++    const view = runtime.renderRoot()
++
++    expect(view.queryByTestId('access-denied')).toBeNull()
++    expect(view.container.querySelector('textarea')).not.toBeNull()
++    await runtime.dispose()
++  })
+ })
+ 
+ describe('prompt rejection through the assembled composer', () => {
+diff --git a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
+index 08f22ed400..52680edb6a 100644
+--- a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
++++ b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
+@@ -16,10 +16,11 @@ import {
+   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
+ } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type {
+-  SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
++  NavigationAccess, SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+ } from '@deepseek-ai/dsh-client-runtime/client'
+ import type { WorkspaceBrowserProps } from './contract/slots.ts'
+-import type { SessionNode, SessionOrderBy } from './tree.ts'
++import type { SessionRowPresentation, WorkspaceRowPresentation } from './row-extensions.ts'
++import type { GroupNode, SearchResultNode, SessionNode, SessionOrderBy } from './tree.ts'
+ import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
+ import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
+ import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
+@@ -76,6 +77,23 @@ function useNativeDragAcceptance(active: boolean): void {
+   }, [active])
+ }
+ 
++function useGuardedSessionActivation(
++  open: (sessionId: SessionId) => void,
++  navigationAccess: NavigationAccess,
++): (id: SessionId) => void {
++  const sequence = useRef(0)
++  useEffect(() => () => {
++    sequence.current += 1
++  }, [])
++  return (id) => {
++    const ticket = sequence.current + 1
++    sequence.current = ticket
++    void navigationAccess.requestSession(id).then((decision) => {
++      if (ticket === sequence.current && decision.allow) open(id)
++    })
++  }
++}
++
+ /** Reconcile a stored view order with the Workspace's current session account. */
+ function reconciledSessionOrder(sessionIds: readonly SessionId[], stored: readonly string[] | undefined): SessionId[] {
+   if (stored === undefined) return [...sessionIds]
+@@ -217,6 +235,7 @@ type SessionTreeProps = Pick<
+   WorkspaceBrowserProps,
+   'useSessions' | 'startSession' | 'open' | 'forkSession'
+   | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
++  | 'workspaceRows' | 'navigationAccess' | 'renderSlot'
+ > & {
+   /** Host account home for POSIX hover-path abbreviation. */
+   home?: string | undefined
+@@ -253,7 +272,8 @@ function SessionTree({
+   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+   insertWorkspaceBefore, insertSessionBefore, orderBy,
+   groupExpansion, setGroupExpanded,
+-  sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
++  sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home,
++  workspaceRows, navigationAccess, renderSlot, t,
+ }: SessionTreeProps) {
+   const list = useSessions(s => s)
+   const current = list.current
+@@ -381,6 +401,17 @@ function SessionTree({
+   const workspaceDropAtListStart = groups[0]?.workspaceId !== undefined
+     && workspaceDrag?.over?.id === groups[0].workspaceId
+     && workspaceDrag.over.half === 'before'
++  const activateSession = useGuardedSessionActivation(open, navigationAccess)
++  const toggleWorkspace = async (group: GroupNode): Promise<void> => {
++    if (group.workspaceId !== undefined && !group.expanded) {
++      const decision = await navigationAccess.requestWorkspace(group.workspaceId)
++      if (!decision.allow) return
++    }
++    if (group.expanded) {
++      setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
++    }
++    setGroupExpanded(group.key, !group.expanded)
++  }
+ 
+   return (
+     <div className={clsx(css.treeBody, css.wide)}>
+@@ -395,6 +426,9 @@ function SessionTree({
+         )}
+         {groups.map((group) => {
+           const workspaceId = group.workspaceId
++          const groupPresentation = workspaceId === undefined
++            ? undefined
++            : workspaceRows.workspace(workspaceId, workspacePresentation(group))
+           const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
+             ? workspaceDrag.over.half
+             : null
+@@ -454,12 +488,9 @@ function SessionTree({
+                 group={group}
+                 home={home}
+                 t={t}
+-                onToggle={() => {
+-                  if (group.expanded) {
+-                    setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
+-                  }
+-                  setGroupExpanded(group.key, !group.expanded)
+-                }}
++                presentation={groupPresentation}
++                renderSlot={renderSlot}
++                onToggle={() => { void toggleWorkspace(group) }}
+                 onCreate={() => {
+                   if (group.workspaceId !== undefined) {
+                     setGroupExpanded(group.key, true)
+@@ -472,11 +503,11 @@ function SessionTree({
+                   : {
+                     rename: () => {
+                     /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+-                      if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
++                      if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, groupPresentation?.label ?? group.label)
+                     },
+                     delete: () => {
+                     /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+-                      if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
++                      if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, groupPresentation?.label ?? group.label)
+                     },
+                   }}
+               />
+@@ -515,10 +546,13 @@ function SessionTree({
+                     node={node}
+                     currentId={current}
+                     now={now}
+-                    onOpen={open}
++                    onOpen={activateSession}
+                     onRename={onSessionRename}
+                     onFork={forkSession}
+                     onArchive={onSessionArchive}
++                    workspaceId={group.workspaceId}
++                    presentation={workspaceRows.session(node.id, sessionPresentation(node, t))}
++                    renderSlot={renderSlot}
+                     drag={dragProps}
+                     t={t}
+                   />
+@@ -548,7 +582,8 @@ function SessionTree({
+ /** The flat "In one list" body: every session is one draggable top-level row. */
+ function FlatList({
+   useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
+-  orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
++  orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder,
++  workspaceRows, navigationAccess, renderSlot, t,
+ }: Pick<
+   SessionTreeProps,
+   | 'useSessions'
+@@ -562,6 +597,9 @@ function FlatList({
+   | 'sessionUpdatedAtByAccount'
+   | 'syncSessionOrderAccount'
+   | 'setSessionOrder'
++  | 'workspaceRows'
++  | 'navigationAccess'
++  | 'renderSlot'
+   | 't'
+ >) {
+   const list = useSessions(s => s)
+@@ -617,6 +655,7 @@ function FlatList({
+     setSessionOrder(FLAT_SESSION_ORDER_KEY, nextOrder.map(id => id as string))
+   }
+   const now = Date.now()
++  const activateSession = useGuardedSessionActivation(open, navigationAccess)
+   return (
+     <div className={clsx(css.treeBody, css.wide)}>
+       <div className={clsx(css.list, css.flatList)} role="tree" aria-label={t('section.sessions')}>
+@@ -631,10 +670,12 @@ function FlatList({
+               node={node}
+               currentId={list.current}
+               now={now}
+-              onOpen={open}
++              onOpen={activateSession}
+               onRename={onSessionRename}
+               onFork={forkSession}
+               onArchive={onSessionArchive}
++              presentation={workspaceRows.session(node.id, sessionPresentation(node, t))}
++              renderSlot={renderSlot}
+               flat
+               drag={{
+                 start: () => {
+@@ -672,6 +713,30 @@ interface RemoteSearchState {
+   hasMore: boolean
+ }
+ 
++function workspacePresentation(group: GroupNode): WorkspaceRowPresentation {
++  return {
++    label: group.label,
++    ...(group.cwd === undefined ? {} : { detail: group.cwd }),
++    ariaLabel: group.label,
++    concealed: false,
++  }
++}
++
++function sessionPresentation(node: SessionNode, t: WorkspaceBrowserProps['t']): SessionRowPresentation {
++  const label = node.blank ? t('session.new') : node.title
++  return { label, ariaLabel: label, concealed: false }
++}
++
++function searchPresentation(result: SearchResultNode): SessionRowPresentation {
++  return {
++    label: result.title,
++    workspaceLabel: result.workspace,
++    ...(result.snippet === undefined ? {} : { snippet: result.snippet }),
++    ariaLabel: result.title,
++    concealed: false,
++  }
++}
++
+ /** Flat search body: local metadata matches plus the current Host result page. */
+ function SearchResults({
+   useSessions,
+@@ -681,8 +746,10 @@ function SearchResults({
+   query,
+   remote,
+   resultLimit,
++  workspaceRows,
++  navigationAccess,
+   t,
+-}: Pick<SessionTreeProps, 'useSessions' | 'open' | 't'> & {
++}: Pick<SessionTreeProps, 'useSessions' | 'open' | 'workspaceRows' | 'navigationAccess' | 't'> & {
+   workspaces: readonly WorkspaceView[]
+   archivedSessionIds: readonly SessionNode['id'][]
+   query: string
+@@ -699,6 +766,7 @@ function SearchResults({
+   )
+   const pending = currentRemote.status === 'loading'
+   const failed = currentRemote.status === 'error'
++  const activateSession = useGuardedSessionActivation(open, navigationAccess)
+ 
+   return (
+     <div className={clsx(css.treeBody, css.wide)}>
+@@ -709,7 +777,8 @@ function SearchResults({
+               key={result.id}
+               result={result}
+               currentId={list.current}
+-              onOpen={open}
++              onOpen={activateSession}
++              presentation={workspaceRows.session(result.id, searchPresentation(result))}
+               t={t}
+             />
+           ))}
+@@ -762,9 +831,13 @@ export function WorkspaceBrowser({
+   searchResultLimit,
+   useDirectoryFlow,
+   useHostDescription,
++  useWorkspaceRowsRevision,
++  workspaceRows,
++  navigationAccess,
+   renderSlot,
+   t,
+ }: WorkspaceBrowserProps) {
++  useWorkspaceRowsRevision(revision => revision)
+   const home = useHostDescription(description => description?.home)
+   const workspaces = useWorkspaces(state => state.items)
+   const workspacePhase = useWorkspaces(state => state.phase)
+@@ -1146,6 +1219,8 @@ export function WorkspaceBrowser({
+             <SearchResults
+               useSessions={useSessions}
+               open={open}
++              workspaceRows={workspaceRows}
++              navigationAccess={navigationAccess}
+               workspaces={workspaces}
+               archivedSessionIds={archivedSessionIds}
+               query={normalizedQuery}
+@@ -1165,6 +1240,9 @@ export function WorkspaceBrowser({
+                 sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
+                 syncSessionOrderAccount={actions.syncSessionOrderAccount}
+                 setSessionOrder={actions.setSessionOrder}
++                workspaceRows={workspaceRows}
++                navigationAccess={navigationAccess}
++                renderSlot={renderSlot}
+                 t={t}
+               />
+             )
+@@ -1184,6 +1262,9 @@ export function WorkspaceBrowser({
+                 archivedSessionIds={archivedSessionIds}
+                 startSession={startSession}
+                 open={open}
++                workspaceRows={workspaceRows}
++                navigationAccess={navigationAccess}
++                renderSlot={renderSlot}
+                 insertWorkspaceBefore={insertWorkspaceBefore}
+                 insertSessionBefore={insertSessionBefore}
+                 orderBy={orderBy}
+diff --git a/packages/client/ui-workspace/src/client/contract/slots.ts b/packages/client/ui-workspace/src/client/contract/slots.ts
+index bdd85052a0..42c60764a7 100644
+--- a/packages/client/ui-workspace/src/client/contract/slots.ts
++++ b/packages/client/ui-workspace/src/client/contract/slots.ts
+@@ -32,6 +32,7 @@ import type {
+   SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+ } from '@deepseek-ai/dsh-client-runtime/client'
+ import type { createWorkspaceViewStore } from '../stores.ts'
++import type { SessionRowSlotOwnerProps, WorkspaceRowSlotOwnerProps } from '../row-extensions.ts'
+ 
+ /**
+  * Owner share of the directory-flow holes: the complete conversation between
+@@ -57,6 +58,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
+     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
+     'sidebar.workspaces.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
++    'sidebar.workspaces.workspace.accessory': { kind: 'list'; scope: 'root'; owner: WorkspaceRowSlotOwnerProps }
++    'sidebar.workspaces.workspace.action': { kind: 'list'; scope: 'root'; owner: WorkspaceRowSlotOwnerProps }
++    'sidebar.workspaces.session.accessory': { kind: 'list'; scope: 'root'; owner: SessionRowSlotOwnerProps }
++    'sidebar.workspaces.session.action': { kind: 'list'; scope: 'root'; owner: SessionRowSlotOwnerProps }
+   }
+ }
+ 
+@@ -91,7 +96,11 @@ export type WorkspaceBrowserInjected = {
+   hooks: DirectoryPickingInjected['hooks'] & {
+     /** Current generation's Host description, bound by the slot renderer. */
+     hostDescription: HostDescriptionSource
++    /** Invalidates row presentations when decorators register, dispose, or update. */
++    workspaceRowsRevision: HostObservable<number>
+   }
++  workspaceRows: import('../row-extensions.ts').WorkspaceRows
++  navigationAccess: import('@deepseek-ai/dsh-client-runtime/client').NavigationAccess
+   /**
+    * Start a New Session in a Workspace: reuse-or-create its blank session and
+    * open it; without an explicit workspace, inherit the current Session
+@@ -143,6 +152,12 @@ export type WorkspaceBrowserInjected = {
+ export type WorkspaceBrowserProps =
+   PropsRuntime<'sidebar.workspaces'>
+   & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>
++  & PropsRenderSlots<
++    | 'sidebar.workspaces.workspace.accessory'
++    | 'sidebar.workspaces.workspace.action'
++    | 'sidebar.workspaces.session.accessory'
++    | 'sidebar.workspaces.session.action'
++  >
+   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
+   & Omit<WorkspaceBrowserInjected, 'hooks'>
+   & PropsHooks<WorkspaceBrowserInjected['hooks']>
+diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
+index 93269c22c1..f6f5045bb0 100644
+--- a/packages/client/ui-workspace/src/client/index.ts
++++ b/packages/client/ui-workspace/src/client/index.ts
+@@ -18,12 +18,18 @@ import { createWorkspaceViewStore } from './stores.ts'
+ import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
+ import { WorkspacePicker } from './WorkspacePicker.tsx'
+ import { en, zh, type WorkspaceKey } from './locales.ts'
++import { WorkspaceRowsRegistry } from './row-extensions.ts'
++export { WorkspaceRowsRegistry } from './row-extensions.ts'
+ 
+ export type {
+   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
+   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
+ } from './contract/slots.ts'
+ export type { WorkspaceKey } from './locales.ts'
++export type {
++  SessionRowPresentation, SessionRowSlotOwnerProps, WorkspaceRowDecorator,
++  WorkspaceRowPresentation, WorkspaceRows, WorkspaceRowSlotOwnerProps,
++} from './row-extensions.ts'
+ 
+ declare module '@deepseek-ai/dsh-client-ui-slots' {
+   interface LocaleNamespaceMap {
+@@ -43,7 +49,7 @@ const NS = 'workspace'
+  * provides a waitable service. apply therefore depends on each slot
+  * declaration through `slots.inject()` instead of assuming order.
+  */
+-export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection']
++export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection', 'navigationAccess']
+ 
+ /**
+  * Register the browser and picker once their slot declarations are on the
+@@ -54,6 +60,7 @@ export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'connection'
+ export function apply(ctx: ClientContext): void {
+   const connection = ctx.get('connection') as ConnectionHandle
+   const hostDescription = connection.hostDescription
++  const workspaceRows = new WorkspaceRowsRegistry(ctx)
+   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
+ 
+   const searchSessions: WorkspaceBrowserInjected['searchSessions'] = async (query, signal) => {
+@@ -70,7 +77,24 @@ export function apply(ctx: ClientContext): void {
+   })
+   const browserFlowSource = flowSource('sidebar.workspaces.directoryFlow')
+   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
++  let accessRevision = 0
++  const workspaceRowsRevision: HostObservable<number> = {
++    getSnapshot: () => workspaceRows.revision + accessRevision,
++    subscribe: (listener) => {
++      const disposeRows = workspaceRows.subscribe(listener)
++      const disposeAccess = ctx.navigationAccess.subscribe(() => {
++        accessRevision += 1
++        listener()
++      })
++      return () => {
++        disposeRows()
++        disposeAccess()
++      }
++    },
++  }
+   const browserInjected = (): WorkspaceBrowserInjected => ({
++    workspaceRows,
++    navigationAccess: ctx.navigationAccess,
+     // Explicit group actions keep their target; unscoped New Session inherits
+     // the current Session Workspace before the recent-Workspace fallback.
+     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
+@@ -102,7 +126,7 @@ export function apply(ctx: ClientContext): void {
+       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
+     },
+     createWorkspace: input => ctx.workspaces.create(input),
+-    hooks: { directoryFlow: browserFlowSource, hostDescription },
++    hooks: { directoryFlow: browserFlowSource, hostDescription, workspaceRowsRevision },
+   })
+   const pickerInjected = (): WorkspacePickerInjected => ({
+     createWorkspace: input => ctx.workspaces.create(input),
+@@ -113,7 +137,13 @@ export function apply(ctx: ClientContext): void {
+   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
+     {
+       name: 'sidebar.workspaces',
+-      children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
++      children: {
++        'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' },
++        'sidebar.workspaces.workspace.accessory': { kind: 'list', scope: 'root' },
++        'sidebar.workspaces.workspace.action': { kind: 'list', scope: 'root' },
++        'sidebar.workspaces.session.accessory': { kind: 'list', scope: 'root' },
++        'sidebar.workspaces.session.action': { kind: 'list', scope: 'root' },
++      },
+       store: createWorkspaceViewStore(),
+       inject: browserInjected,
+       locale: NS,
+diff --git a/packages/client/ui-workspace/src/client/row-extensions.ts b/packages/client/ui-workspace/src/client/row-extensions.ts
+new file mode 100644
+index 0000000000..70fd500ea2
+--- /dev/null
++++ b/packages/client/ui-workspace/src/client/row-extensions.ts
+@@ -0,0 +1,96 @@
++import { Context, Service } from '@deepseek-ai/cordis'
++import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
++
++export interface WorkspaceRowPresentation {
++  readonly label: string
++  readonly detail?: string
++  readonly ariaLabel: string
++  readonly concealed: boolean
++}
++
++export interface SessionRowPresentation extends WorkspaceRowPresentation {
++  readonly workspaceLabel?: string
++  readonly snippet?: string
++}
++
++export interface WorkspaceRowDecorator {
++  workspace(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation
++  session(id: SessionId, base: SessionRowPresentation): SessionRowPresentation
++}
++
++export interface WorkspaceRows {
++  register(decorator: WorkspaceRowDecorator): () => void
++  workspace(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation
++  session(id: SessionId, base: SessionRowPresentation): SessionRowPresentation
++  subscribe(listener: () => void): () => void
++}
++
++export interface WorkspaceRowSlotOwnerProps {
++  readonly workspaceId: WorkspaceId
++  readonly presentation: WorkspaceRowPresentation
++}
++
++export interface SessionRowSlotOwnerProps {
++  readonly sessionId: SessionId
++  readonly workspaceId?: WorkspaceId
++  readonly presentation: SessionRowPresentation
++}
++
++declare module '@deepseek-ai/cordis' {
++  interface Context {
++    /** Composable presentation decorators for workspace and session rows. */
++    workspaceRows: WorkspaceRows
++  }
++}
++
++export class WorkspaceRowsRegistry extends Service implements WorkspaceRows {
++  private readonly decorators: WorkspaceRowDecorator[] = []
++  private readonly listeners = new Set<() => void>()
++  private revisionValue = 0
++
++  constructor(ctx: Context = new Context()) {
++    super(ctx, 'workspaceRows')
++  }
++
++  get revision(): number {
++    return this.revisionValue
++  }
++
++  register(decorator: WorkspaceRowDecorator): () => void {
++    const dispose = this.ctx.effect(() => {
++      this.decorators.push(decorator)
++      this.notify()
++      return () => {
++        const index = this.decorators.indexOf(decorator)
++        if (index >= 0) this.decorators.splice(index, 1)
++        this.notify()
++      }
++    }, 'workspaceRows.register()')
++    return () => { void dispose() }
++  }
++
++  workspace(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation {
++    let current = base
++    for (const decorator of this.decorators) current = decorator.workspace(id, current)
++    return current
++  }
++
++  session(id: SessionId, base: SessionRowPresentation): SessionRowPresentation {
++    let current = base
++    for (const decorator of this.decorators) current = decorator.session(id, current)
++    return current
++  }
++
++  subscribe(listener: () => void): () => void {
++    const dispose = this.ctx.effect(() => {
++      this.listeners.add(listener)
++      return () => { this.listeners.delete(listener) }
++    }, 'workspaceRows.subscribe()')
++    return () => { void dispose() }
++  }
++
++  private notify(): void {
++    this.revisionValue += 1
++    for (const listener of this.listeners) listener()
++  }
++}
+diff --git a/packages/client/ui-workspace/src/client/rows/Rows.module.css b/packages/client/ui-workspace/src/client/rows/Rows.module.css
+index 5dc899af45..4f17914904 100644
+--- a/packages/client/ui-workspace/src/client/rows/Rows.module.css
++++ b/packages/client/ui-workspace/src/client/rows/Rows.module.css
+@@ -171,6 +171,13 @@
+   gap: 2px;
+ }
+ 
++.projectTitleAccessory {
++  min-width: 0;
++  display: flex;
++  align-items: center;
++  gap: 6px;
++}
++
+ .title {
+   min-width: 0;
+   overflow: hidden;
+diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+index d2d121fe4d..a82f94f52a 100644
+--- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
++++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+@@ -15,6 +15,9 @@ import {
+ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+ import { abbreviateHomePath } from '@deepseek-ai/dsh-client-runtime/client'
+ import type { WorkspaceBrowserProps } from '../contract/slots.ts'
++import type {
++  SessionRowPresentation, SessionRowSlotOwnerProps, WorkspaceRowPresentation, WorkspaceRowSlotOwnerProps,
++} from '../row-extensions.ts'
+ import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
+ import { relativeTime } from '../tree.ts'
+ import css from './Rows.module.css'
+@@ -109,7 +112,9 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
+  * @param props.t - the browser root's locale seat.
+  * @returns the row element.
+  */
+-export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }: {
++export function ProjectRowItem({
++  group, onToggle, onCreate, actions, drag, home, t, presentation: presentationProp, renderSlot,
++}: {
+   group: GroupNode
+   onToggle: () => void
+   onCreate: () => void
+@@ -119,22 +124,32 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+   drag?: WorkspaceRowDragProps | undefined
+   /** Host account home; POSIX home-rooted hover paths display as `~`. */
+   home?: string | undefined
++  presentation?: WorkspaceRowPresentation | undefined
++  renderSlot?: WorkspaceBrowserProps['renderSlot'] | undefined
+   t: RowTranslate
+ }) {
+   const row = group
+   // The ungrouped bucket has no workspace title: its label is dictionary copy.
+-  const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
++  const nativeLabel = row.workspaceId === undefined ? t('group.ungrouped') : row.label
++  const presentation = presentationProp ?? { label: nativeLabel, ariaLabel: nativeLabel, concealed: false }
++  const label = presentation.label
+   const active = group.expanded && group.containsCurrent
+   const [menuOpen, setMenuOpen] = useState(false)
+   const workspaceMenuItems = [
+     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
+   ]
++  const workspaceAccessory = row.workspaceId === undefined ? undefined : renderSlot?.('sidebar.workspaces.workspace.accessory', {
++    workspaceId: row.workspaceId,
++    presentation,
++  } satisfies WorkspaceRowSlotOwnerProps)
++  const hasWorkspaceAccessory = workspaceAccessory !== undefined && workspaceAccessory !== null && workspaceAccessory !== false
+   const ownRow = (
+     <div
+       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+       role="treeitem"
+       aria-expanded={row.expanded}
++      aria-label={presentation.ariaLabel}
+       onClick={onToggle}
+       draggable={drag !== undefined}
+       onDragStart={drag === undefined
+@@ -153,9 +168,20 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+         <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
+       </span>
+       <span className={css.projectText}>
+-        <span className={css.title}>{label}</span>
++        {hasWorkspaceAccessory
++          ? (
++            <span className={css.projectTitleAccessory}>
++              <span className={css.title}>{label}</span>
++              {workspaceAccessory}
++            </span>
++          )
++          : <span className={css.title}>{label}</span>}
+       </span>
+       <span className={css.rowActions}>
++        {row.workspaceId !== undefined && renderSlot?.('sidebar.workspaces.workspace.action', {
++          workspaceId: row.workspaceId,
++          presentation,
++        } satisfies WorkspaceRowSlotOwnerProps)}
+         {actions !== undefined && (
+           <Menu
+             open={menuOpen}
+@@ -197,17 +223,20 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+   )
+   // The ungrouped bucket has no backing Workspace: no card to show.
+   if (row.createdAt === undefined) return ownRow
++  const hoverPath = presentation.concealed
++    ? presentation.detail
++    : row.cwd === undefined ? undefined : abbreviateHomePath(row.cwd, home)
+   return (
+     <HoverCard
+       anchor={ownRow}
+       content={<WorkspaceHoverContent
+-        label={row.label}
+-        cwd={row.cwd === undefined ? undefined : abbreviateHomePath(row.cwd, home)}
++        label={label}
++        cwd={hoverPath}
+         createdAt={row.createdAt}
+         t={t}
+       />}
+       disabled={menuOpen}
+-      copyText={row.cwd}
++      copyText={presentation.concealed ? undefined : row.cwd}
+       copyLabel={t('copy')}
+       copiedLabel={t('hover.copied')}
+     />
+@@ -281,11 +310,16 @@ function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ..
+ }
+ 
+ /** Hover-card body: full title, relative time, and every relevant live status. */
+-function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
++function SessionHoverContent({ node, now, presentation, t }: {
++  node: SessionNode
++  now: number
++  presentation: SessionRowPresentation
++  t: RowTranslate
++}) {
+   const statuses = sessionStatuses(node, t)
+   return (
+     <div className={css.hoverContent}>
+-      <div className={css.hoverTitle}>{displayTitle(node, t)}</div>
++      <div className={css.hoverTitle}>{presentation.label}</div>
+       {/* Same placeholder rule as the row's trailing cell: no timestamp
+           before the first prompt. */}
+       {!node.blank && <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>}
+@@ -309,21 +343,32 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
+  * @param props.t - Workspace-browser translation seat.
+  * @returns the result button.
+  */
+-export function SearchResultItem({ result, currentId, onOpen, t }: {
++export function SearchResultItem({ result, currentId, onOpen, presentation: presentationProp, t }: {
+   result: SearchResultNode
+   currentId: string | undefined
+   onOpen: (id: SearchResultNode['id']) => void
++  presentation?: SessionRowPresentation | undefined
+   t: RowTranslate
+ }) {
+   const selected = result.id === currentId
+   const statuses = sessionStatuses(result, t)
+   const primaryStatus = statuses[0]
++  const presentation = presentationProp ?? {
++    label: result.title,
++    workspaceLabel: result.workspace,
++    snippet: result.snippet,
++    ariaLabel: result.title,
++    concealed: false,
++  }
++  const workspace = presentation.concealed ? undefined : presentation.workspaceLabel
++  const snippet = presentation.concealed ? undefined : presentation.snippet
+   return (
+     <button
+       type="button"
+       className={clsx(css.searchResultRow, selected && css.selected)}
+       role="treeitem"
+       aria-selected={selected}
++      aria-label={presentation.ariaLabel}
+       onClick={() => { onOpen(result.id) }}
+     >
+       <span className={css.searchResultHeading}>
+@@ -332,14 +377,16 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
+             <SessionStatusDots statuses={statuses} />
+           )}
+         </span>
+-        <span className={css.searchResultTitle}>{result.title}</span>
+-      </span>
+-      <span className={css.searchResultMeta}>
+-        <span className={css.searchResultWorkspace}>{result.workspace}</span>
+-        {result.snippet !== undefined && (
+-          <span className={css.searchResultSnippet}>{result.snippet}</span>
+-        )}
++        <span className={css.searchResultTitle}>{presentation.label}</span>
+       </span>
++      {(workspace !== undefined || snippet !== undefined) && (
++        <span className={css.searchResultMeta}>
++          {workspace !== undefined && <span className={css.searchResultWorkspace}>{workspace}</span>}
++          {snippet !== undefined && (
++            <span className={css.searchResultSnippet}>{snippet}</span>
++          )}
++        </span>
++      )}
+     </button>
+   )
+ }
+@@ -359,7 +406,10 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
+  * @param props.t - the browser root's locale seat.
+  * @returns the session row.
+  */
+-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }: {
++export function SessionNodeItem({
++  node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t,
++  presentation: presentationProp, renderSlot, workspaceId,
++}: {
+   node: SessionNode
+   currentId: string | undefined
+   now: number
+@@ -374,10 +424,15 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+   drag?: RowDragProps | undefined
+   /** The row is rendered without a parent Workspace header. */
+   flat?: boolean | undefined
++  workspaceId?: import('@deepseek-ai/dsh-client-runtime/client').WorkspaceId | undefined
++  presentation?: SessionRowPresentation | undefined
++  renderSlot?: WorkspaceBrowserProps['renderSlot'] | undefined
+   t: RowTranslate
+ }) {
+   const row = node
+-  const title = displayTitle(node, t)
++  const nativeTitle = displayTitle(node, t)
++  const presentation = presentationProp ?? { label: nativeTitle, ariaLabel: nativeTitle, concealed: false }
++  const title = presentation.label
+   const selected = node.id === currentId
+   const statuses = sessionStatuses(node, t)
+   const primaryStatus = statuses[0]
+@@ -402,6 +457,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+       )}
+       role="treeitem"
+       aria-selected={selected}
++      aria-label={presentation.ariaLabel}
+       onClick={() => { onOpen(node.id) }}
+       draggable={drag !== undefined}
+       onDragStart={drag === undefined
+@@ -437,6 +493,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+         </span>
+       )}
+       <span className={css.title}>{title}</span>
++      {renderSlot?.('sidebar.workspaces.session.accessory', {
++        sessionId: node.id,
++        ...(workspaceId === undefined ? {} : { workspaceId }),
++        presentation,
++      } satisfies SessionRowSlotOwnerProps)}
+       {/* A blank New Session row is a provisional placeholder: nothing has
+           happened in it yet, so a "now" timestamp and the row verbs
+           (rename/fork/archive) would all act on content that does not
+@@ -444,13 +505,18 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+       {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
+       {!row.blank && (
+         <span className={css.rowActions}>
++          {renderSlot?.('sidebar.workspaces.session.action', {
++            sessionId: node.id,
++            ...(workspaceId === undefined ? {} : { workspaceId }),
++            presentation,
++          } satisfies SessionRowSlotOwnerProps)}
+           <Menu
+             open={menuOpen}
+             onClose={() => { setMenuOpen(false) }}
+             items={sessionMenuItems}
+             onSelect={(id) => {
+               setMenuOpen(false)
+-              if (id === 'rename') onRename(node.id, row.title)
++              if (id === 'rename') onRename(node.id, presentation.concealed ? title : row.title)
+               if (id === 'fork') onFork(node.id)
+               if (id === 'archive') onArchive(node.id)
+             }}
+@@ -474,9 +540,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
+   return (
+     <HoverCard
+       anchor={ownRow}
+-      content={<SessionHoverContent node={node} now={now} t={t} />}
++      content={<SessionHoverContent node={node} now={now} presentation={presentation} t={t} />}
+       disabled={menuOpen || drag?.active === true}
+-      copyText={row.blank ? undefined : row.title}
++      copyText={row.blank || presentation.concealed ? undefined : row.title}
+       copyLabel={t('copy')}
+       copiedLabel={t('hover.copied')}
+     />
+diff --git a/packages/client/ui-workspace/tests/apply.client.spec.ts b/packages/client/ui-workspace/tests/apply.client.spec.ts
+index 3ad62e289f..3177512e0a 100644
+--- a/packages/client/ui-workspace/tests/apply.client.spec.ts
++++ b/packages/client/ui-workspace/tests/apply.client.spec.ts
+@@ -27,10 +27,23 @@ async function bench() {
+   const renameSession = vi.fn(async (title: string) => ({ ok: true, value: { title, seq: 1 } }))
+   const binding = vi.fn(() => ({ session: { rename: renameSession } }))
+   const fork = vi.fn(async () => 'forked' as never)
++  const navigationAccessListeners = new Set<() => void>()
++  const navigationAccess = {
++    register: vi.fn(() => () => {}),
++    workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
++    sessionState: vi.fn(() => ({ kind: 'allow' as const })),
++    requestWorkspace: vi.fn(async () => ({ allow: true })),
++    requestSession: vi.fn(async () => ({ allow: true })),
++    subscribe: vi.fn((listener: () => void) => {
++      navigationAccessListeners.add(listener)
++      return () => { navigationAccessListeners.delete(listener) }
++    }),
++  }
+   ctx.provide('workspaces', {
+     create, startSession, rename, insertSessionBefore,
+   } as never)
+   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
++  ctx.provide('navigationAccess', navigationAccess as never)
+   ctx.provide('connection', {
+     hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+   } as never)
+@@ -43,6 +56,9 @@ async function bench() {
+   return {
+     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
+     insertSessionBefore, open, clear, search, renameSession, binding, fork,
++    emitNavigationAccess: () => {
++      for (const listener of navigationAccessListeners) listener()
++    },
+   }
+ }
+ 
+@@ -56,7 +72,7 @@ function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
+ 
+ describe('ui-workspace apply', () => {
+   it('declares the services it drives', () => {
+-    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'connection'])
++    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'connection', 'navigationAccess'])
+   })
+ 
+   it('registers browser and pickers for declarations arriving before or after apply', async () => {
+@@ -143,6 +159,36 @@ describe('ui-workspace apply', () => {
+     unsubscribe()
+   })
+ 
++  it('provides workspaceRows and declares the four additive row slots', async () => {
++    const b = await bench()
++    declare(b.slots, 'sidebar.workspaces')
++    await b.ctx.plugin({ inject: [...inject], apply }).await()
++
++    expect(b.ctx.workspaceRows.workspace('ws' as never, {
++      label: 'Workspace', ariaLabel: 'Open Workspace', concealed: false,
++    })).toEqual({ label: 'Workspace', ariaLabel: 'Open Workspace', concealed: false })
++    expect(b.slots.spec('sidebar.workspaces.workspace.accessory')).toMatchObject({ kind: 'list', scope: 'root' })
++    expect(b.slots.spec('sidebar.workspaces.workspace.action')).toMatchObject({ kind: 'list', scope: 'root' })
++    expect(b.slots.spec('sidebar.workspaces.session.accessory')).toMatchObject({ kind: 'list', scope: 'root' })
++    expect(b.slots.spec('sidebar.workspaces.session.action')).toMatchObject({ kind: 'list', scope: 'root' })
++  })
++
++  it('invalidates row presentations when navigation access providers update', async () => {
++    const b = await bench()
++    declare(b.slots, 'sidebar.workspaces')
++    await b.ctx.plugin({ inject: [...inject], apply }).await()
++    const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
++    const listener = vi.fn()
++    const before = browser.hooks.workspaceRowsRevision.getSnapshot()
++    const unsubscribe = browser.hooks.workspaceRowsRevision.subscribe(listener)
++
++    b.emitNavigationAccess()
++
++    expect(browser.hooks.workspaceRowsRevision.getSnapshot()).toBe(before + 1)
++    expect(listener).toHaveBeenCalledOnce()
++    unsubscribe()
++  })
++
+   it('rejects the browser search callback on a runtime business error', async () => {
+     const b = await bench()
+     b.search.mockImplementationOnce(async () => ({
+diff --git a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
+index c2e201469f..ef9d6fc878 100644
+--- a/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/rename-assembly.client.spec.tsx
+@@ -34,6 +34,14 @@ async function createRuntime(): Promise<SlotTestRuntime> {
+   runtime.provide('connection', {
+     hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+   })
++  runtime.provide('navigationAccess', {
++    register: vi.fn(() => () => {}),
++    workspaceState: vi.fn(() => ({ kind: 'allow' })),
++    sessionState: vi.fn(() => ({ kind: 'allow' })),
++    requestWorkspace: vi.fn(async () => ({ allow: true })),
++    requestSession: vi.fn(async () => ({ allow: true })),
++    subscribe: vi.fn(() => () => {}),
++  } as never)
+   const locale = new LocaleRuntime(runtime.ctx)
+   runtime.provide('locale', locale)
+   runtime.slots.installLocale(locale)
+diff --git a/packages/client/ui-workspace/tests/row-extensions.client.spec.tsx b/packages/client/ui-workspace/tests/row-extensions.client.spec.tsx
+new file mode 100644
+index 0000000000..db71e3ce7e
+--- /dev/null
++++ b/packages/client/ui-workspace/tests/row-extensions.client.spec.tsx
+@@ -0,0 +1,80 @@
++import { describe, expect, it, vi } from 'vitest'
++import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
++import { WorkspaceRowsRegistry } from '@deepseek-ai/dsh-client-ui-workspace/client'
++import type { WorkspaceRowDecorator, WorkspaceRowPresentation } from '@deepseek-ai/dsh-client-ui-workspace/client'
++
++const sid = (id: string) => id as SessionId
++const wid = (id: string) => id as WorkspaceId
++
++describe('WorkspaceRowsRegistry', () => {
++  it('removes concealed values from visible, hover, copy and aria surfaces', () => {
++    const service = new WorkspaceRowsRegistry()
++    service.register({
++      workspace: (_id, base) => base,
++      session: (_id, base) => base.label === 'Real title'
++        ? {
++          label: '受保护对话',
++          ariaLabel: '打开受保护对话',
++          concealed: true,
++        }
++        : base,
++    })
++
++    const presentation = service.session(sid('s1'), {
++      label: 'Real title', workspaceLabel: 'Secret project', snippet: 'secret text',
++      ariaLabel: 'Open Real title', concealed: false,
++    })
++
++    expect(presentation).toEqual({
++      label: '受保护对话', workspaceLabel: undefined, snippet: undefined,
++      ariaLabel: '打开受保护对话', concealed: true,
++    })
++  })
++
++  it('composes two decorators in registration order and disposal restores the base', () => {
++    const service = new WorkspaceRowsRegistry()
++    const first: WorkspaceRowDecorator = {
++      workspace: (_id, base) => ({ ...base, label: `${base.label} A` }),
++      session: (_id, base) => ({ ...base, label: `${base.label} A`, snippet: `${base.snippet ?? ''} A`.trim() }),
++    }
++    const second: WorkspaceRowDecorator = {
++      workspace: (_id, base) => ({ ...base, label: `${base.label} B` }),
++      session: (_id, base) => ({ ...base, label: `${base.label} B`, snippet: `${base.snippet ?? ''} B`.trim() }),
++    }
++
++    const disposeFirst = service.register(first)
++    service.register(second)
++
++    expect(service.workspace(wid('w1'), baseWorkspace('Workspace'))).toMatchObject({ label: 'Workspace A B' })
++    expect(service.session(sid('s1'), {
++      label: 'Session', ariaLabel: 'Open Session', snippet: 'hit', concealed: false,
++    })).toMatchObject({ label: 'Session A B', snippet: 'hit A B' })
++
++    disposeFirst()
++
++    expect(service.workspace(wid('w1'), baseWorkspace('Workspace'))).toMatchObject({ label: 'Workspace B' })
++  })
++
++  it('notifies subscribers when decorators register and dispose', () => {
++    const service = new WorkspaceRowsRegistry()
++    const listener = vi.fn()
++    const unsubscribe = service.subscribe(listener)
++    const dispose = service.register(identityDecorator)
++
++    expect(listener).toHaveBeenCalledTimes(1)
++    dispose()
++    expect(listener).toHaveBeenCalledTimes(2)
++    unsubscribe()
++    service.register(identityDecorator)
++    expect(listener).toHaveBeenCalledTimes(2)
++  })
++})
++
++function baseWorkspace(label: string): WorkspaceRowPresentation {
++  return { label, ariaLabel: `Open ${label}`, concealed: false }
++}
++
++const identityDecorator: WorkspaceRowDecorator = {
++  workspace: (_id, base) => base,
++  session: (_id, base) => base,
++}
+diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
+index f86e275c5e..e7f54c182d 100644
+--- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/rows.client.spec.tsx
+@@ -1,4 +1,6 @@
+ // @vitest-environment jsdom
++import { readFileSync } from 'node:fs'
++import { resolve } from 'node:path'
+ import { afterEach, describe, expect, it, vi } from 'vitest'
+ import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
+ import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+@@ -6,6 +8,8 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+ import type { RowDragProps } from '../src/client/rows/Rows.tsx'
+ import { ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
++import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
++import type { SessionRowSlotOwnerProps, WorkspaceRowSlotOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
+ import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
+ import { zh } from '../src/client/locales.ts'
+ 
+@@ -16,6 +20,21 @@ const t = makeTranslate(zh, commonZh) as never
+ 
+ const sid = (id: string) => id as SessionId
+ const wid = (id: string) => id as WorkspaceId
++const rowsCss = readFileSync(resolve(process.cwd(), 'packages/client/ui-workspace/src/client/rows/Rows.module.css'), 'utf8')
++
++function rowDeclarations(selector: string): Map<string, string> | undefined {
++  const withoutComments = rowsCss.replace(/\/\*[\s\S]*?\*\//g, ' ')
++  const found = new Map<string, string>()
++  for (const [, selectorList = '', body = ''] of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
++    if (!selectorList.split(',').map(value => value.trim()).includes(selector)) continue
++    for (const part of body.split(';')) {
++      const colon = part.indexOf(':')
++      if (colon === -1) continue
++      found.set(part.slice(0, colon).trim(), part.slice(colon + 1).trim().replace(/\s+/g, ' '))
++    }
++  }
++  return found.size === 0 ? undefined : found
++}
+ 
+ /** Half detection reads the row rect; jsdom rects are all-zero by default. */
+ function stubRect(row: HTMLElement): void {
+@@ -128,6 +147,102 @@ describe('workspace browser rows', () => {
+     expect(onToggle).toHaveBeenCalledOnce()
+   })
+ 
++  it('keeps the native workspace title layout when no accessory slot contributes', () => {
++    const group: GroupNode = {
++      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
++      sessionCount: 1, expanded: true, containsCurrent: false, sessions: [],
++    }
++    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
++
++    const title = screen.getByText('Project')
++    const projectText = title.parentElement
++    expect(projectText?.children).toHaveLength(1)
++    expect(projectText?.firstElementChild).toBe(title)
++    const declarations = rowDeclarations('.projectText')
++    expect(declarations?.get('display')).toBe('flex')
++    expect(declarations?.get('flex-direction')).toBe('column')
++    expect(declarations?.get('gap')).toBe('2px')
++    expect(declarations?.get('align-items')).toBeUndefined()
++  })
++
++  it('renders additive row slots for concrete workspace and session rows', () => {
++    const owners: Array<WorkspaceRowSlotOwnerProps | SessionRowSlotOwnerProps> = []
++    const renderSlot = ((name: string, owner: WorkspaceRowSlotOwnerProps | SessionRowSlotOwnerProps) => {
++      owners.push(owner)
++      return <span data-testid={name}>{owner.presentation.label}</span>
++    }) as WorkspaceBrowserProps['renderSlot']
++    const group: GroupNode = {
++      key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
++      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
++    }
++    const session: SessionNode = {
++      id: sid('session'), title: 'Session', blank: false, running: false,
++      runningSubagentCount: 0, completed: false, updatedAt: 0,
++    }
++
++    render(
++      <>
++        <ProjectRowItem
++          group={group} onToggle={vi.fn()} onCreate={vi.fn()} actions={{ rename: vi.fn(), delete: vi.fn() }} t={t}
++          presentation={{ label: 'Decorated Project', ariaLabel: 'Open Decorated Project', concealed: false }}
++          renderSlot={renderSlot}
++        />
++        <SessionNodeItem
++          node={session} currentId={undefined} now={0} onOpen={vi.fn()}
++          onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
++          presentation={{ label: 'Decorated Session', ariaLabel: 'Open Decorated Session', concealed: false }}
++          renderSlot={renderSlot}
++          workspaceId={group.workspaceId}
++        />
++      </>,
++    )
++
++    expect(screen.getByTestId('sidebar.workspaces.workspace.accessory')).toBeTruthy()
++    expect(screen.getByTestId('sidebar.workspaces.workspace.action')).toBeTruthy()
++    expect(screen.getByTestId('sidebar.workspaces.session.accessory')).toBeTruthy()
++    expect(screen.getByTestId('sidebar.workspaces.session.action')).toBeTruthy()
++    expect(screen.getByRole('button', { name: '在“Decorated Project”中新建会话' })).toBeTruthy()
++    expect(screen.getByRole('treeitem', { name: 'Open Decorated Project' })).toBeTruthy()
++    expect(screen.getByRole('button', { name: '工作区“Decorated Project”的操作' })).toBeTruthy()
++    expect(screen.getByRole('button', { name: '会话“Decorated Session”的操作' })).toBeTruthy()
++    expect(owners).toEqual([
++      { workspaceId: wid('project'), presentation: { label: 'Decorated Project', ariaLabel: 'Open Decorated Project', concealed: false } },
++      { workspaceId: wid('project'), presentation: { label: 'Decorated Project', ariaLabel: 'Open Decorated Project', concealed: false } },
++      { sessionId: sid('session'), workspaceId: wid('project'), presentation: { label: 'Decorated Session', ariaLabel: 'Open Decorated Session', concealed: false } },
++      { sessionId: sid('session'), workspaceId: wid('project'), presentation: { label: 'Decorated Session', ariaLabel: 'Open Decorated Session', concealed: false } },
++    ])
++  })
++
++  it('uses concealed workspace presentation for visible, hover, copy and aria surfaces', async () => {
++    vi.useFakeTimers()
++    const writeText = vi.fn(async () => {})
++    const restoreClipboard = installClipboard(writeText)
++    try {
++      const group: GroupNode = {
++        key: 'secret', workspaceId: wid('secret'), cwd: '/private/secret-project', createdAt: 0, label: 'Secret Project',
++        sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
++      }
++      render(<ProjectRowItem
++        group={group} onToggle={vi.fn()} onCreate={vi.fn()} actions={{ rename: vi.fn(), delete: vi.fn() }} t={t}
++        presentation={{ label: '受保护工作区', ariaLabel: '打开受保护工作区', concealed: true }}
++      />)
++
++      expect(screen.getByText('受保护工作区')).toBeTruthy()
++      expect(screen.queryByText('Secret Project')).toBeNull()
++      expect(screen.getByRole('button', { name: '在“受保护工作区”中新建会话' })).toBeTruthy()
++      expect(screen.queryByRole('button', { name: /Secret Project|secret-project/ })).toBeNull()
++      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
++      act(() => { vi.advanceTimersByTime(500) })
++      expect(screen.queryByText('Secret Project')).toBeNull()
++      expect(screen.queryByText('/private/secret-project')).toBeNull()
++      expect(screen.queryByRole('button', { name: /^复制:/ })).toBeNull()
++      expect(writeText).not.toHaveBeenCalled()
++    } finally {
++      restoreClipboard()
++      vi.useRealTimers()
++    }
++  })
++
+   it('renders and opens a selected running Session row', () => {
+     const node: SessionNode = {
+       id: sid('session'), title: 'Session', blank: false, running: true,
+@@ -147,6 +262,30 @@ describe('workspace browser rows', () => {
+     expect(onOpen).toHaveBeenCalledWith(node.id)
+   })
+ 
++  it('uses concealed session presentation for visible, hover, copy and aria surfaces', () => {
++    vi.useFakeTimers()
++    try {
++      const node: SessionNode = {
++        id: sid('secret-session'), title: 'Real title', blank: false, running: false,
++        runningSubagentCount: 0, completed: false, updatedAt: 0,
++      }
++      render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
++        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
++        presentation={{ label: '受保护对话', ariaLabel: '打开受保护对话', concealed: true }} />)
++
++      expect(screen.getByText('受保护对话')).toBeTruthy()
++      expect(screen.queryByText('Real title')).toBeNull()
++      expect(screen.getByRole('button', { name: '会话“受保护对话”的操作' })).toBeTruthy()
++      expect(screen.queryByRole('button', { name: /Real title/ })).toBeNull()
++      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
++      act(() => { vi.advanceTimersByTime(500) })
++      expect(screen.queryByText('Real title')).toBeNull()
++      expect(screen.queryByRole('button', { name: /^复制:/ })).toBeNull()
++    } finally {
++      vi.useRealTimers()
++    }
++  })
++
+   it('shows the green done dot only on a finished, unviewed session (live activity wins the slot)', () => {
+     const renderRow = (over: Partial<SessionNode>) => render(
+       <SessionNodeItem
+diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+index 820d2bd66b..1c4c9cd7b5 100644
+--- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+@@ -8,6 +8,7 @@ import type {
+ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+ import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
++import type { WorkspaceRows } from '@deepseek-ai/dsh-client-ui-workspace/client'
+ import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
+ import { UNGROUPED_KEY } from '../src/client/tree.ts'
+ import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
+@@ -58,6 +59,19 @@ function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setDat
+   return { effectAllowed: 'uninitialized', dropEffect: 'none', setData: vi.fn() }
+ }
+ 
++function deferredDecision() {
++  let resolve!: (value: { allow: boolean }) => void
++  const promise = new Promise<{ allow: boolean }>((r) => { resolve = r })
++  return { promise, resolve }
++}
++
++async function guardedClick(target: Element): Promise<void> {
++  await act(async () => {
++    fireEvent.click(target)
++    await Promise.resolve()
++  })
++}
++
+ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
+   const store = createWorkspaceViewStore().create()
+   const props: WorkspaceBrowserProps = {
+@@ -79,8 +93,18 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
+     insertWorkspaceBefore: vi.fn(async () => {}),
+     insertSessionBefore: vi.fn(async () => {}),
+     createWorkspace: vi.fn(async () => workspace('created', [])),
++    navigationAccess: {
++      register: vi.fn(() => () => {}),
++      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
++      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
++      requestWorkspace: vi.fn(async () => ({ allow: true })),
++      requestSession: vi.fn(async () => ({ allow: true })),
++      subscribe: vi.fn(() => () => {}),
++    },
++    workspaceRows: passthroughRows(),
+     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
+     useHostDescription: selector => selector(undefined),
++    useWorkspaceRowsRevision: selector => selector(0),
+     renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
+     t,
+     ...overrides,
+@@ -234,28 +258,91 @@ describe('WorkspaceBrowser', () => {
+     ])
+   })
+ 
+-  it('expands a group on click and opens a session row', () => {
++  it('expands a group on click and opens a session row', async () => {
+     const open = vi.fn()
+     mount({
+       useSessions: hook(sessionState([summary('alpha-s', 1)])),
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+       open,
+     })
+-    fireEvent.click(screen.getByText('alpha'))
+-    fireEvent.click(screen.getByText('alpha-s'))
++    await guardedClick(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha-s'))
+     expect(open).toHaveBeenCalledWith(sid('alpha-s'))
+     // Collapse hides the row again.
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
++    expect(screen.queryByText('alpha-s')).toBeNull()
++  })
++
++  it('guards workspace expansion and session opening through navigationAccess', async () => {
++    const open = vi.fn()
++    const navigationAccess = {
++      register: vi.fn(() => () => {}),
++      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
++      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
++      requestWorkspace: vi.fn(async () => ({ allow: false })),
++      requestSession: vi.fn(async () => ({ allow: false })),
++      subscribe: vi.fn(() => () => {}),
++    }
++    mount({
++      useSessions: hook(sessionState([summary('alpha-s', 1)])),
++      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
++      navigationAccess,
++      open,
++    })
++
++    await act(async () => { fireEvent.click(screen.getByText('alpha')) })
++    expect(navigationAccess.requestWorkspace).toHaveBeenCalledWith(wid('alpha'))
+     expect(screen.queryByText('alpha-s')).toBeNull()
++
++    navigationAccess.requestWorkspace.mockResolvedValueOnce({ allow: true })
++    await act(async () => { fireEvent.click(screen.getByText('alpha')) })
++    expect(screen.getByText('alpha-s')).toBeTruthy()
++
++    await act(async () => { fireEvent.click(screen.getByText('alpha-s')) })
++    expect(navigationAccess.requestSession).toHaveBeenCalledWith(sid('alpha-s'))
++    expect(open).not.toHaveBeenCalled()
++
++    navigationAccess.requestSession.mockResolvedValueOnce({ allow: true })
++    await act(async () => { fireEvent.click(screen.getByText('alpha-s')) })
++    expect(open).toHaveBeenCalledWith(sid('alpha-s'))
+   })
+ 
+-  it('shows five sessions by default and clears transient show-all when the Workspace collapses', () => {
++  it('ignores a stale grouped-row session allow after a later session click wins', async () => {
++    const open = vi.fn()
++    const first = deferredDecision()
++    const second = deferredDecision()
++    const navigationAccess = {
++      register: vi.fn(() => () => {}),
++      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
++      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
++      requestWorkspace: vi.fn(async () => ({ allow: true })),
++      requestSession: vi.fn((id: SessionId) => id === sid('one') ? first.promise : second.promise),
++      subscribe: vi.fn(() => () => {}),
++    }
++    mount({
++      useSessions: hook(sessionState([summary('one', 2), summary('two', 1)])),
++      useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
++      navigationAccess,
++      open,
++    })
++    await guardedClick(screen.getByText('alpha'))
++
++    fireEvent.click(screen.getByText('one'))
++    fireEvent.click(screen.getByText('two'))
++    await act(async () => { second.resolve({ allow: true }); await Promise.resolve() })
++    expect(open).toHaveBeenCalledWith(sid('two'))
++
++    await act(async () => { first.resolve({ allow: true }); await Promise.resolve() })
++    expect(open).toHaveBeenCalledTimes(1)
++  })
++
++  it('shows five sessions by default and clears transient show-all when the Workspace collapses', async () => {
+     const items = Array.from({ length: 7 }, (_, index) => summary(`session-${index + 1}`, 7 - index))
+     const b = mount({
+       useSessions: hook(sessionState(items)),
+       useWorkspaces: hook(workspaceState([workspace('alpha', items.map(item => item.id))])),
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     for (const item of items.slice(0, 5)) expect(screen.getByText(item.displayTitle)).toBeTruthy()
+     expect(screen.queryByText('session-6')).toBeNull()
+     expect(screen.queryByText('session-7')).toBeNull()
+@@ -265,9 +352,9 @@ describe('WorkspaceBrowser', () => {
+     expect(screen.getByText('session-7')).toBeTruthy()
+     expect(screen.getByRole('button', { name: '收起' })).toBeTruthy()
+ 
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: false })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
+     expect(screen.queryByText('session-6')).toBeNull()
+     expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
+@@ -279,7 +366,7 @@ describe('WorkspaceBrowser', () => {
+       useSessions: hook(initial),
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['two', 'one'])])),
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+     fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
+     await waitFor(() => {
+@@ -336,6 +423,36 @@ describe('WorkspaceBrowser', () => {
+     expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
+   })
+ 
++  it('ignores a stale flat-row session allow after a later session click wins', async () => {
++    const open = vi.fn()
++    const first = deferredDecision()
++    const second = deferredDecision()
++    const navigationAccess = {
++      register: vi.fn(() => () => {}),
++      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
++      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
++      requestWorkspace: vi.fn(async () => ({ allow: true })),
++      requestSession: vi.fn((id: SessionId) => id === sid('one') ? first.promise : second.promise),
++      subscribe: vi.fn(() => () => {}),
++    }
++    const b = mount({
++      useSessions: hook(sessionState([summary('one', 2), summary('two', 1)])),
++      useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
++      navigationAccess,
++      open,
++    })
++    b.store.actions.setGroupBy('flat')
++    rerender(b, {})
++
++    fireEvent.click(screen.getByText('one'))
++    fireEvent.click(screen.getByText('two'))
++    await act(async () => { second.resolve({ allow: true }); await Promise.resolve() })
++    expect(open).toHaveBeenCalledWith(sid('two'))
++
++    await act(async () => { first.resolve({ allow: true }); await Promise.resolve() })
++    expect(open).toHaveBeenCalledTimes(1)
++  })
++
+   it('archives a session from the row menu and hides archived rows in both modes', async () => {
+     const archiveSession = vi.fn(async () => {})
+     const b = mount({
+@@ -343,7 +460,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])])),
+       archiveSession,
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
+     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+     expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
+@@ -367,7 +484,7 @@ describe('WorkspaceBrowser', () => {
+         useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+         archiveSession,
+       })
+-      fireEvent.click(screen.getByText('alpha'))
++      await guardedClick(screen.getByText('alpha'))
+       fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
+       fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+       await Promise.resolve()
+@@ -379,14 +496,14 @@ describe('WorkspaceBrowser', () => {
+     }
+   })
+ 
+-  it('renders a fork child as a top-level row without a session twist', () => {
++  it('renders a fork child as a top-level row without a session twist', async () => {
+     const parent = summary('parent-s', 2)
+     const child = { ...summary('child-s', 1), parentId: parent.id }
+     mount({
+       useSessions: hook(sessionState([parent, child])),
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['parent-s', 'child-s'])])),
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     expect(screen.getByText('child-s')).toBeTruthy()
+     expect(screen.queryByRole('button', { name: /展开|收起/ })).toBeNull()
+     expect(screen.getByText('child-s').closest('[role="treeitem"]')?.getAttribute('draggable')).toBe('true')
+@@ -620,7 +737,7 @@ describe('WorkspaceBrowser', () => {
+       expect(screen.getByText('Research Workspace')).toBeTruthy()
+       expect(screen.getByText('…the waterfall token appears here…')).toBeTruthy()
+       expect(screen.getByText('仅显示前 20 条结果，请缩小搜索范围。')).toBeTruthy()
+-      fireEvent.click(screen.getByRole('treeitem'))
++      await guardedClick(screen.getByRole('treeitem'))
+       expect(open).toHaveBeenCalledWith(sid('body-hit'))
+       expect(input.value).toBe('waterfall token')
+     } finally {
+@@ -628,6 +745,93 @@ describe('WorkspaceBrowser', () => {
+     }
+   })
+ 
++  it('ignores a stale search-result session allow after a later result click wins', async () => {
++    const open = vi.fn()
++    const first = deferredDecision()
++    const second = deferredDecision()
++    const navigationAccess = {
++      register: vi.fn(() => () => {}),
++      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
++      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
++      requestWorkspace: vi.fn(async () => ({ allow: true })),
++      requestSession: vi.fn((id: SessionId) => id === sid('one') ? first.promise : second.promise),
++      subscribe: vi.fn(() => () => {}),
++    }
++    mount({
++      useSessions: hook(sessionState([
++        summary('one', 2, { displayTitle: 'Search one' }),
++        summary('two', 1, { displayTitle: 'Search two' }),
++      ])),
++      navigationAccess,
++      open,
++    })
++    fireEvent.change(screen.getByPlaceholderText<HTMLInputElement>('搜索会话…'), { target: { value: 'Search' } })
++
++    fireEvent.click(screen.getByText('Search one'))
++    fireEvent.click(screen.getByText('Search two'))
++    await act(async () => { second.resolve({ allow: true }); await Promise.resolve() })
++    expect(open).toHaveBeenCalledWith(sid('two'))
++
++    await act(async () => { first.resolve({ allow: true }); await Promise.resolve() })
++    expect(open).toHaveBeenCalledTimes(1)
++  })
++
++  it('projects concealed search results without title, workspace or snippet leakage', async () => {
++    vi.useFakeTimers()
++    try {
++      const rows = {
++        ...passthroughRows(),
++        session: (id, base) => id === sid('secret-hit')
++          ? {
++            label: '受保护对话',
++            ariaLabel: '打开受保护对话',
++            concealed: true,
++          }
++          : base,
++      } satisfies WorkspaceRows
++      mount({
++        useSessions: hook(sessionState([
++          summary('secret-hit', 1, { displayTitle: 'Secret title' }),
++        ])),
++        useWorkspaces: hook(workspaceState([
++          workspace('secret-workspace', ['secret-hit'], 'Secret Workspace'),
++        ])),
++        searchSessions: vi.fn(async () => ({
++          items: [{ sessionId: sid('secret-hit'), snippet: 'secret snippet' }],
++          hasMore: false,
++        })),
++        workspaceRows: rows,
++      })
++      fireEvent.change(screen.getByPlaceholderText<HTMLInputElement>('搜索会话…'), { target: { value: 'secret' } })
++      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
++
++      expect(screen.getByText('受保护对话')).toBeTruthy()
++      expect(screen.queryByText('Secret title')).toBeNull()
++      expect(screen.queryByText('Secret Workspace')).toBeNull()
++      expect(screen.queryByText('secret snippet')).toBeNull()
++    } finally {
++      vi.useRealTimers()
++    }
++  })
++
++  it('uses concealed workspace presentation in row action dialogs', () => {
++    mount({
++      useWorkspaces: hook(workspaceState([workspace('secret-workspace', [], 'Secret Workspace')])),
++      workspaceRows: {
++        ...passthroughRows(),
++        workspace: (id, base) => id === wid('secret-workspace')
++          ? { label: '受保护工作区', ariaLabel: '打开受保护工作区', concealed: true }
++          : base,
++      },
++    })
++
++    fireEvent.click(screen.getByRole('button', { name: '工作区“受保护工作区”的操作' }))
++    fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
++
++    expect(screen.getByLabelText<HTMLInputElement>('工作区名称').value).toBe('受保护工作区')
++    expect(screen.queryByText('Secret Workspace')).toBeNull()
++  })
++
+   it('bounds programmatic search input to a schema-valid request without splitting an astral character', async () => {
+     vi.useFakeTimers()
+     try {
+@@ -912,7 +1116,7 @@ describe('WorkspaceBrowser', () => {
+     expect(insertWorkspaceBefore).toHaveBeenCalledWith(wid('tail'), wid('beta'))
+   })
+ 
+-  it('drag reorder reports the anchor to insertSessionBefore and skips no-op drops', () => {
++  it('drag reorder reports the anchor to insertSessionBefore and skips no-op drops', async () => {
+     const insertSessionBefore = vi.fn(async () => {})
+     const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])
+     mount({
+@@ -920,7 +1124,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two', 'three'])])),
+       insertSessionBefore,
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     const rows = screen.getAllByRole('treeitem').slice(1) // drop the group header
+     const [one, , three] = rows as [HTMLElement, HTMLElement, HTMLElement]
+     three.getBoundingClientRect = () => ({
+@@ -996,7 +1200,7 @@ describe('WorkspaceBrowser', () => {
+     ])
+   })
+ 
+-  it('still sends the reorder when the dragged row left the group mid-drag', () => {
++  it('still sends the reorder when the dragged row left the group mid-drag', async () => {
+     const insertSessionBefore = vi.fn(async () => {})
+     const sessions = sessionState([summary('one', 2), summary('two', 1)])
+     const b = mount({
+@@ -1004,7 +1208,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
+       insertSessionBefore,
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     const one = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
+     fireEvent.dragStart(one, { dataTransfer: dragData() })
+     // The host dropped "one" from the workspace account while the drag is in
+@@ -1018,7 +1222,7 @@ describe('WorkspaceBrowser', () => {
+     expect(insertSessionBefore).toHaveBeenCalledWith(wid('alpha'), sid('one'), sid('two'))
+   })
+ 
+-  it('drag end without a drop clears markers; bottom-half drop appends past the last row', () => {
++  it('drag end without a drop clears markers; bottom-half drop appends past the last row', async () => {
+     const insertSessionBefore = vi.fn(async () => {})
+     const sessions = sessionState([summary('one', 2), summary('two', 1)])
+     mount({
+@@ -1026,7 +1230,7 @@ describe('WorkspaceBrowser', () => {
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
+       insertSessionBefore,
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
+     two.getBoundingClientRect = () => ({
+       top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
+@@ -1045,14 +1249,14 @@ describe('WorkspaceBrowser', () => {
+     expect(insertSessionBefore).toHaveBeenCalledWith(wid('alpha'), sid('one'), undefined)
+   })
+ 
+-  it('accepts a document-level drop and commits the last Session marker on drag end', () => {
++  it('accepts a document-level drop and commits the last Session marker on drag end', async () => {
+     const insertSessionBefore = vi.fn(async () => {})
+     mount({
+       useSessions: hook(sessionState([summary('one', 2), summary('two', 1)])),
+       useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
+       insertSessionBefore,
+     })
+-    fireEvent.click(screen.getByText('alpha'))
++    await guardedClick(screen.getByText('alpha'))
+     const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
+     two.getBoundingClientRect = () => ({
+       top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
+@@ -1077,7 +1281,7 @@ describe('WorkspaceBrowser', () => {
+         useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
+         insertSessionBefore,
+       })
+-      fireEvent.click(screen.getByText('alpha'))
++      await guardedClick(screen.getByText('alpha'))
+       const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
+       two.getBoundingClientRect = () => ({
+         top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
+@@ -1242,3 +1446,12 @@ describe('WorkspaceBrowser', () => {
+     expect(row.hasAttribute('draggable')).toBe(false)
+   })
+ })
++
++function passthroughRows(): WorkspaceRows {
++  return {
++    register: vi.fn(() => () => {}),
++    workspace: (_id, base) => base,
++    session: (_id, base) => base,
++    subscribe: vi.fn(() => () => {}),
++  }
++}
