@@ -1,0 +1,17 @@
+.DS_Store
+
+# Local preview-server credentials and process state
+.superpowers/brainstorm/.last-token
+.superpowers/brainstorm/.last-port
+.superpowers/brainstorm/*/state/
+
+# Generated local backup/runtime reports
+rtk-token-keeper/.backup/
+rtk-token-keeper/restart-report.txt
+
+# Dependencies and build output
+node_modules/
+dist/
+lib/
+coverage/
+*.log

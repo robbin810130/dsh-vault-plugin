@@ -1,0 +1,583 @@
+<div id="dsh-vault-ui">
+  <style>
+    #dsh-vault-ui {
+      --dsh-bg: light-dark(#f6f7f9, #111419);
+      --dsh-panel: light-dark(#ffffff, #181c22);
+      --dsh-panel-2: light-dark(#f1f3f6, #20252d);
+      --dsh-text: light-dark(#17191d, #eef1f5);
+      --dsh-muted: light-dark(#6d7480, #9ca5b1);
+      --dsh-line: light-dark(#dde1e7, #303741);
+      --dsh-hover: light-dark(#e9edf3, #272d36);
+      --dsh-lock: light-dark(#7957d5, #b9a1ff);
+      --dsh-lock-soft: light-dark(#eee9ff, #302747);
+      --dsh-good: light-dark(#21864a, #67d995);
+      --dsh-warn: light-dark(#a76000, #ffc266);
+      color: var(--dsh-text);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #dsh-vault-ui * { box-sizing: border-box; }
+    #dsh-vault-ui button,
+    #dsh-vault-ui input,
+    #dsh-vault-ui select { font: inherit; }
+
+    #dsh-vault-ui .view-switcher {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    #dsh-vault-ui .view-switcher button {
+      appearance: none;
+      border: 1px solid var(--dsh-line);
+      border-radius: 8px;
+      background: var(--dsh-panel);
+      color: var(--dsh-text);
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .view-switcher button[aria-pressed="true"] {
+      background: var(--dsh-lock-soft);
+      border-color: var(--dsh-lock);
+      color: var(--dsh-lock);
+    }
+
+    #dsh-vault-ui .app-window {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(238px, 28%) minmax(0, 1fr);
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid var(--dsh-line);
+      border-radius: 14px;
+      background: var(--dsh-bg);
+      box-shadow: 0 18px 48px light-dark(rgba(28, 35, 48, 0.12), rgba(0, 0, 0, 0.28));
+    }
+
+    #dsh-vault-ui .sidebar {
+      position: relative;
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      padding: 16px 12px 12px;
+      border-right: 1px solid var(--dsh-line);
+      background: var(--dsh-panel);
+    }
+
+    #dsh-vault-ui .brand,
+    #dsh-vault-ui .sidebar-title,
+    #dsh-vault-ui .row,
+    #dsh-vault-ui .settings-link,
+    #dsh-vault-ui .panel-heading,
+    #dsh-vault-ui .dialog-title,
+    #dsh-vault-ui .setting-row,
+    #dsh-vault-ui .group-row {
+      display: flex;
+      align-items: center;
+    }
+
+    #dsh-vault-ui .brand {
+      gap: 9px;
+      padding: 0 8px 16px;
+      font-weight: 500;
+    }
+
+    #dsh-vault-ui .brand-mark {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--dsh-lock);
+      background: var(--dsh-lock-soft);
+    }
+
+    #dsh-vault-ui .new-session {
+      width: 100%;
+      border: 1px solid var(--dsh-line);
+      border-radius: 9px;
+      background: var(--dsh-panel-2);
+      color: var(--dsh-text);
+      padding: 9px 10px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .sidebar-title {
+      justify-content: space-between;
+      margin-top: 18px;
+      padding: 0 8px 8px;
+      color: var(--dsh-muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    #dsh-vault-ui .tree {
+      min-height: 0;
+      flex: 1;
+    }
+
+    #dsh-vault-ui .row {
+      position: relative;
+      gap: 7px;
+      min-width: 0;
+      border-radius: 8px;
+      padding: 8px;
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .row:hover,
+    #dsh-vault-ui .row.active { background: var(--dsh-hover); }
+    #dsh-vault-ui .row.session { padding-left: 25px; }
+    #dsh-vault-ui .row.dimmed .row-label { color: var(--dsh-muted); }
+
+    #dsh-vault-ui .row-label {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #dsh-vault-ui .lock-icon { color: var(--dsh-lock); }
+    #dsh-vault-ui .unlock-icon { color: var(--dsh-good); }
+    #dsh-vault-ui .row-meta { color: var(--dsh-muted); font-size: 12px; }
+
+    #dsh-vault-ui .more-button {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--dsh-muted);
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .more-button:hover { background: var(--dsh-panel-2); color: var(--dsh-text); }
+
+    #dsh-vault-ui .row-menu {
+      position: absolute;
+      z-index: 8;
+      top: 166px;
+      right: 10px;
+      width: 188px;
+      padding: 6px;
+      border: 1px solid var(--dsh-line);
+      border-radius: 10px;
+      background: var(--dsh-panel);
+      box-shadow: 0 14px 38px light-dark(rgba(28, 35, 48, 0.16), rgba(0, 0, 0, 0.38));
+    }
+
+    #dsh-vault-ui .row-menu[hidden] { display: none; }
+
+    #dsh-vault-ui .row-menu button {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--dsh-text);
+      padding: 8px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .row-menu button:hover { background: var(--dsh-hover); }
+    #dsh-vault-ui .row-menu .danger { color: light-dark(#a33a3a, #ff8e8e); }
+
+    #dsh-vault-ui .settings-link {
+      gap: 8px;
+      border-radius: 8px;
+      padding: 9px 8px;
+      color: var(--dsh-muted);
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .settings-link.active,
+    #dsh-vault-ui .settings-link:hover { background: var(--dsh-hover); color: var(--dsh-text); }
+
+    #dsh-vault-ui .main {
+      position: relative;
+      min-width: 0;
+      padding: 22px;
+      background: var(--dsh-bg);
+    }
+
+    #dsh-vault-ui .panel-heading {
+      min-height: 42px;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--dsh-line);
+      padding-bottom: 14px;
+    }
+
+    #dsh-vault-ui .panel-heading h3 { margin: 0; font-size: 16px; font-weight: 500; }
+    #dsh-vault-ui .panel-heading p { margin: 3px 0 0; color: var(--dsh-muted); font-size: 12px; }
+
+    #dsh-vault-ui .lock-all {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--dsh-line);
+      border-radius: 8px;
+      background: var(--dsh-panel);
+      color: var(--dsh-text);
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .center-state {
+      display: grid;
+      min-height: 490px;
+      place-items: center;
+      padding: 26px;
+      text-align: center;
+    }
+
+    #dsh-vault-ui .state-icon {
+      display: grid;
+      width: 54px;
+      height: 54px;
+      margin: 0 auto 16px;
+      place-items: center;
+      border-radius: 16px;
+      background: var(--dsh-lock-soft);
+      color: var(--dsh-lock);
+    }
+
+    #dsh-vault-ui .center-state h3 { margin: 0 0 7px; font-size: 18px; font-weight: 500; }
+    #dsh-vault-ui .center-state p { max-width: 390px; margin: 0; color: var(--dsh-muted); }
+    #dsh-vault-ui .center-state .primary-action {
+      margin-top: 18px;
+      border: 0;
+      border-radius: 9px;
+      background: var(--dsh-text);
+      color: var(--dsh-panel);
+      padding: 9px 15px;
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .conversation {
+      padding: 26px 4px;
+    }
+
+    #dsh-vault-ui .message {
+      max-width: 72%;
+      margin-bottom: 14px;
+      border-radius: 12px;
+      background: var(--dsh-panel);
+      padding: 12px 14px;
+    }
+
+    #dsh-vault-ui .message.user { margin-left: auto; background: var(--dsh-lock-soft); }
+
+    #dsh-vault-ui .settings-panel { padding-top: 20px; }
+    #dsh-vault-ui .settings-card {
+      margin-bottom: 14px;
+      border: 1px solid var(--dsh-line);
+      border-radius: 12px;
+      background: var(--dsh-panel);
+      padding: 16px;
+    }
+
+    #dsh-vault-ui .settings-card h4 { margin: 0 0 4px; font-size: 15px; font-weight: 500; }
+    #dsh-vault-ui .settings-card > p { margin: 0 0 14px; color: var(--dsh-muted); font-size: 12px; }
+
+    #dsh-vault-ui .setting-row,
+    #dsh-vault-ui .group-row {
+      min-height: 52px;
+      justify-content: space-between;
+      gap: 16px;
+      border-top: 1px solid var(--dsh-line);
+    }
+
+    #dsh-vault-ui .setting-row label,
+    #dsh-vault-ui .group-name { font-weight: 500; }
+    #dsh-vault-ui .setting-row small,
+    #dsh-vault-ui .group-row small { display: block; margin-top: 2px; color: var(--dsh-muted); }
+
+    #dsh-vault-ui .setting-row select,
+    #dsh-vault-ui .settings-card button {
+      border: 1px solid var(--dsh-line);
+      border-radius: 8px;
+      background: var(--dsh-panel-2);
+      color: var(--dsh-text);
+      padding: 7px 9px;
+    }
+
+    #dsh-vault-ui .recovery-status { color: var(--dsh-good); }
+
+    #dsh-vault-ui .dialog-layer {
+      position: absolute;
+      z-index: 20;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: light-dark(rgba(24, 27, 33, 0.42), rgba(0, 0, 0, 0.62));
+      backdrop-filter: blur(2px);
+    }
+
+    #dsh-vault-ui .dialog-layer[hidden] { display: none; }
+    #dsh-vault-ui .dialog {
+      width: min(420px, 100%);
+      border: 1px solid var(--dsh-line);
+      border-radius: 14px;
+      background: var(--dsh-panel);
+      box-shadow: 0 20px 54px light-dark(rgba(28, 35, 48, 0.2), rgba(0, 0, 0, 0.5));
+      padding: 20px;
+    }
+
+    #dsh-vault-ui .dialog-title { gap: 10px; margin-bottom: 8px; }
+    #dsh-vault-ui .dialog-title h3 { margin: 0; font-size: 17px; font-weight: 500; }
+    #dsh-vault-ui .dialog p { margin: 0 0 16px; color: var(--dsh-muted); }
+    #dsh-vault-ui .dialog label { display: block; margin-bottom: 6px; font-weight: 500; }
+    #dsh-vault-ui .dialog input {
+      width: 100%;
+      border: 1px solid var(--dsh-line);
+      border-radius: 9px;
+      background: var(--dsh-bg);
+      color: var(--dsh-text);
+      padding: 10px 11px;
+    }
+
+    #dsh-vault-ui .dialog-hint { margin-top: 8px; color: var(--dsh-muted); font-size: 12px; }
+    #dsh-vault-ui .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+    #dsh-vault-ui .dialog-actions button {
+      border: 1px solid var(--dsh-line);
+      border-radius: 8px;
+      background: var(--dsh-panel-2);
+      color: var(--dsh-text);
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    #dsh-vault-ui .dialog-actions .primary {
+      border-color: var(--dsh-text);
+      background: var(--dsh-text);
+      color: var(--dsh-panel);
+    }
+
+    @media (max-width: 720px) {
+      #dsh-vault-ui .app-window { grid-template-columns: 1fr; }
+      #dsh-vault-ui .sidebar { border-right: 0; border-bottom: 1px solid var(--dsh-line); }
+      #dsh-vault-ui .tree { max-height: none; }
+      #dsh-vault-ui .row-menu { top: 166px; }
+      #dsh-vault-ui .main { padding: 16px; }
+      #dsh-vault-ui .center-state { min-height: 390px; }
+      #dsh-vault-ui .setting-row,
+      #dsh-vault-ui .group-row { align-items: flex-start; flex-direction: column; padding: 12px 0; }
+      #dsh-vault-ui .message { max-width: 90%; }
+    }
+  </style>
+
+  <div class="view-switcher" aria-label="预览状态">
+    <button type="button" data-view="locked" aria-pressed="true">锁定态</button>
+    <button type="button" data-view="modal" aria-pressed="false">解锁弹窗</button>
+    <button type="button" data-view="unlocked" aria-pressed="false">已解锁</button>
+    <button type="button" data-view="settings" aria-pressed="false">插件设置</button>
+  </div>
+
+  <div class="app-window">
+    <aside class="sidebar" aria-label="DSH 项目与对话">
+      <div class="brand">
+        <span class="brand-mark"><i data-lucide="fish-symbol" aria-hidden="true"></i></span>
+        <span>DeepSeek Harness</span>
+      </div>
+      <button type="button" class="new-session">＋ 新对话</button>
+      <div class="sidebar-title"><span>项目</span><span>⌕</span></div>
+      <div class="tree">
+        <div class="row project active" data-open-vault>
+          <i class="lock-icon" data-lucide="lock-keyhole" aria-hidden="true"></i>
+          <span class="row-label">安全评审</span>
+          <span class="row-meta">3</span>
+        </div>
+        <div class="row session" data-open-vault>
+          <i class="lock-icon" data-lucide="lock" aria-hidden="true"></i>
+          <span class="row-label vault-session-label">加密对话</span>
+          <button type="button" class="more-button" data-menu-toggle aria-label="打开加密对话菜单">
+            <i data-lucide="ellipsis" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="row session dimmed" data-open-vault>
+          <i class="lock-icon" data-lucide="lock" aria-hidden="true"></i>
+          <span class="row-label">供应商风险清单</span>
+        </div>
+        <div class="row session dimmed" data-open-vault>
+          <i class="lock-icon" data-lucide="lock" aria-hidden="true"></i>
+          <span class="row-label">加密对话</span>
+        </div>
+        <div class="row project">
+          <i data-lucide="folder" aria-hidden="true"></i>
+          <span class="row-label">DSH 插件</span>
+          <span class="row-meta">5</span>
+        </div>
+        <div class="row session">
+          <span class="row-label">保险箱规划</span>
+          <span class="row-meta">刚刚</span>
+        </div>
+      </div>
+      <div class="settings-link" data-settings-link>
+        <i data-lucide="settings" aria-hidden="true"></i>
+        <span>设置</span>
+      </div>
+
+      <div class="row-menu" data-row-menu hidden>
+        <button type="button" data-open-vault><i data-lucide="unlock" aria-hidden="true"></i>解锁</button>
+        <button type="button"><i data-lucide="key-round" aria-hidden="true"></i>改用独立密码</button>
+        <button type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i>更换密码</button>
+        <button type="button"><i data-lucide="eye-off" aria-hidden="true"></i>锁定时隐藏标题</button>
+        <button type="button" class="danger"><i data-lucide="shield-off" aria-hidden="true"></i>解除保护</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section data-panel="locked">
+        <div class="panel-heading">
+          <div><h3>加密对话</h3><p>继承项目“安全评审”的密码</p></div>
+          <button type="button" class="lock-all" data-lock-all><i data-lucide="lock" aria-hidden="true"></i>全部锁定</button>
+        </div>
+        <div class="center-state">
+          <div>
+            <div class="state-icon"><i data-lucide="lock-keyhole" aria-hidden="true"></i></div>
+            <h3>此对话已锁定</h3>
+            <p>输入项目密码后，本浏览器会话中的 3 个继承对话将同时解锁。</p>
+            <button type="button" class="primary-action" data-open-vault>输入密码解锁</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-panel="unlocked" hidden>
+        <div class="panel-heading">
+          <div><h3>供应商风险清单</h3><p><span class="unlock-icon">●</span> 已解锁 · 14 分钟后自动锁定</p></div>
+          <button type="button" class="lock-all" data-lock-all><i data-lucide="lock" aria-hidden="true"></i>全部锁定</button>
+        </div>
+        <div class="conversation">
+          <div class="message user">请整理本季度供应商风险并按严重程度排序。</div>
+          <div class="message">已按高、中、低三级整理；高风险项优先包含交付连续性与凭据暴露问题。</div>
+        </div>
+      </section>
+
+      <section data-panel="settings" hidden>
+        <div class="panel-heading">
+          <div><h3>设置 · 插件 · 插件配置</h3><p>保险箱</p></div>
+          <button type="button" class="lock-all" data-lock-all><i data-lucide="lock" aria-hidden="true"></i>立即全部锁定</button>
+        </div>
+        <div class="settings-panel">
+          <div class="settings-card">
+            <h4>锁定策略</h4>
+            <p>这些设置不包含密码或恢复密钥。</p>
+            <div class="setting-row">
+              <div><label for="auto-lock-preview">自动锁定</label><small>按当前浏览器会话的最后活动时间计算</small></div>
+              <select id="auto-lock-preview"><option>15 分钟</option><option>30 分钟</option><option>仅重启时</option></select>
+            </div>
+            <div class="setting-row">
+              <div><label for="title-preview">锁定时标题</label><small>单个条目可以覆盖默认规则</small></div>
+              <select id="title-preview"><option>项目显示，对话隐藏</option><option>全部显示</option><option>全部隐藏</option></select>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h4>恢复密钥</h4>
+            <p>完整恢复密钥只在首次启用时显示一次。</p>
+            <div class="setting-row">
+              <div><span class="recovery-status">● 已配置</span><small>最后验证：2026-08-24</small></div>
+              <button type="button">验证恢复密钥</button>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h4>密码组</h4>
+            <p>同一密码组的项目与对话会一起解锁、一起过期。</p>
+            <div class="group-row">
+              <div><span class="group-name">项目通用密码</span><small>1 个项目 · 3 个对话</small></div>
+              <button type="button">管理</button>
+            </div>
+            <div class="group-row">
+              <div><span class="group-name">财务资料</span><small>2 个独立对话</small></div>
+              <button type="button">管理</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="dialog-layer" data-dialog hidden>
+        <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="vault-dialog-title">
+          <div class="dialog-title">
+            <span class="state-icon" style="width:38px;height:38px;margin:0;border-radius:11px"><i data-lucide="key-round" aria-hidden="true"></i></span>
+            <h3 id="vault-dialog-title">解锁“安全评审”</h3>
+          </div>
+          <p>将同时解锁 3 个继承项目密码的对话，15 分钟无操作后自动锁定。</p>
+          <label for="vault-password-preview">打开密码</label>
+          <input id="vault-password-preview" type="password" placeholder="输入密码" autocomplete="current-password">
+          <div class="dialog-hint">密码只发送给本机 DSH Host，不会写入插件配置或日志。</div>
+          <div class="dialog-actions">
+            <button type="button" data-dialog-cancel>取消</button>
+            <button type="button" class="primary" data-dialog-unlock>解锁</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="sr-only" aria-live="polite" data-live>当前显示锁定态</div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('dsh-vault-ui');
+      if (!root) return;
+
+      const panels = Array.from(root.querySelectorAll('[data-panel]'));
+      const viewButtons = Array.from(root.querySelectorAll('[data-view]'));
+      const dialog = root.querySelector('[data-dialog]');
+      const rowMenu = root.querySelector('[data-row-menu]');
+      const settingsLink = root.querySelector('[data-settings-link]');
+      const sessionLabel = root.querySelector('.vault-session-label');
+      const live = root.querySelector('[data-live]');
+
+      const setView = (view) => {
+        const panelView = view === 'modal' ? 'locked' : view;
+        panels.forEach((panel) => { panel.hidden = panel.getAttribute('data-panel') !== panelView; });
+        viewButtons.forEach((button) => {
+          button.setAttribute('aria-pressed', String(button.getAttribute('data-view') === view));
+        });
+        if (dialog) dialog.hidden = view !== 'modal';
+        if (rowMenu) rowMenu.hidden = true;
+        if (settingsLink) settingsLink.classList.toggle('active', view === 'settings');
+        if (sessionLabel) sessionLabel.textContent = view === 'unlocked' ? '供应商风险清单' : '加密对话';
+        if (live) live.textContent = `当前显示${view === 'modal' ? '解锁弹窗' : view === 'unlocked' ? '已解锁状态' : view === 'settings' ? '插件设置' : '锁定状态'}`;
+      };
+
+      viewButtons.forEach((button) => {
+        button.addEventListener('click', () => setView(button.getAttribute('data-view') || 'locked'));
+      });
+
+      root.querySelectorAll('[data-open-vault]').forEach((button) => {
+        button.addEventListener('click', () => setView('modal'));
+      });
+
+      root.querySelectorAll('[data-lock-all]').forEach((button) => {
+        button.addEventListener('click', () => setView('locked'));
+      });
+
+      root.querySelectorAll('[data-menu-toggle]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          if (rowMenu) rowMenu.hidden = !rowMenu.hidden;
+        });
+      });
+
+      if (settingsLink) settingsLink.addEventListener('click', () => setView('settings'));
+      const cancel = root.querySelector('[data-dialog-cancel]');
+      const unlock = root.querySelector('[data-dialog-unlock]');
+      if (cancel) cancel.addEventListener('click', () => setView('locked'));
+      if (unlock) unlock.addEventListener('click', () => setView('unlocked'));
+    })();
+  </script>
+</div>
