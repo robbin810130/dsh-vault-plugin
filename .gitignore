@@ -15,3 +15,6 @@ dist/
 lib/
 coverage/
 *.log
+
+# Isolated feature worktrees
+.worktrees/
