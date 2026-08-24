@@ -10,7 +10,7 @@ DSH 保险箱插件项目。一期实现项目与对话的前台隐私锁，支�
 - V1–V3 交互原型：`.superpowers/brainstorm/97190-1787557899/content/`
 - V2/V3 交互测试：同原型目录内的 `*.test.mjs`
 - UI 审核记录：`.impeccable/critique/`
-- DSH RTK 集成工具：`rtk-token-keeper/`
+- ~~DSH RTK 集成工具~~：`rtk-token-keeper/` 已独立为单独仓库（`dsh-rtk` 插件，见 https://github.com/robbin810130/dsh-rtk）
 
 ## 当前阶段
 
