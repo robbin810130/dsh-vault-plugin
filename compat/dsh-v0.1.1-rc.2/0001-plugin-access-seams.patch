@@ -297,7 +297,7 @@ index 13aa20d1c8..6acfd26851 100644
      })
    }
 diff --git a/packages/client/runtime/src/client/sessions/service.ts b/packages/client/runtime/src/client/sessions/service.ts
-index c66da4e0d3..53f104bf54 100644
+index c66da4e0d3..169fb9fc82 100644
 --- a/packages/client/runtime/src/client/sessions/service.ts
 +++ b/packages/client/runtime/src/client/sessions/service.ts
 @@ -27,6 +27,8 @@ import type {
@@ -382,15 +382,18 @@ index c66da4e0d3..53f104bf54 100644
    }
  
    /**
-@@ -420,6 +452,7 @@ export class SessionRuntime implements ISessions {
+@@ -420,6 +452,10 @@ export class SessionRuntime implements ISessions {
     * per the masked-gap contract until the next open() moves the stage.
     */
    clear(): void {
 +    this.openTicket += 1
++    this.restoredSelection = undefined
++    this.restoreAccessPending = false
++    this.selection.set({})
      this.manager.clearSelection()
    }
  
-@@ -509,6 +542,7 @@ export class SessionRuntime implements ISessions {
+@@ -509,6 +545,7 @@ export class SessionRuntime implements ISessions {
      atSeq?: number
      increaseTitle?: boolean
    }): Promise<SessionId> {
@@ -398,7 +401,7 @@ index c66da4e0d3..53f104bf54 100644
      const sourceTitle = opts.increaseTitle
        ? this.list.getSnapshot().byId[opts.sessionId]?.title
        : undefined
-@@ -531,6 +565,17 @@ export class SessionRuntime implements ISessions {
+@@ -531,6 +568,17 @@ export class SessionRuntime implements ISessions {
      return childId
    }
  
@@ -416,7 +419,7 @@ index c66da4e0d3..53f104bf54 100644
    /**
     * Resolve an Agent-scoped context view (use-and-discard).
     * @param id - session id (the agent identity — 1:1 same axis).
-@@ -714,11 +759,12 @@ export class SessionRuntime implements ISessions {
+@@ -714,11 +762,12 @@ export class SessionRuntime implements ISessions {
          address = this.manager.navigationAddress(address.parentSessionId)
        }
      }
@@ -430,7 +433,7 @@ index c66da4e0d3..53f104bf54 100644
      } else if (byId[current] !== undefined
        && (persisted !== current
          || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
-@@ -733,6 +779,42 @@ export class SessionRuntime implements ISessions {
+@@ -733,6 +782,45 @@ export class SessionRuntime implements ISessions {
      this.pruneScopes()
    }
  
@@ -457,8 +460,11 @@ index c66da4e0d3..53f104bf54 100644
 +      this.restoreAccessPending = false
 +      this.restoredSelection = undefined
 +      if (ticket !== this.openTicket) return
-+      if (allow) this.manager.select(id)
-+      else this.selection.set({})
++      if (!allow || !this.manager.canSelect(id)) {
++        this.selection.set({})
++        return
++      }
++      this.manager.select(id)
 +    }
 +    try {
 +      void access.requestSession(id).then(
@@ -837,7 +843,7 @@ index 19e80dfd5b..ac975d3a8c 100644
      const { api, session } = makeSession()
      api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
 diff --git a/packages/client/runtime/tests/sessions-service.client.spec.ts b/packages/client/runtime/tests/sessions-service.client.spec.ts
-index b135b56ebe..274f0c07a7 100644
+index b135b56ebe..3419941a34 100644
 --- a/packages/client/runtime/tests/sessions-service.client.spec.ts
 +++ b/packages/client/runtime/tests/sessions-service.client.spec.ts
 @@ -9,6 +9,7 @@
@@ -848,7 +854,7 @@ index b135b56ebe..274f0c07a7 100644
  import { SessionCreateError, SessionRuntime, scopeOf } from '../src/client/sessions/service.ts'
  import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
  
-@@ -20,13 +21,80 @@ interface Bench {
+@@ -20,13 +21,90 @@ interface Bench {
    svc: SessionRuntime
  }
  
@@ -924,6 +930,16 @@ index b135b56ebe..274f0c07a7 100644
 +    .map(payload => (payload as { sessionId: string }).sessionId)
 +}
 +
++function subagentHistoryChildIds(b: Bench): string[] {
++  return b.api.callsOf('subagent.history')
++    .map(payload => (payload as { childSessionId: string }).childSessionId)
++}
++
++function storedSelection(storage: ReadonlyMap<string, string>): { sessionId?: string; subagentAddress?: unknown } {
++  const raw = storage.get('dsh.sessions.current')
++  return raw === undefined ? {} : JSON.parse(raw) as { sessionId?: string; subagentAddress?: unknown }
++}
++
 +async function flushAsyncAccess(): Promise<void> {
 +  await new Promise(resolve => setTimeout(resolve, 0))
 +}
@@ -931,7 +947,7 @@ index b135b56ebe..274f0c07a7 100644
  /** Refresh the manager list from programmable rows and flush the microtask batch. */
  type FeedRow = {
    id: string
-@@ -231,6 +299,201 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
+@@ -231,6 +309,306 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
      await feedList(second, [{ id: 's1' }])
      expect(second.svc.list.getSnapshot().current).toBe('s1')
    })
@@ -1115,8 +1131,8 @@ index b135b56ebe..274f0c07a7 100644
 +    expect(historySessionIds(b)).toEqual(['manual'])
 +  })
 +
-+  it('clear cancels a pending restored allow before it can open history', async () => {
-+    stubCurrentSelection({ sessionId: 'restored' })
++  it('clear cancels a pending restored allow and clears persisted selection before a later boot', async () => {
++    const storage = stubCurrentSelection({ sessionId: 'restored' })
 +    const restored = deferred<NavigationDecision>()
 +    const ctx = new Context()
 +    installSessionGateProbe(ctx, { decision: restored.promise })
@@ -1124,16 +1140,121 @@ index b135b56ebe..274f0c07a7 100644
 +
 +    await feedList(b, [{ id: 'restored' }])
 +    b.svc.clear()
++    expect(storedSelection(storage).sessionId).toBeUndefined()
++
 +    restored.resolve({ allow: true })
 +    await flushAsyncAccess()
 +
 +    expect(b.svc.list.getSnapshot().current).toBeUndefined()
 +    expect(historySessionIds(b)).toEqual([])
++
++    const again = bench()
++    await feedList(again, [{ id: 'restored' }])
++    expect(again.svc.list.getSnapshot().current).toBeUndefined()
++    expect(historySessionIds(again)).toEqual([])
++  })
++
++  it('drops a restored allow when the target disappears before the decision settles', async () => {
++    const storage = stubCurrentSelection({ sessionId: 'restored' })
++    const restored = deferred<NavigationDecision>()
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, { decision: restored.promise })
++    const b = benchIn(ctx)
++    const unhandled: unknown[] = []
++    const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
++    process.on('unhandledRejection', onUnhandled)
++    try {
++      await feedList(b, [{ id: 'restored' }])
++      await feedList(b, [])
++
++      restored.resolve({ allow: true })
++      await flushAsyncAccess()
++      await flushAsyncAccess()
++
++      expect(unhandled).toEqual([])
++      expect(probe.requestSession).toHaveBeenCalledTimes(1)
++      expect(b.svc.list.getSnapshot().current).toBeUndefined()
++      expect(historySessionIds(b)).toEqual([])
++      expect(storedSelection(storage).sessionId).toBeUndefined()
++    } finally {
++      process.off('unhandledRejection', onUnhandled)
++    }
++  })
++
++  it('opens a restored subagent after one access allow and only then pulls child history', async () => {
++    const address = {
++      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable' as const,
++    }
++    const storage = stubCurrentSelection({ sessionId: 'child', subagentAddress: address })
++    const restored = deferred<NavigationDecision>()
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, { decision: restored.promise })
++    const b = benchIn(ctx)
++    b.api.onSubagentList = () => Promise.resolve(ok({
++      entries: [{
++        kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
++        activity: 'inactive', hasChildren: false,
++      }] as never[],
++      parentAvailable: true,
++    }))
++
++    await feedList(b, [{ id: 'root' }])
++    await b.svc.refreshSubagents(sid('root'))
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(subagentHistoryChildIds(b)).toEqual([])
++
++    restored.resolve({ allow: true })
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBe('child')
++    expect(historySessionIds(b)).toEqual([])
++    expect(subagentHistoryChildIds(b)).toEqual(['child'])
++    expect(storedSelection(storage)).toMatchObject({ sessionId: 'child' })
++  })
++
++  it('denies a restored subagent without selecting it or opening child history', async () => {
++    const address = {
++      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable' as const,
++    }
++    const storage = stubCurrentSelection({ sessionId: 'child', subagentAddress: address })
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, { decision: { allow: false } })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 'root' }])
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(subagentHistoryChildIds(b)).toEqual([])
++    expect(storedSelection(storage).sessionId).toBeUndefined()
++  })
++
++  it('treats a restored subagent provider error as denied without child history', async () => {
++    const address = {
++      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable' as const,
++    }
++    const storage = stubCurrentSelection({ sessionId: 'child', subagentAddress: address })
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, {
++      decision: () => { throw new Error('subagent provider failed') },
++    })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 'root' }])
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(subagentHistoryChildIds(b)).toEqual([])
++    expect(storedSelection(storage).sessionId).toBeUndefined()
 +  })
  })
  
  describe('cell (render-layer session kit)', () => {
-@@ -332,14 +595,8 @@ describe('cell (render-layer session kit)', () => {
+@@ -332,14 +710,8 @@ describe('cell (render-layer session kit)', () => {
      expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1', 's2'])
    })
  
@@ -1150,7 +1271,7 @@ index b135b56ebe..274f0c07a7 100644
      try {
        const b = bench()
        expect(b.api.calls.filter(c => c.method === 'session.history')).toHaveLength(0)
-@@ -379,6 +636,31 @@ describe('slot-store scope prune hook', () => {
+@@ -379,6 +751,31 @@ describe('slot-store scope prune hook', () => {
  })
  
  describe('catalog-addressed navigation', () => {
@@ -1182,7 +1303,7 @@ index b135b56ebe..274f0c07a7 100644
    it('uses catalog labels for a listed addressed route', async () => {
      const b = bench()
      b.api.onSubagentList = (payload) => {
-@@ -462,6 +744,31 @@ describe('catalog-addressed navigation', () => {
+@@ -462,6 +859,31 @@ describe('catalog-addressed navigation', () => {
        parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
      })
    })
@@ -1214,7 +1335,7 @@ index b135b56ebe..274f0c07a7 100644
  })
  
  describe('create', () => {
-@@ -521,6 +828,18 @@ describe('create', () => {
+@@ -521,6 +943,18 @@ describe('create', () => {
  })
  
  describe('fork', () => {
