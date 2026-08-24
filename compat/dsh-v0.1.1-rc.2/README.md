@@ -7,9 +7,9 @@ This directory contains the reviewed compatibility patch for DeepSeek Harness pl
 - Repository: `https://github.com/deepseek-ai/deepseek-harness.git`
 - Tag: `dsh-v0.1.1-rc.2`
 - Pinned commit: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
-- Reviewed head: `53a91b4ac0b143f9098ef9b34f05713acb1840ab`
+- Reviewed head: `9973b5f45bb291e5d36a5734783c32301d6725ce`
 
-The reviewed DSH branch contains nine source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
+The reviewed DSH branch contains ten source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
 
 ## Changed Packages
 

@@ -297,7 +297,7 @@ index 13aa20d1c8..6acfd26851 100644
      })
    }
 diff --git a/packages/client/runtime/src/client/sessions/service.ts b/packages/client/runtime/src/client/sessions/service.ts
-index c66da4e0d3..f14958e284 100644
+index c66da4e0d3..53f104bf54 100644
 --- a/packages/client/runtime/src/client/sessions/service.ts
 +++ b/packages/client/runtime/src/client/sessions/service.ts
 @@ -27,6 +27,8 @@ import type {
@@ -309,24 +309,42 @@ index c66da4e0d3..f14958e284 100644
  import type { SessionFace } from '../contract/session.ts'
  import type { AgentContext, ISessions } from '../contract/sessions.ts'
  import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
-@@ -268,6 +270,8 @@ export class SessionRuntime implements ISessions {
+@@ -268,6 +270,12 @@ export class SessionRuntime implements ISessions {
    private watched: SessionId | undefined
    /** Removed-while-staged sessions whose teardown waits for the stage to move away. */
    private readonly deferredRemovals = new Set<SessionId>()
 +  /** Latest user-visible open request; stale async allows must not re-stage an older target. */
 +  private openTicket = 0
++  /** Persisted startup selection that must pass navigation access before becoming current. */
++  private restoredSelection: SessionSelection | undefined
++  /** One in-flight access request for the startup-restored selection. */
++  private restoreAccessPending = false
  
    /**
     * @param ctx - client root context (scope fibers mount under it).
-@@ -298,6 +302,7 @@ export class SessionRuntime implements ISessions {
-       restored.sessionId,
+@@ -285,6 +293,9 @@ export class SessionRuntime implements ISessions {
+       {},
+       { persist: { name: 'dsh.sessions.current' } })
+     const restored = this.selection.getSnapshot()
++    const guardRestoredSelection = restored.sessionId !== undefined
++      && rootCtx.get('navigationAccess') !== undefined
++    this.restoredSelection = guardRestoredSelection ? restored : undefined
+     const conversationEvents = rootCtx.get('conversationEvents')
+     const conversationViews = rootCtx.get('conversationViews')
+     const conversation = conversationRuntime ?? (
+@@ -295,9 +306,10 @@ export class SessionRuntime implements ISessions {
+     this.manager = new SessionManager(
+       api,
+       remote,
+-      restored.sessionId,
++      guardRestoredSelection ? undefined : restored.sessionId,
        restored.subagentAddress,
        conversation,
 +      rootCtx.get('navigationAccess'),
      )
      this.list = createSnapshotStore<SessionListState>({
        ids: [], byId: {}, current: undefined, phase: 'pending',
-@@ -370,7 +375,16 @@ export class SessionRuntime implements ISessions {
+@@ -370,7 +382,16 @@ export class SessionRuntime implements ISessions {
     * @param id - listed or addressed session id.
     */
    open(id: SessionId): void {
@@ -344,7 +362,7 @@ index c66da4e0d3..f14958e284 100644
    }
  
    /**
-@@ -378,7 +392,18 @@ export class SessionRuntime implements ISessions {
+@@ -378,7 +399,18 @@ export class SessionRuntime implements ISessions {
     * @param address - catalog-derived parent and child ids.
     */
    openSubagent(address: SubagentAddress): void {
@@ -364,7 +382,7 @@ index c66da4e0d3..f14958e284 100644
    }
  
    /**
-@@ -420,6 +445,7 @@ export class SessionRuntime implements ISessions {
+@@ -420,6 +452,7 @@ export class SessionRuntime implements ISessions {
     * per the masked-gap contract until the next open() moves the stage.
     */
    clear(): void {
@@ -372,7 +390,7 @@ index c66da4e0d3..f14958e284 100644
      this.manager.clearSelection()
    }
  
-@@ -509,6 +535,7 @@ export class SessionRuntime implements ISessions {
+@@ -509,6 +542,7 @@ export class SessionRuntime implements ISessions {
      atSeq?: number
      increaseTitle?: boolean
    }): Promise<SessionId> {
@@ -380,7 +398,7 @@ index c66da4e0d3..f14958e284 100644
      const sourceTitle = opts.increaseTitle
        ? this.list.getSnapshot().byId[opts.sessionId]?.title
        : undefined
-@@ -531,6 +558,17 @@ export class SessionRuntime implements ISessions {
+@@ -531,6 +565,17 @@ export class SessionRuntime implements ISessions {
      return childId
    }
  
@@ -398,6 +416,63 @@ index c66da4e0d3..f14958e284 100644
    /**
     * Resolve an Agent-scoped context view (use-and-discard).
     * @param id - session id (the agent identity — 1:1 same axis).
+@@ -714,11 +759,12 @@ export class SessionRuntime implements ISessions {
+         address = this.manager.navigationAddress(address.parentSessionId)
+       }
+     }
++    this.requestRestoredSelection(current, byId)
+     const persisted = this.selection.getSnapshot().sessionId
+     // No current (cleared, or masked gap) wipes the persisted cell — a reload
+     // stays on empty; the in-memory selection still resurfaces a masked id.
+     if (current === undefined) {
+-      if (persisted !== undefined) this.selection.set({})
++      if (persisted !== undefined && !this.restoreAccessPending) this.selection.set({})
+     } else if (byId[current] !== undefined
+       && (persisted !== current
+         || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
+@@ -733,6 +779,42 @@ export class SessionRuntime implements ISessions {
+     this.pruneScopes()
+   }
+ 
++  /** Guard the startup-restored selection before it is allowed to project as current. */
++  private requestRestoredSelection(
++    current: SessionId | undefined,
++    byId: Readonly<Record<SessionId, SessionSummary>>,
++  ): void {
++    const restored = this.restoredSelection
++    if (restored === undefined || restored.sessionId === undefined
++      || current !== undefined || this.restoreAccessPending) return
++    const id = restored.sessionId
++    if (byId[id] === undefined && restored.subagentAddress === undefined) return
++    const access = this.navigationAccess()
++    if (access === undefined) {
++      this.restoredSelection = undefined
++      this.manager.select(id)
++      return
++    }
++    const ticket = this.openTicket
++    this.restoreAccessPending = true
++    const settle = (allow: boolean): void => {
++      if (this.restoredSelection?.sessionId !== id) return
++      this.restoreAccessPending = false
++      this.restoredSelection = undefined
++      if (ticket !== this.openTicket) return
++      if (allow) this.manager.select(id)
++      else this.selection.set({})
++    }
++    try {
++      void access.requestSession(id).then(
++        (decision) => { settle(decision.allow) },
++        () => { settle(false) },
++      )
++    } catch {
++      settle(false)
++    }
++  }
++
+   /** Tear down scope + instance for no-longer-eligible sessions off stage; the staged one defers until the stage moves. */
+   private pruneScopes(): void {
+     for (const [id, record] of this.scopes) {
 diff --git a/packages/client/runtime/src/client/sessions/session.ts b/packages/client/runtime/src/client/sessions/session.ts
 index 02939cf28f..68dcb06117 100644
 --- a/packages/client/runtime/src/client/sessions/session.ts
@@ -762,7 +837,7 @@ index 19e80dfd5b..ac975d3a8c 100644
      const { api, session } = makeSession()
      api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
 diff --git a/packages/client/runtime/tests/sessions-service.client.spec.ts b/packages/client/runtime/tests/sessions-service.client.spec.ts
-index b135b56ebe..3f1d2624ba 100644
+index b135b56ebe..274f0c07a7 100644
 --- a/packages/client/runtime/tests/sessions-service.client.spec.ts
 +++ b/packages/client/runtime/tests/sessions-service.client.spec.ts
 @@ -9,6 +9,7 @@
@@ -773,31 +848,90 @@ index b135b56ebe..3f1d2624ba 100644
  import { SessionCreateError, SessionRuntime, scopeOf } from '../src/client/sessions/service.ts'
  import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
  
-@@ -27,6 +28,23 @@ function bench(): Bench {
+@@ -20,13 +21,80 @@ interface Bench {
+   svc: SessionRuntime
+ }
+ 
+-function bench(): Bench {
+-  const ctx = new Context()
++function benchIn(ctx: Context): Bench {
+   const api = new FakeApiClient()
+   const svc = new SessionRuntime(ctx, api, fakeRemote())
    return { ctx, api, svc }
  }
  
-+function installSessionGate(
++function bench(): Bench {
++  return benchIn(new Context())
++}
++
++type DecisionSource =
++  | NavigationDecision
++  | Promise<NavigationDecision>
++  | ((id: SessionId) => NavigationDecision | Promise<NavigationDecision>)
++
++interface SessionGateProbe {
++  access: NavigationAccessRegistry
++  requestSession: ReturnType<typeof vi.fn<(id: SessionId) => Promise<NavigationDecision>>>
++}
++
++function installSessionGateProbe(
 +  ctx: Context,
-+  decision: NavigationDecision | Promise<NavigationDecision>,
-+  matches: (id: SessionId) => boolean = () => true,
-+): void {
++  options: {
++    decision: DecisionSource
++    matches?: (id: SessionId) => boolean
++  },
++): SessionGateProbe {
 +  const access = new NavigationAccessRegistry(ctx)
++  const matches = options.matches ?? (() => true)
++  const requestSession = vi.fn(async (id: SessionId) => (
++    typeof options.decision === 'function' ? options.decision(id) : options.decision
++  ))
 +  access.register({
 +    matchesWorkspace: () => false,
 +    matchesSession: matches,
 +    workspaceState: () => ({ kind: 'allow' }),
 +    sessionState: id => matches(id) ? { kind: 'blocked', reason: 'locked' } : { kind: 'allow' },
 +    requestWorkspace: async () => ({ allow: true }),
-+    requestSession: async () => decision,
++    requestSession,
 +    subscribe: () => () => {},
 +  })
++  return { access, requestSession }
++}
++
++function installSessionGate(
++  ctx: Context,
++  decision: NavigationDecision | Promise<NavigationDecision>,
++  matches: (id: SessionId) => boolean = () => true,
++): void {
++  installSessionGateProbe(ctx, { decision, matches })
++}
++
++function stubCurrentSelection(selection: unknown): Map<string, string> {
++  const storage = new Map<string, string>([
++    ['dsh.sessions.current', JSON.stringify(selection)],
++  ])
++  vi.stubGlobal('localStorage', {
++    getItem: (k: string) => storage.get(k) ?? null,
++    setItem: (k: string, v: string) => { storage.set(k, v) },
++    removeItem: (k: string) => { storage.delete(k) },
++    clear: () => { storage.clear() },
++  })
++  return storage
++}
++
++function historySessionIds(b: Bench): string[] {
++  return b.api.callsOf('session.history')
++    .map(payload => (payload as { sessionId: string }).sessionId)
++}
++
++async function flushAsyncAccess(): Promise<void> {
++  await new Promise(resolve => setTimeout(resolve, 0))
 +}
 +
  /** Refresh the manager list from programmable rows and flush the microtask batch. */
  type FeedRow = {
    id: string
-@@ -231,6 +249,65 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
+@@ -231,6 +299,201 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
      await feedList(second, [{ id: 's1' }])
      expect(second.svc.list.getSnapshot().current).toBe('s1')
    })
@@ -860,10 +994,163 @@ index b135b56ebe..3f1d2624ba 100644
 +    expect(b.svc.list.getSnapshot().current).toBeUndefined()
 +    expect(b.api.callsOf('session.history')).toEqual([])
 +  })
++
++  it('public open requests access once and opens history once after allow', async () => {
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, { decision: { allow: true } })
++    const b = benchIn(ctx)
++    await feedList(b, [{ id: 's1' }])
++
++    b.svc.open(sid('s1'))
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBe('s1')
++    expect(historySessionIds(b)).toEqual(['s1'])
++  })
++})
++
++describe('startup restored selection access', () => {
++  afterEach(() => { vi.unstubAllGlobals() })
++
++  it('waits for an allow decision before opening the restored session window', async () => {
++    stubCurrentSelection({ sessionId: 's1' })
++    const ctx = new Context()
++    const gate = deferred<NavigationDecision>()
++    const probe = installSessionGateProbe(ctx, { decision: gate.promise })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 's1' }])
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(historySessionIds(b)).toEqual([])
++
++    gate.resolve({ allow: true })
++    await flushAsyncAccess()
++    expect(b.svc.list.getSnapshot().current).toBe('s1')
++    expect(historySessionIds(b)).toEqual(['s1'])
++
++    await feedList(b, [{ id: 's1' }])
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(historySessionIds(b)).toEqual(['s1'])
++  })
++
++  it('denies restored selection without opening history or projecting current', async () => {
++    stubCurrentSelection({ sessionId: 'locked' })
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, { decision: { allow: false } })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 'locked' }])
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(historySessionIds(b)).toEqual([])
++  })
++
++  it('treats a provider exception during restore as a closed access decision', async () => {
++    stubCurrentSelection({ sessionId: 'locked' })
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, {
++      decision: () => { throw new Error('provider failed') },
++    })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 'locked' }])
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(historySessionIds(b)).toEqual([])
++  })
++
++  it('keeps native startup restore behavior when no navigation access service exists', async () => {
++    stubCurrentSelection({ sessionId: 's1' })
++    const b = bench()
++
++    await feedList(b, [{ id: 's1' }])
++
++    expect(b.svc.list.getSnapshot().current).toBe('s1')
++    expect(historySessionIds(b)).toEqual(['s1'])
++  })
++
++  it('uses the registry unmatched path without asking a non-matching provider', async () => {
++    stubCurrentSelection({ sessionId: 'plain' })
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, {
++      matches: id => id === sid('other'),
++      decision: () => { throw new Error('non-matching provider must not be asked') },
++    })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 'plain' }])
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).not.toHaveBeenCalled()
++    expect(b.svc.list.getSnapshot().current).toBe('plain')
++    expect(historySessionIds(b)).toEqual(['plain'])
++  })
++
++  it('does not let a stale restored allow overwrite the latest explicit open', async () => {
++    stubCurrentSelection({ sessionId: 'restored' })
++    const restored = deferred<NavigationDecision>()
++    const ctx = new Context()
++    installSessionGateProbe(ctx, {
++      decision: id => id === sid('restored') ? restored.promise : { allow: true },
++    })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 'restored' }, { id: 'manual' }])
++    expect(historySessionIds(b)).toEqual([])
++
++    b.svc.open(sid('manual'))
++    await flushAsyncAccess()
++    expect(b.svc.list.getSnapshot().current).toBe('manual')
++    expect(historySessionIds(b)).toEqual(['manual'])
++
++    restored.resolve({ allow: true })
++    await flushAsyncAccess()
++    expect(b.svc.list.getSnapshot().current).toBe('manual')
++    expect(historySessionIds(b)).toEqual(['manual'])
++  })
++
++  it('clear cancels a pending restored allow before it can open history', async () => {
++    stubCurrentSelection({ sessionId: 'restored' })
++    const restored = deferred<NavigationDecision>()
++    const ctx = new Context()
++    installSessionGateProbe(ctx, { decision: restored.promise })
++    const b = benchIn(ctx)
++
++    await feedList(b, [{ id: 'restored' }])
++    b.svc.clear()
++    restored.resolve({ allow: true })
++    await flushAsyncAccess()
++
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(historySessionIds(b)).toEqual([])
++  })
  })
  
  describe('cell (render-layer session kit)', () => {
-@@ -379,6 +456,31 @@ describe('slot-store scope prune hook', () => {
+@@ -332,14 +595,8 @@ describe('cell (render-layer session kit)', () => {
+     expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1', 's2'])
+   })
+ 
+-  it('startup restore: a persisted selection validated by the first projection opens its window unprompted', async () => {
+-    const storage = new Map<string, string>([
+-      ['dsh.sessions.current', JSON.stringify({ sessionId: 's1' })],
+-    ])
+-    vi.stubGlobal('localStorage', {
+-      getItem: (k: string) => storage.get(k) ?? null,
+-      setItem: (k: string, v: string) => { storage.set(k, v) },
+-    })
++  it('startup restore without navigation access opens its window through the native projection path', async () => {
++    stubCurrentSelection({ sessionId: 's1' })
+     try {
+       const b = bench()
+       expect(b.api.calls.filter(c => c.method === 'session.history')).toHaveLength(0)
+@@ -379,6 +636,31 @@ describe('slot-store scope prune hook', () => {
  })
  
  describe('catalog-addressed navigation', () => {
@@ -895,7 +1182,39 @@ index b135b56ebe..3f1d2624ba 100644
    it('uses catalog labels for a listed addressed route', async () => {
      const b = bench()
      b.api.onSubagentList = (payload) => {
-@@ -521,6 +623,18 @@ describe('create', () => {
+@@ -462,6 +744,31 @@ describe('catalog-addressed navigation', () => {
+       parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
+     })
+   })
++
++  it('public openSubagent requests access once and opens child history once after allow', async () => {
++    const ctx = new Context()
++    const probe = installSessionGateProbe(ctx, { decision: { allow: true } })
++    const b = benchIn(ctx)
++    b.api.onSubagentList = () => Promise.resolve(ok({
++      entries: [{
++        kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
++        activity: 'inactive', hasChildren: false,
++      }] as never[],
++      parentAvailable: true,
++    }))
++    await feedList(b, [{ id: 'root' }])
++    await b.svc.refreshSubagents(sid('root'))
++
++    b.svc.openSubagent({
++      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
++    })
++    await flushAsyncAccess()
++
++    expect(probe.requestSession).toHaveBeenCalledTimes(1)
++    expect(probe.requestSession).toHaveBeenCalledWith(sid('child'))
++    expect(b.svc.list.getSnapshot().current).toBe('child')
++    expect(b.api.callsOf('subagent.history')).toHaveLength(1)
++  })
+ })
+ 
+ describe('create', () => {
+@@ -521,6 +828,18 @@ describe('create', () => {
  })
  
  describe('fork', () => {
