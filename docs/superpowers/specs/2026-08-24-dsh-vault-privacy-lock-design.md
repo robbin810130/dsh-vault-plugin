@@ -105,40 +105,86 @@ accessory 用于状态标识；action 用于上锁、解锁、修改密码组、
 ### 6.2 展示修饰器
 
 ```ts
-interface SidebarRowPresentation {
-  label?: string
-  detail?: string
-  ariaLabel?: string
-  concealed?: boolean
+interface WorkspaceRowPresentation {
+  readonly label: string
+  readonly detail?: string
+  readonly ariaLabel: string
+  readonly concealed: boolean
+}
+
+interface SessionRowPresentation extends WorkspaceRowPresentation {
+  readonly workspaceLabel?: string
+  readonly snippet?: string
+}
+
+interface WorkspaceRowDecorator {
+  matchesWorkspace?(id: WorkspaceId, base: WorkspaceRowPresentation): boolean
+  matchesSession?(id: SessionId, base: SessionRowPresentation): boolean
+  workspace?(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation
+  session?(id: SessionId, base: SessionRowPresentation): SessionRowPresentation
+  fallbackWorkspace?(
+    id: WorkspaceId,
+    base: WorkspaceRowPresentation,
+    error: unknown,
+  ): WorkspaceRowPresentation
+  fallbackSession?(
+    id: SessionId,
+    base: SessionRowPresentation,
+    error: unknown,
+  ): SessionRowPresentation
+}
+
+interface WorkspaceRows {
+  register(decorator: WorkspaceRowDecorator): () => void
+  workspace(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation
+  session(id: SessionId, base: SessionRowPresentation): SessionRowPresentation
+  subscribe(listener: () => void): () => void
 }
 ```
 
-Workspace Browser 在生成可见行模型后、渲染前依次应用修饰器。保险箱可把真实项目名、对话名、路径详情和无障碍名称替换为通用占位文案，但不得修改原始 Workspace/Session 对象。
+Workspace Browser 在生成完整可见行模型后、渲染前依次应用修饰器。修饰器收到的是完整 presentation，而不是局部 override；保险箱可把真实项目名、对话名、路径详情、搜索片段、悬停详情、复制文本来源和无障碍名称替换为通用占位文案，但不得修改原始 Workspace/Session 对象。
+
+`matchesWorkspace` 和 `matchesSession` 是可选同步快照匹配器；未提供时保持旧的“总是参与”行为。匹配器返回 `false` 的目标完全透传，保持原生 presentation 对象不被 decorator 触碰。匹配器、decorator 或 fallback 抛错时，DSH 不让异常冒泡破坏侧栏；对已匹配或匹配过程失败的目标使用 fallback，fallback 再失败则回落为通用遮蔽 presentation。多个修饰器按注册顺序组合，后续修饰器只能看到前序修饰后的 presentation；注册 disposer 必须恢复后续调用的基线行为。
 
 搜索结果和最近记录必须复用同一展示修饰链，不能各自绕过。
 
-### 6.3 导航守卫
+### 6.3 导航访问
 
 ```ts
+type NavigationAccessState =
+  | { readonly kind: 'allow' }
+  | { readonly kind: 'blocked'; readonly reason: string }
+
 interface NavigationDecision {
-  allow: boolean
-  handled?: boolean
+  readonly allow: boolean
+  readonly handled?: boolean
 }
 
-interface NavigationGuard {
-  matchesWorkspace(workspaceId: string): boolean
-  matchesSession(sessionId: string): boolean
-  beforeOpenWorkspace(workspaceId: string): Promise<NavigationDecision>
-  beforeOpenSession(sessionId: string): Promise<NavigationDecision>
-  checkCurrentSession(sessionId: string): Promise<NavigationDecision>
+interface NavigationAccessProvider {
+  matchesWorkspace(id: WorkspaceId): boolean
+  matchesSession(id: SessionId): boolean
+  workspaceState(id: WorkspaceId): NavigationAccessState
+  sessionState(id: SessionId): NavigationAccessState
+  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
+  requestSession(id: SessionId): Promise<NavigationDecision>
+  subscribe(listener: () => void): () => void
+}
+
+interface NavigationAccess {
+  register(provider: NavigationAccessProvider): () => void
+  workspaceState(id: WorkspaceId): NavigationAccessState
+  sessionState(id: SessionId): NavigationAccessState
+  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
+  requestSession(id: SessionId): Promise<NavigationDecision>
+  subscribe(listener: () => void): () => void
 }
 ```
 
-`matchesWorkspace` 和 `matchesSession` 必须是同步、无 I/O 的本地快照查询。DSH 只对匹配的目标调用异步守卫；匹配守卫拒绝且 `handled` 为真时，由插件显示锁定页或解锁框；匹配守卫抛错时默认拒绝该目标。普通目标不进入保险箱异步验证，因此保险箱 Host 故障不会阻塞未保护对话。
+`matchesWorkspace`、`matchesSession`、`workspaceState` 和 `sessionState` 必须是同步、无 I/O 的本地快照查询。State API 只用于渲染和当前内容门禁：无匹配 provider 时返回 `{ kind: 'allow' }`；任一匹配 provider 返回 blocked 或同步查询抛错时，该目标按 blocked 处理。对话根视图订阅 `NavigationAccess.subscribe()`，用 `sessionState()` 覆盖“会话已打开后被另一操作重新锁定”的情况。
 
-所有会话打开入口必须经过同一服务：侧栏、搜索、最近记录、URL 直达、页面恢复、Fork 后自动打开和程序化 `sessions.open()`。
+`requestWorkspace` 和 `requestSession` 是用户动作或程序化动作的异步准入 API。DSH 在打开目标、创建受 Workspace 约束的新会话、fork、rename、archive、Workspace rename/delete 等敏感原生动作产生副作用前等待 request 决策；任一匹配 provider 拒绝、抛错或匹配器抛错都 fail-closed 为拒绝，未匹配目标保持原生允许语义。`handled` 表示 provider 已经展示了解锁框、锁定页或其它 UI，DSH 不规定具体业务界面。
 
-对话根视图还要检查当前会话访问状态，以覆盖“会话已打开后被另一操作重新锁定”的情况。
+所有会话打开入口必须经过 runtime 公共 opening 边界：侧栏、搜索、最近记录、URL 直达、页面恢复、Fork 后自动打开、Subagent/Workflow 等插件调用和程序化 `sessions.open()` / `openSubagent()`。兼容层只提供通用 access registry，不包含保险箱、密码组或加密策略。
 
 ## 7. 数据模型
 

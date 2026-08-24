@@ -14,7 +14,7 @@ index e07267d487..8d112488b1 100644
  export interface ProjectionsFace {
    /**
 diff --git a/packages/client/runtime/src/client/index.ts b/packages/client/runtime/src/client/index.ts
-index 90a2b2f5f3..6b5c450d28 100644
+index 90a2b2f5f3..2db3f6df9b 100644
 --- a/packages/client/runtime/src/client/index.ts
 +++ b/packages/client/runtime/src/client/index.ts
 @@ -15,12 +15,17 @@ import type { ConversationSnapshot } from './sessions/conversation.ts'
@@ -28,9 +28,9 @@ index 90a2b2f5f3..6b5c450d28 100644
  export { SlotRegistry } from './slots.ts'
  export { ConversationEventRegistry } from './conversation/event-registry.ts'
  export { ConversationViewRegistry } from './conversation/view-registry.ts'
-+export { NavigationAccessRegistry } from './navigation/access.ts'
++export { NavigationAccessDeniedError, NavigationAccessRegistry } from './navigation/access.ts'
 +export type {
-+  NavigationAccess, NavigationAccessProvider, NavigationAccessState, NavigationDecision,
++  NavigationAccess, NavigationAccessProvider, NavigationAccessState, NavigationAccessTarget, NavigationDecision,
 +} from './navigation/access.ts'
  export { ConversationNodeAssembler } from './sessions/conversation-assembler.ts'
  export { ConversationLocationIndex } from './sessions/conversation-location-index.ts'
@@ -54,12 +54,12 @@ index 90a2b2f5f3..6b5c450d28 100644
    ctx.typert.contexts.registerClient('agent', {
 diff --git a/packages/client/runtime/src/client/navigation/access.ts b/packages/client/runtime/src/client/navigation/access.ts
 new file mode 100644
-index 0000000000..3a99d4e056
+index 0000000000..b6af74f44f
 --- /dev/null
 +++ b/packages/client/runtime/src/client/navigation/access.ts
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,167 @@
 +import { Context, Service } from '@deepseek-ai/cordis'
-+import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
++import type { RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
 +
 +export type NavigationAccessState =
 +  | { readonly kind: 'allow' }
@@ -87,6 +87,27 @@ index 0000000000..3a99d4e056
 +  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
 +  requestSession(id: SessionId): Promise<NavigationDecision>
 +  subscribe(listener: () => void): () => void
++}
++
++export type NavigationAccessTarget = 'session' | 'workspace'
++
++export class NavigationAccessDeniedError extends Error {
++  override readonly name = 'NavigationAccessDeniedError'
++
++  constructor(readonly target: NavigationAccessTarget, readonly id: SessionId | WorkspaceId) {
++    super(`navigation access denied for ${target} ${id}`)
++  }
++}
++
++export function navigationAccessDeniedRpcError(
++  target: NavigationAccessTarget,
++  id: SessionId | WorkspaceId,
++): RpcError {
++  return {
++    code: 'internal',
++    message: `navigation access denied for ${target} ${id}`,
++    details: target === 'session' ? { sessionId: id } : { workspaceId: id },
++  }
 +}
 +
 +const ALLOW_STATE: NavigationAccessState = { kind: 'allow' }
@@ -204,6 +225,310 @@ index 0000000000..3a99d4e056
 +    for (const listener of this.listeners) listener()
 +  }
 +}
+diff --git a/packages/client/runtime/src/client/sessions/manager.ts b/packages/client/runtime/src/client/sessions/manager.ts
+index 13aa20d1c8..6acfd26851 100644
+--- a/packages/client/runtime/src/client/sessions/manager.ts
++++ b/packages/client/runtime/src/client/sessions/manager.ts
+@@ -22,6 +22,7 @@ import { Notifier } from './notifier.ts'
+ import { ProjectionValueStore } from './projection-store.ts'
+ import { Session } from './session.ts'
+ import type { SessionRemotes } from './remotes.ts'
++import type { NavigationAccess } from '../navigation/access.ts'
+ 
+ /**
+  * List arrival lifecycle, orthogonal to the pull-activity `state` axis:
+@@ -170,6 +171,7 @@ export class SessionManager {
+     restoredSelection?: SessionId,
+     restoredAddress?: SubagentAddress,
+     private readonly conversation?: ConversationRuntime,
++    private readonly access?: NavigationAccess,
+   ) {
+     this.selected = restoredSelection
+     if (restoredAddress !== undefined) this.addresses.set(restoredAddress.childSessionId, restoredAddress)
+@@ -184,7 +186,7 @@ export class SessionManager {
+    */
+   select(sessionId: SessionId): void {
+     const address = this.navigationAddress(sessionId)
+-    if (!this.summaries.some(summary => summary.sessionId === sessionId) && address === undefined) {
++    if (!this.canSelect(sessionId)) {
+       throw new Error(`sessions.select: unknown session ${sessionId}`)
+     }
+     if (address !== undefined) this.addresses.set(sessionId, address)
+@@ -206,11 +208,10 @@ export class SessionManager {
+    * @param address - catalog-derived parent and child ids.
+    */
+   selectSubagent(address: SubagentAddress): void {
+-    const catalog = this.catalogs.get(address.parentSessionId)
+-    const entry = catalog?.entries.find(candidate => candidate.id === address.childSessionId)
+-    if (entry === undefined || entry.kind !== 'child' || entry.mode !== address.mode) {
++    if (!this.canSelectSubagent(address)) {
+       throw new Error(`sessions.selectSubagent: ${address.childSessionId} is not a healthy catalog child`)
+     }
++    const catalog = this.catalogs.get(address.parentSessionId)
+     this.addresses.set(address.childSessionId, address)
+     this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable ?? false)
+     this.selected = address.childSessionId
+@@ -219,6 +220,19 @@ export class SessionManager {
+     this.notifier.notifyNow()
+   }
+ 
++  /** Read-only validation for public open guard paths. */
++  canSelect(sessionId: SessionId): boolean {
++    return this.summaries.some(summary => summary.sessionId === sessionId)
++      || this.navigationAddress(sessionId) !== undefined
++  }
++
++  /** Read-only validation for catalog-addressed public open guard paths. */
++  canSelectSubagent(address: SubagentAddress): boolean {
++    const catalog = this.catalogs.get(address.parentSessionId)
++    const entry = catalog?.entries.find(candidate => candidate.id === address.childSessionId)
++    return entry !== undefined && entry.kind === 'child' && entry.mode === address.mode
++  }
++
+   /** Clear the selection (the layout falls to the no-session view state). */
+   clearSelection(): void {
+     this.selected = undefined
+@@ -318,6 +332,7 @@ export class SessionManager {
+         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
+       },
+       projections: this.projectionStore(sessionId),
++      ...this.access === undefined ? {} : { access: this.access },
+       ...this.conversation === undefined ? {} : { conversation: this.conversation },
+     })
+   }
+diff --git a/packages/client/runtime/src/client/sessions/service.ts b/packages/client/runtime/src/client/sessions/service.ts
+index c66da4e0d3..f14958e284 100644
+--- a/packages/client/runtime/src/client/sessions/service.ts
++++ b/packages/client/runtime/src/client/sessions/service.ts
+@@ -27,6 +27,8 @@ import type {
+ import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
+ import type { SnapshotStore } from '../contract/store.ts'
+ import { createSnapshotStore } from '../contract/store.ts'
++import type { NavigationAccess } from '../navigation/access.ts'
++import { NavigationAccessDeniedError } from '../navigation/access.ts'
+ import type { SessionFace } from '../contract/session.ts'
+ import type { AgentContext, ISessions } from '../contract/sessions.ts'
+ import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
+@@ -268,6 +270,8 @@ export class SessionRuntime implements ISessions {
+   private watched: SessionId | undefined
+   /** Removed-while-staged sessions whose teardown waits for the stage to move away. */
+   private readonly deferredRemovals = new Set<SessionId>()
++  /** Latest user-visible open request; stale async allows must not re-stage an older target. */
++  private openTicket = 0
+ 
+   /**
+    * @param ctx - client root context (scope fibers mount under it).
+@@ -298,6 +302,7 @@ export class SessionRuntime implements ISessions {
+       restored.sessionId,
+       restored.subagentAddress,
+       conversation,
++      rootCtx.get('navigationAccess'),
+     )
+     this.list = createSnapshotStore<SessionListState>({
+       ids: [], byId: {}, current: undefined, phase: 'pending',
+@@ -370,7 +375,16 @@ export class SessionRuntime implements ISessions {
+    * @param id - listed or addressed session id.
+    */
+   open(id: SessionId): void {
+-    this.manager.select(id)
++    if (!this.manager.canSelect(id)) throw new Error(`sessions.select: unknown session ${id}`)
++    const access = this.navigationAccess()
++    if (access === undefined) {
++      this.manager.select(id)
++      return
++    }
++    const ticket = ++this.openTicket
++    void access.requestSession(id).then((decision) => {
++      if (ticket === this.openTicket && decision.allow) this.manager.select(id)
++    })
+   }
+ 
+   /**
+@@ -378,7 +392,18 @@ export class SessionRuntime implements ISessions {
+    * @param address - catalog-derived parent and child ids.
+    */
+   openSubagent(address: SubagentAddress): void {
+-    this.manager.selectSubagent(address)
++    if (!this.manager.canSelectSubagent(address)) {
++      throw new Error(`sessions.selectSubagent: ${address.childSessionId} is not a healthy catalog child`)
++    }
++    const access = this.navigationAccess()
++    if (access === undefined) {
++      this.manager.selectSubagent(address)
++      return
++    }
++    const ticket = ++this.openTicket
++    void access.requestSession(address.childSessionId).then((decision) => {
++      if (ticket === this.openTicket && decision.allow) this.manager.selectSubagent(address)
++    })
+   }
+ 
+   /**
+@@ -420,6 +445,7 @@ export class SessionRuntime implements ISessions {
+    * per the masked-gap contract until the next open() moves the stage.
+    */
+   clear(): void {
++    this.openTicket += 1
+     this.manager.clearSelection()
+   }
+ 
+@@ -509,6 +535,7 @@ export class SessionRuntime implements ISessions {
+     atSeq?: number
+     increaseTitle?: boolean
+   }): Promise<SessionId> {
++    await this.requireSessionAccess(opts.sessionId)
+     const sourceTitle = opts.increaseTitle
+       ? this.list.getSnapshot().byId[opts.sessionId]?.title
+       : undefined
+@@ -531,6 +558,17 @@ export class SessionRuntime implements ISessions {
+     return childId
+   }
+ 
++  private navigationAccess(): NavigationAccess | undefined {
++    return this.rootCtx.get('navigationAccess')
++  }
++
++  private async requireSessionAccess(sessionId: SessionId): Promise<void> {
++    const decision = await this.navigationAccess()?.requestSession(sessionId)
++    if (decision !== undefined && !decision.allow) {
++      throw new NavigationAccessDeniedError('session', sessionId)
++    }
++  }
++
+   /**
+    * Resolve an Agent-scoped context view (use-and-discard).
+    * @param id - session id (the agent identity — 1:1 same axis).
+diff --git a/packages/client/runtime/src/client/sessions/session.ts b/packages/client/runtime/src/client/sessions/session.ts
+index 02939cf28f..68dcb06117 100644
+--- a/packages/client/runtime/src/client/sessions/session.ts
++++ b/packages/client/runtime/src/client/sessions/session.ts
+@@ -27,6 +27,8 @@ import { ProjectionValueStore } from './projection-store.ts'
+ import type { ProjectionsBaseline } from './projection-store.ts'
+ import { resolvedClientTimeZone } from '../time-zone.ts'
+ import { SessionQueueMirror } from './queue-mirror.ts'
++import type { NavigationAccess } from '../navigation/access.ts'
++import { navigationAccessDeniedRpcError } from '../navigation/access.ts'
+ 
+ /** Messages requested per history page. */
+ export const PAGE_MESSAGES = 50
+@@ -54,6 +56,8 @@ export interface SessionOptions {
+   projections?: ProjectionValueStore
+   /** Runtime registries used by this Session-owned Conversation assembler. */
+   conversation?: ConversationRuntime
++  /** Generic navigation access guard for native session metadata actions. */
++  access?: NavigationAccess
+ }
+ 
+ /**
+@@ -85,6 +89,7 @@ export class Session implements SessionFace {
+   private readonly queueMirror = new SessionQueueMirror()
+   /** Session-owned business Context engine over the contiguous raw window. */
+   private readonly conversation: ConversationNodeAssembler
++  private readonly access: NavigationAccess | undefined
+   private running = false
+   private address: SubagentAddress | undefined
+   private parentAvailable = false
+@@ -146,6 +151,7 @@ export class Session implements SessionFace {
+     private readonly options: SessionOptions = {},
+   ) {
+     this.projections = options.projections ?? new ProjectionValueStore()
++    this.access = options.access
+     this.address = options.address
+     this.parentAvailable = options.parentAvailable ?? false
+     this.conversation = options.conversation === undefined
+@@ -344,6 +350,10 @@ export class Session implements SessionFace {
+    */
+   async rename(title: string): Promise<RpcResult<{ title: string; seq: number }>> {
+     try {
++      const decision = await this.access?.requestSession(this.sessionId)
++      if (decision !== undefined && !decision.allow) {
++        return { ok: false, error: navigationAccessDeniedRpcError('session', this.sessionId) }
++      }
+       const { result } = await this.api.sessions.rename({ sessionId: this.sessionId, title })
+       if (result.ok) this.projections.apply('title', result.value.title, result.value.seq)
+       return result
+diff --git a/packages/client/runtime/src/client/workspaces/service.ts b/packages/client/runtime/src/client/workspaces/service.ts
+index c23e3b3a6c..d0212c2c06 100644
+--- a/packages/client/runtime/src/client/workspaces/service.ts
++++ b/packages/client/runtime/src/client/workspaces/service.ts
+@@ -9,6 +9,8 @@ import type { SnapshotStore } from '../contract/store.ts'
+ import { createSnapshotStore } from '../contract/store.ts'
+ import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
+ import type { IWorkspaces } from '../contract/workspaces.ts'
++import type { NavigationAccess } from '../navigation/access.ts'
++import { NavigationAccessDeniedError } from '../navigation/access.ts'
+ import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
+ 
+ /** Workspace list plus the two-baseline readiness and default-target projection. */
+@@ -57,6 +59,7 @@ export class WorkspaceRuntime implements IWorkspaces {
+   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+   /** Guards the runtime-owned one-shot initial-selection subscription. */
+   private initialSelectionStarted = false
++  private readonly access: NavigationAccess | undefined
+ 
+   /**
+    * @param ctx - client root context.
+@@ -64,6 +67,7 @@ export class WorkspaceRuntime implements IWorkspaces {
+    * @param sessions - cross-domain sessions face used for recency and blank-session reuse.
+    */
+   constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
++    this.access = ctx.get('navigationAccess')
+     this.manager = new WorkspaceManager(api)
+     this.list = createSnapshotStore<WorkspaceListState>({
+       items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
+@@ -89,6 +93,7 @@ export class WorkspaceRuntime implements IWorkspaces {
+   async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {
+     const workspace = this.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
+     if (workspace === undefined) throw new Error(`workspaces.connectWorkspace: unknown workspace ${workspaceId}`)
++    await this.requireWorkspaceAccess(workspaceId)
+     // Coalesce concurrent connects: a create's summary lands without cwd
+     // until the host frame arrives, so a second call inside that window
+     // would miss the reuse scan and mint another hidden blank session.
+@@ -256,6 +261,7 @@ export class WorkspaceRuntime implements IWorkspaces {
+    * @returns the renamed Workspace view.
+    */
+   async rename(workspaceId: WorkspaceId, title: string): Promise<WorkspaceView> {
++    await this.requireWorkspaceAccess(workspaceId)
+     const result = await this.manager.rename(workspaceId, title)
+     if (!result.ok) throw new Error(`workspace rename failed: ${result.error.code}: ${result.error.message}`)
+     return result.value.workspace
+@@ -267,6 +273,7 @@ export class WorkspaceRuntime implements IWorkspaces {
+    * @param workspaceId - target workspace.
+    */
+   async delete(workspaceId: WorkspaceId): Promise<void> {
++    await this.requireWorkspaceAccess(workspaceId)
+     const result = await this.manager.delete(workspaceId)
+     if (!result.ok) throw new Error(`workspace delete failed: ${result.error.code}: ${result.error.message}`)
+   }
+@@ -288,6 +295,7 @@ export class WorkspaceRuntime implements IWorkspaces {
+    * @param sessionId - session to archive.
+    */
+   async archiveSession(sessionId: SessionId): Promise<void> {
++    await this.requireSessionAccess(sessionId)
+     const result = await this.manager.archiveSession(sessionId)
+     if (!result.ok) throw new Error(`session archive failed: ${result.error.code}: ${result.error.message}`)
+   }
+@@ -352,6 +360,20 @@ export class WorkspaceRuntime implements IWorkspaces {
+       recentWorkspaceId: baselinesReady ? recentWorkspace(workspace.items, sessions.byId) : undefined,
+     })
+   }
++
++  private async requireWorkspaceAccess(workspaceId: WorkspaceId): Promise<void> {
++    const decision = await this.access?.requestWorkspace(workspaceId)
++    if (decision !== undefined && !decision.allow) {
++      throw new NavigationAccessDeniedError('workspace', workspaceId)
++    }
++  }
++
++  private async requireSessionAccess(sessionId: SessionId): Promise<void> {
++    const decision = await this.access?.requestSession(sessionId)
++    if (decision !== undefined && !decision.allow) {
++      throw new NavigationAccessDeniedError('session', sessionId)
++    }
++  }
+ }
+ 
+ /** Stable tie-breaking follows Host Workspace order. */
 diff --git a/packages/client/runtime/tests/navigation-access.client.spec.ts b/packages/client/runtime/tests/navigation-access.client.spec.ts
 new file mode 100644
 index 0000000000..97cb975ca6
@@ -397,6 +722,307 @@ index 0000000000..97cb975ca6
 +    await expect(registry.requestSession(sid('plain'))).resolves.toEqual({ allow: true })
 +  })
 +})
+diff --git a/packages/client/runtime/tests/session.client.spec.ts b/packages/client/runtime/tests/session.client.spec.ts
+index 19e80dfd5b..ac975d3a8c 100644
+--- a/packages/client/runtime/tests/session.client.spec.ts
++++ b/packages/client/runtime/tests/session.client.spec.ts
+@@ -14,7 +14,7 @@ import { Session } from '../src/client/sessions/session.ts'
+ import type {
+   ChatConversationViewNode, ChatLocationNodeIndex, ChatNodeStore, ChatSnapshot,
+   ConversationEventInput, ConversationNode, ConversationNodeDefinition,
+-  ConversationRuntime, ConversationSnapshot, ConversationTimelineSnapshot,
++  ConversationRuntime, ConversationSnapshot, ConversationTimelineSnapshot, NavigationAccess,
+   ConversationViewDefinition,
+ } from '../src/client/index.ts'
+ import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+@@ -579,6 +579,25 @@ describe('prompt and cancel errors', () => {
+ })
+ 
+ describe('rename', () => {
++  it('requests access before session rename and does not call the host when denied', async () => {
++    const api = new FakeApiClient()
++    const access: NavigationAccess = {
++      register: () => () => {},
++      workspaceState: () => ({ kind: 'allow' }),
++      sessionState: () => ({ kind: 'blocked', reason: 'locked' }),
++      requestWorkspace: async () => ({ allow: true }),
++      requestSession: async () => ({ allow: false }),
++      subscribe: () => () => {},
++    }
++    const session = new Session(SID, api, fakeRemote(), { access })
++
++    const result = await session.rename('Hidden')
++
++    expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
++    expect(api.callsOf('session.rename')).toEqual([])
++    expect(session.projections.faceOf('title').getSnapshot()).toBeUndefined()
++  })
++
+   it('settles the title projection cell from the unary response (higher-seq-wins vs the push frame)', async () => {
+     const { api, session } = makeSession()
+     api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
+diff --git a/packages/client/runtime/tests/sessions-service.client.spec.ts b/packages/client/runtime/tests/sessions-service.client.spec.ts
+index b135b56ebe..3f1d2624ba 100644
+--- a/packages/client/runtime/tests/sessions-service.client.spec.ts
++++ b/packages/client/runtime/tests/sessions-service.client.spec.ts
+@@ -9,6 +9,7 @@
+ import { Context } from '@deepseek-ai/cordis'
+ import { afterEach, describe, expect, it, vi } from 'vitest'
+ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
++import { NavigationAccessRegistry, type NavigationDecision } from '../src/client/navigation/access.ts'
+ import { SessionCreateError, SessionRuntime, scopeOf } from '../src/client/sessions/service.ts'
+ import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+ 
+@@ -27,6 +28,23 @@ function bench(): Bench {
+   return { ctx, api, svc }
+ }
+ 
++function installSessionGate(
++  ctx: Context,
++  decision: NavigationDecision | Promise<NavigationDecision>,
++  matches: (id: SessionId) => boolean = () => true,
++): void {
++  const access = new NavigationAccessRegistry(ctx)
++  access.register({
++    matchesWorkspace: () => false,
++    matchesSession: matches,
++    workspaceState: () => ({ kind: 'allow' }),
++    sessionState: id => matches(id) ? { kind: 'blocked', reason: 'locked' } : { kind: 'allow' },
++    requestWorkspace: async () => ({ allow: true }),
++    requestSession: async () => decision,
++    subscribe: () => () => {},
++  })
++}
++
+ /** Refresh the manager list from programmable rows and flush the microtask batch. */
+ type FeedRow = {
+   id: string
+@@ -231,6 +249,65 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
+     await feedList(second, [{ id: 's1' }])
+     expect(second.svc.list.getSnapshot().current).toBe('s1')
+   })
++
++  it('public open waits for the access decision and leaves a denied target unselected', async () => {
++    const b = bench()
++    const gate = deferred<NavigationDecision>()
++    installSessionGate(b.ctx, gate.promise)
++    await feedList(b, [{ id: 'locked' }])
++
++    b.svc.open(sid('locked'))
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(b.api.callsOf('session.history')).toEqual([])
++
++    gate.resolve({ allow: false })
++    await Promise.resolve()
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(b.api.callsOf('session.history')).toEqual([])
++  })
++
++  it('public open keeps the latest allowed request from being overwritten by a stale allow', async () => {
++    const b = bench()
++    const first = deferred<NavigationDecision>()
++    const second = deferred<NavigationDecision>()
++    let requests = 0
++    const access = new NavigationAccessRegistry(b.ctx)
++    access.register({
++      matchesWorkspace: () => false,
++      matchesSession: () => true,
++      workspaceState: () => ({ kind: 'allow' }),
++      sessionState: () => ({ kind: 'allow' }),
++      requestWorkspace: async () => ({ allow: true }),
++      requestSession: async () => (++requests === 1 ? first.promise : second.promise),
++      subscribe: () => () => {},
++    })
++    await feedList(b, [{ id: 'first' }, { id: 'second' }])
++
++    b.svc.open(sid('first'))
++    b.svc.open(sid('second'))
++    second.resolve({ allow: true })
++    await new Promise(resolve => setTimeout(resolve, 0))
++    expect(b.svc.list.getSnapshot().current).toBe('second')
++
++    first.resolve({ allow: true })
++    await new Promise(resolve => setTimeout(resolve, 0))
++    expect(b.svc.list.getSnapshot().current).toBe('second')
++  })
++
++  it('clear cancels a pending guarded open allow', async () => {
++    const b = bench()
++    const gate = deferred<NavigationDecision>()
++    installSessionGate(b.ctx, gate.promise)
++    await feedList(b, [{ id: 'locked' }])
++
++    b.svc.open(sid('locked'))
++    b.svc.clear()
++    gate.resolve({ allow: true })
++    await new Promise(resolve => setTimeout(resolve, 0))
++
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(b.api.callsOf('session.history')).toEqual([])
++  })
+ })
+ 
+ describe('cell (render-layer session kit)', () => {
+@@ -379,6 +456,31 @@ describe('slot-store scope prune hook', () => {
+ })
+ 
+ describe('catalog-addressed navigation', () => {
++  it('public openSubagent waits for access and does not select a denied catalog child', async () => {
++    const b = bench()
++    const gate = deferred<NavigationDecision>()
++    installSessionGate(b.ctx, gate.promise)
++    b.api.onSubagentList = () => Promise.resolve(ok({
++      entries: [{
++        kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
++        activity: 'inactive', hasChildren: false,
++      }] as never[],
++      parentAvailable: true,
++    }))
++    await feedList(b, [{ id: 'root' }])
++    await b.svc.refreshSubagents(sid('root'))
++
++    b.svc.openSubagent({
++      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
++    })
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++
++    gate.resolve({ allow: false })
++    await Promise.resolve()
++    expect(b.svc.list.getSnapshot().current).toBeUndefined()
++    expect(b.api.callsOf('session.history')).toEqual([])
++  })
++
+   it('uses catalog labels for a listed addressed route', async () => {
+     const b = bench()
+     b.api.onSubagentList = (payload) => {
+@@ -521,6 +623,18 @@ describe('create', () => {
+ })
+ 
+ describe('fork', () => {
++  it('requests access before forking and does not call the host when denied', async () => {
++    const b = bench()
++    installSessionGate(b.ctx, { allow: false })
++    await feedList(b, [{ id: 'source', cwd: '/work' }])
++    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
++
++    await expect(b.svc.fork({ sessionId: sid('source') })).rejects.toThrow(/navigation access denied/)
++
++    expect(b.api.callsOf('session.fork')).toEqual([])
++    expect(b.svc.list.getSnapshot().byId[sid('child')]).toBeUndefined()
++  })
++
+   it.each([
+     ['Roadmap', 'Roadmap (1)'],
+     ['Roadmap (1)', 'Roadmap (2)'],
+diff --git a/packages/client/runtime/tests/workspaces-service.client.spec.ts b/packages/client/runtime/tests/workspaces-service.client.spec.ts
+index cfdfa98e9b..3c33d83888 100644
+--- a/packages/client/runtime/tests/workspaces-service.client.spec.ts
++++ b/packages/client/runtime/tests/workspaces-service.client.spec.ts
+@@ -1,6 +1,7 @@
+ import { Context } from '@deepseek-ai/cordis'
+ import { describe, expect, it, vi } from 'vitest'
+ import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
++import { NavigationAccessRegistry, type NavigationDecision } from '../src/client/navigation/access.ts'
+ import { SessionRuntime } from '../src/client/sessions/service.ts'
+ import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
+ import { DirectoryBrowseError, WorkspaceCreateError, WorkspaceRuntime } from '../src/client/workspaces/service.ts'
+@@ -16,6 +17,25 @@ function workspace(id: string, sessionIds: SessionId[] = [], createdAt = '2026-0
+   }
+ }
+ 
++function installAccessGate(
++  ctx: Context,
++  options: {
++    workspace?: NavigationDecision | Promise<NavigationDecision>
++    session?: NavigationDecision | Promise<NavigationDecision>
++  },
++): void {
++  const access = new NavigationAccessRegistry(ctx)
++  access.register({
++    matchesWorkspace: () => options.workspace !== undefined,
++    matchesSession: () => options.session !== undefined,
++    workspaceState: () => options.workspace === undefined ? { kind: 'allow' } : { kind: 'blocked', reason: 'locked' },
++    sessionState: () => options.session === undefined ? { kind: 'allow' } : { kind: 'blocked', reason: 'locked' },
++    requestWorkspace: async () => options.workspace ?? { allow: true },
++    requestSession: async () => options.session ?? { allow: true },
++    subscribe: () => () => {},
++  })
++}
++
+ describe('WorkspaceManager', () => {
+   it('replays changed frames over hydration and adopts the durable order on refresh', async () => {
+     const api = new FakeApiClient()
+@@ -275,6 +295,25 @@ describe('WorkspaceRuntime', () => {
+     await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-fresh-2')
+   })
+ 
++  it('requests workspace access before creating a blank session and leaves the host untouched when denied', async () => {
++    const ctx = new Context()
++    const gate = deferred<NavigationDecision>()
++    installAccessGate(ctx, { workspace: gate.promise })
++    const api = new FakeApiClient()
++    const sessions = new SessionRuntime(ctx, api, fakeRemote())
++    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
++    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
++    await workspaces.refresh()
++
++    const pending = workspaces.connectWorkspace(wid('alpha'))
++    await Promise.resolve()
++    expect(api.callsOf('session.create')).toEqual([])
++
++    gate.resolve({ allow: false })
++    await expect(pending).rejects.toThrow(/navigation access denied/)
++    expect(api.callsOf('session.create')).toEqual([])
++  })
++
+   it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
+     const ctx = new Context()
+     const api = new FakeApiClient()
+@@ -314,6 +353,20 @@ describe('WorkspaceRuntime', () => {
+     await expect(rejected).rejects.toBeInstanceOf(WorkspaceCreateError)
+   })
+ 
++  it('requests workspace access before workspace rename and delete mutations', async () => {
++    const ctx = new Context()
++    installAccessGate(ctx, { workspace: { allow: false } })
++    const api = new FakeApiClient()
++    const sessions = new SessionRuntime(ctx, api, fakeRemote())
++    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
++
++    await expect(workspaces.rename(wid('alpha'), 'Hidden')).rejects.toThrow(/navigation access denied/)
++    await expect(workspaces.delete(wid('alpha'))).rejects.toThrow(/navigation access denied/)
++
++    expect(api.callsOf('workspace.rename')).toEqual([])
++    expect(api.callsOf('workspace.delete')).toEqual([])
++  })
++
+   it('passes native directory selection and cancellation through without local state', async () => {
+     const ctx = new Context()
+     const api = new FakeApiClient()
+@@ -488,6 +541,23 @@ describe('WorkspaceRuntime', () => {
+     expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
+   })
+ 
++  it('requests session access before archiving and leaves archive state untouched when denied', async () => {
++    const ctx = new Context()
++    installAccessGate(ctx, { session: { allow: false } })
++    const api = new FakeApiClient()
++    const sessions = new SessionRuntime(ctx, api, fakeRemote())
++    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
++    api.onList = () => Promise.resolve(ok({
++      items: [{ sessionId: sid('locked'), updatedAt: 1, running: false, blank: false }],
++    }) as never)
++    await sessions.refresh()
++
++    await expect(workspaces.archiveSession(sid('locked'))).rejects.toThrow(/navigation access denied/)
++
++    expect(api.callsOf('workspace.archiveSession')).toEqual([])
++    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual([])
++  })
++
+   it('clears a current archived by a remote frame and shields the set from a stale in-flight baseline', async () => {
+     const ctx = new Context()
+     const api = new FakeApiClient()
 diff --git a/packages/client/ui-conversation/src/client/apply.ts b/packages/client/ui-conversation/src/client/apply.ts
 index 7920104d68..e04a5f9a85 100644
 --- a/packages/client/ui-conversation/src/client/apply.ts
@@ -788,15 +1414,11 @@ index 2a2b67b128..783b5d69a6 100644
  
  describe('prompt rejection through the assembled composer', () => {
 diff --git a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
-index 08f22ed400..52680edb6a 100644
+index 08f22ed400..d5fe4c7899 100644
 --- a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
 +++ b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
-@@ -16,10 +16,11 @@ import {
-   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
- } from '@deepseek-ai/dsh-client-ui-primitives'
- import type {
--  SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
-+  NavigationAccess, SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+@@ -19,7 +19,8 @@ import type {
+   SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
  } from '@deepseek-ai/dsh-client-runtime/client'
  import type { WorkspaceBrowserProps } from './contract/slots.ts'
 -import type { SessionNode, SessionOrderBy } from './tree.ts'
@@ -805,31 +1427,7 @@ index 08f22ed400..52680edb6a 100644
  import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
  import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
  import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
-@@ -76,6 +77,23 @@ function useNativeDragAcceptance(active: boolean): void {
-   }, [active])
- }
- 
-+function useGuardedSessionActivation(
-+  open: (sessionId: SessionId) => void,
-+  navigationAccess: NavigationAccess,
-+): (id: SessionId) => void {
-+  const sequence = useRef(0)
-+  useEffect(() => () => {
-+    sequence.current += 1
-+  }, [])
-+  return (id) => {
-+    const ticket = sequence.current + 1
-+    sequence.current = ticket
-+    void navigationAccess.requestSession(id).then((decision) => {
-+      if (ticket === sequence.current && decision.allow) open(id)
-+    })
-+  }
-+}
-+
- /** Reconcile a stored view order with the Workspace's current session account. */
- function reconciledSessionOrder(sessionIds: readonly SessionId[], stored: readonly string[] | undefined): SessionId[] {
-   if (stored === undefined) return [...sessionIds]
-@@ -217,6 +235,7 @@ type SessionTreeProps = Pick<
+@@ -217,6 +218,7 @@ type SessionTreeProps = Pick<
    WorkspaceBrowserProps,
    'useSessions' | 'startSession' | 'open' | 'forkSession'
    | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
@@ -837,7 +1435,7 @@ index 08f22ed400..52680edb6a 100644
  > & {
    /** Host account home for POSIX hover-path abbreviation. */
    home?: string | undefined
-@@ -253,7 +272,8 @@ function SessionTree({
+@@ -253,7 +255,8 @@ function SessionTree({
    onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
    insertWorkspaceBefore, insertSessionBefore, orderBy,
    groupExpansion, setGroupExpanded,
@@ -847,11 +1445,10 @@ index 08f22ed400..52680edb6a 100644
  }: SessionTreeProps) {
    const list = useSessions(s => s)
    const current = list.current
-@@ -381,6 +401,17 @@ function SessionTree({
+@@ -381,6 +384,16 @@ function SessionTree({
    const workspaceDropAtListStart = groups[0]?.workspaceId !== undefined
      && workspaceDrag?.over?.id === groups[0].workspaceId
      && workspaceDrag.over.half === 'before'
-+  const activateSession = useGuardedSessionActivation(open, navigationAccess)
 +  const toggleWorkspace = async (group: GroupNode): Promise<void> => {
 +    if (group.workspaceId !== undefined && !group.expanded) {
 +      const decision = await navigationAccess.requestWorkspace(group.workspaceId)
@@ -865,7 +1462,7 @@ index 08f22ed400..52680edb6a 100644
  
    return (
      <div className={clsx(css.treeBody, css.wide)}>
-@@ -395,6 +426,9 @@ function SessionTree({
+@@ -395,6 +408,9 @@ function SessionTree({
          )}
          {groups.map((group) => {
            const workspaceId = group.workspaceId
@@ -875,7 +1472,7 @@ index 08f22ed400..52680edb6a 100644
            const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
              ? workspaceDrag.over.half
              : null
-@@ -454,12 +488,9 @@ function SessionTree({
+@@ -454,12 +470,9 @@ function SessionTree({
                  group={group}
                  home={home}
                  t={t}
@@ -891,7 +1488,7 @@ index 08f22ed400..52680edb6a 100644
                  onCreate={() => {
                    if (group.workspaceId !== undefined) {
                      setGroupExpanded(group.key, true)
-@@ -472,11 +503,11 @@ function SessionTree({
+@@ -472,11 +485,11 @@ function SessionTree({
                    : {
                      rename: () => {
                      /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
@@ -905,12 +1502,7 @@ index 08f22ed400..52680edb6a 100644
                      },
                    }}
                />
-@@ -515,10 +546,13 @@ function SessionTree({
-                     node={node}
-                     currentId={current}
-                     now={now}
--                    onOpen={open}
-+                    onOpen={activateSession}
+@@ -519,6 +532,9 @@ function SessionTree({
                      onRename={onSessionRename}
                      onFork={forkSession}
                      onArchive={onSessionArchive}
@@ -920,40 +1512,26 @@ index 08f22ed400..52680edb6a 100644
                      drag={dragProps}
                      t={t}
                    />
-@@ -548,7 +582,8 @@ function SessionTree({
+@@ -548,7 +564,8 @@ function SessionTree({
  /** The flat "In one list" body: every session is one draggable top-level row. */
  function FlatList({
    useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
 -  orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
 +  orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder,
-+  workspaceRows, navigationAccess, renderSlot, t,
++  workspaceRows, renderSlot, t,
  }: Pick<
    SessionTreeProps,
    | 'useSessions'
-@@ -562,6 +597,9 @@ function FlatList({
+@@ -562,6 +579,8 @@ function FlatList({
    | 'sessionUpdatedAtByAccount'
    | 'syncSessionOrderAccount'
    | 'setSessionOrder'
 +  | 'workspaceRows'
-+  | 'navigationAccess'
 +  | 'renderSlot'
    | 't'
  >) {
    const list = useSessions(s => s)
-@@ -617,6 +655,7 @@ function FlatList({
-     setSessionOrder(FLAT_SESSION_ORDER_KEY, nextOrder.map(id => id as string))
-   }
-   const now = Date.now()
-+  const activateSession = useGuardedSessionActivation(open, navigationAccess)
-   return (
-     <div className={clsx(css.treeBody, css.wide)}>
-       <div className={clsx(css.list, css.flatList)} role="tree" aria-label={t('section.sessions')}>
-@@ -631,10 +670,12 @@ function FlatList({
-               node={node}
-               currentId={list.current}
-               now={now}
--              onOpen={open}
-+              onOpen={activateSession}
+@@ -635,6 +654,8 @@ function FlatList({
                onRename={onSessionRename}
                onFork={forkSession}
                onArchive={onSessionArchive}
@@ -962,7 +1540,7 @@ index 08f22ed400..52680edb6a 100644
                flat
                drag={{
                  start: () => {
-@@ -672,6 +713,30 @@ interface RemoteSearchState {
+@@ -672,6 +693,30 @@ interface RemoteSearchState {
    hasMore: boolean
  }
  
@@ -993,37 +1571,26 @@ index 08f22ed400..52680edb6a 100644
  /** Flat search body: local metadata matches plus the current Host result page. */
  function SearchResults({
    useSessions,
-@@ -681,8 +746,10 @@ function SearchResults({
+@@ -681,8 +726,9 @@ function SearchResults({
    query,
    remote,
    resultLimit,
 +  workspaceRows,
-+  navigationAccess,
    t,
 -}: Pick<SessionTreeProps, 'useSessions' | 'open' | 't'> & {
-+}: Pick<SessionTreeProps, 'useSessions' | 'open' | 'workspaceRows' | 'navigationAccess' | 't'> & {
++}: Pick<SessionTreeProps, 'useSessions' | 'open' | 'workspaceRows' | 't'> & {
    workspaces: readonly WorkspaceView[]
    archivedSessionIds: readonly SessionNode['id'][]
    query: string
-@@ -699,6 +766,7 @@ function SearchResults({
-   )
-   const pending = currentRemote.status === 'loading'
-   const failed = currentRemote.status === 'error'
-+  const activateSession = useGuardedSessionActivation(open, navigationAccess)
- 
-   return (
-     <div className={clsx(css.treeBody, css.wide)}>
-@@ -709,7 +777,8 @@ function SearchResults({
-               key={result.id}
+@@ -710,6 +756,7 @@ function SearchResults({
                result={result}
                currentId={list.current}
--              onOpen={open}
-+              onOpen={activateSession}
+               onOpen={open}
 +              presentation={workspaceRows.session(result.id, searchPresentation(result))}
                t={t}
              />
            ))}
-@@ -762,9 +831,13 @@ export function WorkspaceBrowser({
+@@ -762,9 +809,13 @@ export function WorkspaceBrowser({
    searchResultLimit,
    useDirectoryFlow,
    useHostDescription,
@@ -1037,26 +1604,24 @@ index 08f22ed400..52680edb6a 100644
    const home = useHostDescription(description => description?.home)
    const workspaces = useWorkspaces(state => state.items)
    const workspacePhase = useWorkspaces(state => state.phase)
-@@ -1146,6 +1219,8 @@ export function WorkspaceBrowser({
+@@ -1146,6 +1197,7 @@ export function WorkspaceBrowser({
              <SearchResults
                useSessions={useSessions}
                open={open}
 +              workspaceRows={workspaceRows}
-+              navigationAccess={navigationAccess}
                workspaces={workspaces}
                archivedSessionIds={archivedSessionIds}
                query={normalizedQuery}
-@@ -1165,6 +1240,9 @@ export function WorkspaceBrowser({
+@@ -1165,6 +1217,8 @@ export function WorkspaceBrowser({
                  sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
                  syncSessionOrderAccount={actions.syncSessionOrderAccount}
                  setSessionOrder={actions.setSessionOrder}
 +                workspaceRows={workspaceRows}
-+                navigationAccess={navigationAccess}
 +                renderSlot={renderSlot}
                  t={t}
                />
              )
-@@ -1184,6 +1262,9 @@ export function WorkspaceBrowser({
+@@ -1184,6 +1238,9 @@ export function WorkspaceBrowser({
                  archivedSessionIds={archivedSessionIds}
                  startSession={startSession}
                  open={open}
@@ -1205,10 +1770,10 @@ index 93269c22c1..f6f5045bb0 100644
        locale: NS,
 diff --git a/packages/client/ui-workspace/src/client/row-extensions.ts b/packages/client/ui-workspace/src/client/row-extensions.ts
 new file mode 100644
-index 0000000000..70fd500ea2
+index 0000000000..f9a05c4b52
 --- /dev/null
 +++ b/packages/client/ui-workspace/src/client/row-extensions.ts
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,168 @@
 +import { Context, Service } from '@deepseek-ai/cordis'
 +import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 +
@@ -1225,8 +1790,12 @@ index 0000000000..70fd500ea2
 +}
 +
 +export interface WorkspaceRowDecorator {
-+  workspace(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation
-+  session(id: SessionId, base: SessionRowPresentation): SessionRowPresentation
++  matchesWorkspace?(id: WorkspaceId, base: WorkspaceRowPresentation): boolean
++  matchesSession?(id: SessionId, base: SessionRowPresentation): boolean
++  workspace?(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation
++  session?(id: SessionId, base: SessionRowPresentation): SessionRowPresentation
++  fallbackWorkspace?(id: WorkspaceId, base: WorkspaceRowPresentation, error: unknown): WorkspaceRowPresentation
++  fallbackSession?(id: SessionId, base: SessionRowPresentation, error: unknown): SessionRowPresentation
 +}
 +
 +export interface WorkspaceRows {
@@ -1282,13 +1851,13 @@ index 0000000000..70fd500ea2
 +
 +  workspace(id: WorkspaceId, base: WorkspaceRowPresentation): WorkspaceRowPresentation {
 +    let current = base
-+    for (const decorator of this.decorators) current = decorator.workspace(id, current)
++    for (const decorator of this.decorators) current = applyWorkspaceDecorator(decorator, id, current)
 +    return current
 +  }
 +
 +  session(id: SessionId, base: SessionRowPresentation): SessionRowPresentation {
 +    let current = base
-+    for (const decorator of this.decorators) current = decorator.session(id, current)
++    for (const decorator of this.decorators) current = applySessionDecorator(decorator, id, current)
 +    return current
 +  }
 +
@@ -1303,6 +1872,74 @@ index 0000000000..70fd500ea2
 +  private notify(): void {
 +    this.revisionValue += 1
 +    for (const listener of this.listeners) listener()
++  }
++}
++
++function applyWorkspaceDecorator(
++  decorator: WorkspaceRowDecorator,
++  id: WorkspaceId,
++  base: WorkspaceRowPresentation,
++): WorkspaceRowPresentation {
++  try {
++    if (decorator.matchesWorkspace?.(id, base) === false) return base
++    return decorator.workspace?.(id, base) ?? base
++  } catch (error) {
++    return workspaceFallback(decorator, id, base, error)
++  }
++}
++
++function applySessionDecorator(
++  decorator: WorkspaceRowDecorator,
++  id: SessionId,
++  base: SessionRowPresentation,
++): SessionRowPresentation {
++  try {
++    if (decorator.matchesSession?.(id, base) === false) return base
++    return decorator.session?.(id, base) ?? base
++  } catch (error) {
++    return sessionFallback(decorator, id, base, error)
++  }
++}
++
++function workspaceFallback(
++  decorator: WorkspaceRowDecorator,
++  id: WorkspaceId,
++  base: WorkspaceRowPresentation,
++  error: unknown,
++): WorkspaceRowPresentation {
++  try {
++    return decorator.fallbackWorkspace?.(id, base, error) ?? concealedWorkspace()
++  } catch {
++    return concealedWorkspace()
++  }
++}
++
++function sessionFallback(
++  decorator: WorkspaceRowDecorator,
++  id: SessionId,
++  base: SessionRowPresentation,
++  error: unknown,
++): SessionRowPresentation {
++  try {
++    return decorator.fallbackSession?.(id, base, error) ?? concealedSession()
++  } catch {
++    return concealedSession()
++  }
++}
++
++function concealedWorkspace(): WorkspaceRowPresentation {
++  return {
++    label: 'Protected workspace',
++    ariaLabel: 'Open protected workspace',
++    concealed: true,
++  }
++}
++
++function concealedSession(): SessionRowPresentation {
++  return {
++    label: 'Protected session',
++    ariaLabel: 'Open protected session',
++    concealed: true,
 +  }
 +}
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.module.css b/packages/client/ui-workspace/src/client/rows/Rows.module.css
@@ -1691,14 +2328,16 @@ index c2e201469f..ef9d6fc878 100644
    runtime.slots.installLocale(locale)
 diff --git a/packages/client/ui-workspace/tests/row-extensions.client.spec.tsx b/packages/client/ui-workspace/tests/row-extensions.client.spec.tsx
 new file mode 100644
-index 0000000000..db71e3ce7e
+index 0000000000..813a8dbaea
 --- /dev/null
 +++ b/packages/client/ui-workspace/tests/row-extensions.client.spec.tsx
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,148 @@
 +import { describe, expect, it, vi } from 'vitest'
 +import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 +import { WorkspaceRowsRegistry } from '@deepseek-ai/dsh-client-ui-workspace/client'
-+import type { WorkspaceRowDecorator, WorkspaceRowPresentation } from '@deepseek-ai/dsh-client-ui-workspace/client'
++import type {
++  SessionRowPresentation, WorkspaceRowDecorator, WorkspaceRowPresentation,
++} from '@deepseek-ai/dsh-client-ui-workspace/client'
 +
 +const sid = (id: string) => id as SessionId
 +const wid = (id: string) => id as WorkspaceId
@@ -1765,10 +2404,76 @@ index 0000000000..db71e3ce7e
 +    service.register(identityDecorator)
 +    expect(listener).toHaveBeenCalledTimes(2)
 +  })
++
++  it('conceals a matched workspace when its decorator throws', () => {
++    const service = new WorkspaceRowsRegistry()
++    service.register({
++      matchesWorkspace: id => id === wid('locked'),
++      matchesSession: () => false,
++      workspace: () => { throw new Error('decorator offline') },
++      session: (_id, base) => base,
++    })
++
++    expect(service.workspace(wid('locked'), baseWorkspace('Secret'))).toEqual({
++      label: 'Protected workspace',
++      ariaLabel: 'Open protected workspace',
++      concealed: true,
++    })
++  })
++
++  it('keeps unmatched rows byte-for-byte equivalent when a decorator would otherwise fail', () => {
++    const service = new WorkspaceRowsRegistry()
++    const base = baseSession('Plain')
++    service.register({
++      matchesWorkspace: () => false,
++      matchesSession: () => false,
++      workspace: () => { throw new Error('must not run') },
++      session: () => { throw new Error('must not run') },
++    })
++
++    expect(service.session(sid('plain'), base)).toBe(base)
++  })
++
++  it('uses a matching decorator fallback and conceals if that fallback also fails', () => {
++    const service = new WorkspaceRowsRegistry()
++    service.register({
++      matchesWorkspace: () => false,
++      matchesSession: () => true,
++      workspace: (_id, base) => base,
++      session: () => { throw new Error('decorator offline') },
++      fallbackSession: () => ({
++        label: 'Custom protected',
++        ariaLabel: 'Open custom protected',
++        concealed: true,
++      }),
++    })
++    service.register({
++      matchesWorkspace: () => false,
++      matchesSession: id => id === sid('fallback-crash'),
++      workspace: (_id, base) => base,
++      session: () => { throw new Error('decorator offline') },
++      fallbackSession: () => { throw new Error('fallback offline') },
++    })
++
++    expect(service.session(sid('locked'), baseSession('Secret'))).toEqual({
++      label: 'Custom protected',
++      ariaLabel: 'Open custom protected',
++      concealed: true,
++    })
++    expect(service.session(sid('fallback-crash'), baseSession('Secret'))).toEqual({
++      label: 'Protected session',
++      ariaLabel: 'Open protected session',
++      concealed: true,
++    })
++  })
 +})
 +
 +function baseWorkspace(label: string): WorkspaceRowPresentation {
 +  return { label, ariaLabel: `Open ${label}`, concealed: false }
++}
++
++function baseSession(label: string): SessionRowPresentation {
++  return { label, ariaLabel: `Open ${label}`, snippet: 'visible', concealed: false }
 +}
 +
 +const identityDecorator: WorkspaceRowDecorator = {
@@ -1952,7 +2657,7 @@ index f86e275c5e..e7f54c182d 100644
      const renderRow = (over: Partial<SessionNode>) => render(
        <SessionNodeItem
 diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
-index 820d2bd66b..1c4c9cd7b5 100644
+index 820d2bd66b..48583d2046 100644
 --- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
 +++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
 @@ -8,6 +8,7 @@ import type {
@@ -1963,16 +2668,10 @@ index 820d2bd66b..1c4c9cd7b5 100644
  import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
  import { UNGROUPED_KEY } from '../src/client/tree.ts'
  import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
-@@ -58,6 +59,19 @@ function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setDat
+@@ -58,6 +59,13 @@ function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setDat
    return { effectAllowed: 'uninitialized', dropEffect: 'none', setData: vi.fn() }
  }
  
-+function deferredDecision() {
-+  let resolve!: (value: { allow: boolean }) => void
-+  const promise = new Promise<{ allow: boolean }>((r) => { resolve = r })
-+  return { promise, resolve }
-+}
-+
 +async function guardedClick(target: Element): Promise<void> {
 +  await act(async () => {
 +    fireEvent.click(target)
@@ -1983,7 +2682,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
  function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
    const store = createWorkspaceViewStore().create()
    const props: WorkspaceBrowserProps = {
-@@ -79,8 +93,18 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
+@@ -79,8 +87,18 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
      insertWorkspaceBefore: vi.fn(async () => {}),
      insertSessionBefore: vi.fn(async () => {}),
      createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -2002,7 +2701,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
      t,
      ...overrides,
-@@ -234,28 +258,91 @@ describe('WorkspaceBrowser', () => {
+@@ -234,28 +252,83 @@ describe('WorkspaceBrowser', () => {
      ])
    })
  
@@ -2025,7 +2724,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
 +    expect(screen.queryByText('alpha-s')).toBeNull()
 +  })
 +
-+  it('guards workspace expansion and session opening through navigationAccess', async () => {
++  it('guards workspace expansion and delegates session opening to the runtime open boundary', async () => {
 +    const open = vi.fn()
 +    const navigationAccess = {
 +      register: vi.fn(() => () => {}),
@@ -2051,25 +2750,18 @@ index 820d2bd66b..1c4c9cd7b5 100644
 +    expect(screen.getByText('alpha-s')).toBeTruthy()
 +
 +    await act(async () => { fireEvent.click(screen.getByText('alpha-s')) })
-+    expect(navigationAccess.requestSession).toHaveBeenCalledWith(sid('alpha-s'))
-+    expect(open).not.toHaveBeenCalled()
-+
-+    navigationAccess.requestSession.mockResolvedValueOnce({ allow: true })
-+    await act(async () => { fireEvent.click(screen.getByText('alpha-s')) })
 +    expect(open).toHaveBeenCalledWith(sid('alpha-s'))
-   })
- 
--  it('shows five sessions by default and clears transient show-all when the Workspace collapses', () => {
-+  it('ignores a stale grouped-row session allow after a later session click wins', async () => {
++    expect(navigationAccess.requestSession).not.toHaveBeenCalled()
++  })
++
++  it('delegates grouped-row session clicks in user order', async () => {
 +    const open = vi.fn()
-+    const first = deferredDecision()
-+    const second = deferredDecision()
 +    const navigationAccess = {
 +      register: vi.fn(() => () => {}),
 +      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
 +      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
 +      requestWorkspace: vi.fn(async () => ({ allow: true })),
-+      requestSession: vi.fn((id: SessionId) => id === sid('one') ? first.promise : second.promise),
++      requestSession: vi.fn(async () => ({ allow: true })),
 +      subscribe: vi.fn(() => () => {}),
 +    }
 +    mount({
@@ -2082,13 +2774,12 @@ index 820d2bd66b..1c4c9cd7b5 100644
 +
 +    fireEvent.click(screen.getByText('one'))
 +    fireEvent.click(screen.getByText('two'))
-+    await act(async () => { second.resolve({ allow: true }); await Promise.resolve() })
-+    expect(open).toHaveBeenCalledWith(sid('two'))
-+
-+    await act(async () => { first.resolve({ allow: true }); await Promise.resolve() })
-+    expect(open).toHaveBeenCalledTimes(1)
-+  })
-+
++    expect(open).toHaveBeenNthCalledWith(1, sid('one'))
++    expect(open).toHaveBeenNthCalledWith(2, sid('two'))
++    expect(navigationAccess.requestSession).not.toHaveBeenCalled()
+   })
+ 
+-  it('shows five sessions by default and clears transient show-all when the Workspace collapses', () => {
 +  it('shows five sessions by default and clears transient show-all when the Workspace collapses', async () => {
      const items = Array.from({ length: 7 }, (_, index) => summary(`session-${index + 1}`, 7 - index))
      const b = mount({
@@ -2100,7 +2791,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      for (const item of items.slice(0, 5)) expect(screen.getByText(item.displayTitle)).toBeTruthy()
      expect(screen.queryByText('session-6')).toBeNull()
      expect(screen.queryByText('session-7')).toBeNull()
-@@ -265,9 +352,9 @@ describe('WorkspaceBrowser', () => {
+@@ -265,9 +338,9 @@ describe('WorkspaceBrowser', () => {
      expect(screen.getByText('session-7')).toBeTruthy()
      expect(screen.getByRole('button', { name: '收起' })).toBeTruthy()
  
@@ -2112,7 +2803,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
      expect(screen.queryByText('session-6')).toBeNull()
      expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
-@@ -279,7 +366,7 @@ describe('WorkspaceBrowser', () => {
+@@ -279,7 +352,7 @@ describe('WorkspaceBrowser', () => {
        useSessions: hook(initial),
        useWorkspaces: hook(workspaceState([workspace('alpha', ['two', 'one'])])),
      })
@@ -2121,20 +2812,18 @@ index 820d2bd66b..1c4c9cd7b5 100644
      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
      fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
      await waitFor(() => {
-@@ -336,6 +423,36 @@ describe('WorkspaceBrowser', () => {
+@@ -336,6 +409,32 @@ describe('WorkspaceBrowser', () => {
      expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('two')
    })
  
-+  it('ignores a stale flat-row session allow after a later session click wins', async () => {
++  it('delegates flat-row session clicks in user order', async () => {
 +    const open = vi.fn()
-+    const first = deferredDecision()
-+    const second = deferredDecision()
 +    const navigationAccess = {
 +      register: vi.fn(() => () => {}),
 +      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
 +      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
 +      requestWorkspace: vi.fn(async () => ({ allow: true })),
-+      requestSession: vi.fn((id: SessionId) => id === sid('one') ? first.promise : second.promise),
++      requestSession: vi.fn(async () => ({ allow: true })),
 +      subscribe: vi.fn(() => () => {}),
 +    }
 +    const b = mount({
@@ -2148,17 +2837,15 @@ index 820d2bd66b..1c4c9cd7b5 100644
 +
 +    fireEvent.click(screen.getByText('one'))
 +    fireEvent.click(screen.getByText('two'))
-+    await act(async () => { second.resolve({ allow: true }); await Promise.resolve() })
-+    expect(open).toHaveBeenCalledWith(sid('two'))
-+
-+    await act(async () => { first.resolve({ allow: true }); await Promise.resolve() })
-+    expect(open).toHaveBeenCalledTimes(1)
++    expect(open).toHaveBeenNthCalledWith(1, sid('one'))
++    expect(open).toHaveBeenNthCalledWith(2, sid('two'))
++    expect(navigationAccess.requestSession).not.toHaveBeenCalled()
 +  })
 +
    it('archives a session from the row menu and hides archived rows in both modes', async () => {
      const archiveSession = vi.fn(async () => {})
      const b = mount({
-@@ -343,7 +460,7 @@ describe('WorkspaceBrowser', () => {
+@@ -343,7 +442,7 @@ describe('WorkspaceBrowser', () => {
        useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])])),
        archiveSession,
      })
@@ -2167,7 +2854,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
      fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
      expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
-@@ -367,7 +484,7 @@ describe('WorkspaceBrowser', () => {
+@@ -367,7 +466,7 @@ describe('WorkspaceBrowser', () => {
          useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
          archiveSession,
        })
@@ -2176,7 +2863,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
        fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
        fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
        await Promise.resolve()
-@@ -379,14 +496,14 @@ describe('WorkspaceBrowser', () => {
+@@ -379,14 +478,14 @@ describe('WorkspaceBrowser', () => {
      }
    })
  
@@ -2193,7 +2880,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      expect(screen.getByText('child-s')).toBeTruthy()
      expect(screen.queryByRole('button', { name: /展开|收起/ })).toBeNull()
      expect(screen.getByText('child-s').closest('[role="treeitem"]')?.getAttribute('draggable')).toBe('true')
-@@ -620,7 +737,7 @@ describe('WorkspaceBrowser', () => {
+@@ -620,7 +719,7 @@ describe('WorkspaceBrowser', () => {
        expect(screen.getByText('Research Workspace')).toBeTruthy()
        expect(screen.getByText('…the waterfall token appears here…')).toBeTruthy()
        expect(screen.getByText('仅显示前 20 条结果，请缩小搜索范围。')).toBeTruthy()
@@ -2202,20 +2889,18 @@ index 820d2bd66b..1c4c9cd7b5 100644
        expect(open).toHaveBeenCalledWith(sid('body-hit'))
        expect(input.value).toBe('waterfall token')
      } finally {
-@@ -628,6 +745,93 @@ describe('WorkspaceBrowser', () => {
+@@ -628,6 +727,89 @@ describe('WorkspaceBrowser', () => {
      }
    })
  
-+  it('ignores a stale search-result session allow after a later result click wins', async () => {
++  it('delegates search-result session clicks in user order', async () => {
 +    const open = vi.fn()
-+    const first = deferredDecision()
-+    const second = deferredDecision()
 +    const navigationAccess = {
 +      register: vi.fn(() => () => {}),
 +      workspaceState: vi.fn(() => ({ kind: 'allow' as const })),
 +      sessionState: vi.fn(() => ({ kind: 'allow' as const })),
 +      requestWorkspace: vi.fn(async () => ({ allow: true })),
-+      requestSession: vi.fn((id: SessionId) => id === sid('one') ? first.promise : second.promise),
++      requestSession: vi.fn(async () => ({ allow: true })),
 +      subscribe: vi.fn(() => () => {}),
 +    }
 +    mount({
@@ -2230,11 +2915,9 @@ index 820d2bd66b..1c4c9cd7b5 100644
 +
 +    fireEvent.click(screen.getByText('Search one'))
 +    fireEvent.click(screen.getByText('Search two'))
-+    await act(async () => { second.resolve({ allow: true }); await Promise.resolve() })
-+    expect(open).toHaveBeenCalledWith(sid('two'))
-+
-+    await act(async () => { first.resolve({ allow: true }); await Promise.resolve() })
-+    expect(open).toHaveBeenCalledTimes(1)
++    expect(open).toHaveBeenNthCalledWith(1, sid('one'))
++    expect(open).toHaveBeenNthCalledWith(2, sid('two'))
++    expect(navigationAccess.requestSession).not.toHaveBeenCalled()
 +  })
 +
 +  it('projects concealed search results without title, workspace or snippet leakage', async () => {
@@ -2296,7 +2979,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
    it('bounds programmatic search input to a schema-valid request without splitting an astral character', async () => {
      vi.useFakeTimers()
      try {
-@@ -912,7 +1116,7 @@ describe('WorkspaceBrowser', () => {
+@@ -912,7 +1094,7 @@ describe('WorkspaceBrowser', () => {
      expect(insertWorkspaceBefore).toHaveBeenCalledWith(wid('tail'), wid('beta'))
    })
  
@@ -2305,7 +2988,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      const insertSessionBefore = vi.fn(async () => {})
      const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])
      mount({
-@@ -920,7 +1124,7 @@ describe('WorkspaceBrowser', () => {
+@@ -920,7 +1102,7 @@ describe('WorkspaceBrowser', () => {
        useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two', 'three'])])),
        insertSessionBefore,
      })
@@ -2314,7 +2997,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      const rows = screen.getAllByRole('treeitem').slice(1) // drop the group header
      const [one, , three] = rows as [HTMLElement, HTMLElement, HTMLElement]
      three.getBoundingClientRect = () => ({
-@@ -996,7 +1200,7 @@ describe('WorkspaceBrowser', () => {
+@@ -996,7 +1178,7 @@ describe('WorkspaceBrowser', () => {
      ])
    })
  
@@ -2323,7 +3006,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      const insertSessionBefore = vi.fn(async () => {})
      const sessions = sessionState([summary('one', 2), summary('two', 1)])
      const b = mount({
-@@ -1004,7 +1208,7 @@ describe('WorkspaceBrowser', () => {
+@@ -1004,7 +1186,7 @@ describe('WorkspaceBrowser', () => {
        useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
        insertSessionBefore,
      })
@@ -2332,7 +3015,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      const one = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
      fireEvent.dragStart(one, { dataTransfer: dragData() })
      // The host dropped "one" from the workspace account while the drag is in
-@@ -1018,7 +1222,7 @@ describe('WorkspaceBrowser', () => {
+@@ -1018,7 +1200,7 @@ describe('WorkspaceBrowser', () => {
      expect(insertSessionBefore).toHaveBeenCalledWith(wid('alpha'), sid('one'), sid('two'))
    })
  
@@ -2341,7 +3024,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      const insertSessionBefore = vi.fn(async () => {})
      const sessions = sessionState([summary('one', 2), summary('two', 1)])
      mount({
-@@ -1026,7 +1230,7 @@ describe('WorkspaceBrowser', () => {
+@@ -1026,7 +1208,7 @@ describe('WorkspaceBrowser', () => {
        useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
        insertSessionBefore,
      })
@@ -2350,7 +3033,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
      two.getBoundingClientRect = () => ({
        top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
-@@ -1045,14 +1249,14 @@ describe('WorkspaceBrowser', () => {
+@@ -1045,14 +1227,14 @@ describe('WorkspaceBrowser', () => {
      expect(insertSessionBefore).toHaveBeenCalledWith(wid('alpha'), sid('one'), undefined)
    })
  
@@ -2367,7 +3050,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
      const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
      two.getBoundingClientRect = () => ({
        top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
-@@ -1077,7 +1281,7 @@ describe('WorkspaceBrowser', () => {
+@@ -1077,7 +1259,7 @@ describe('WorkspaceBrowser', () => {
          useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
          insertSessionBefore,
        })
@@ -2376,7 +3059,7 @@ index 820d2bd66b..1c4c9cd7b5 100644
        const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
        two.getBoundingClientRect = () => ({
          top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
-@@ -1242,3 +1446,12 @@ describe('WorkspaceBrowser', () => {
+@@ -1242,3 +1424,12 @@ describe('WorkspaceBrowser', () => {
      expect(row.hasAttribute('draggable')).toBe(false)
    })
  })
