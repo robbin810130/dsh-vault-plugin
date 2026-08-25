@@ -164,3 +164,80 @@ commit 在获取 `state.lock` 后重新读取磁盘 revision，并严格执行�
 ## Fix Round 1 Concerns
 
 - 无阻塞项。进程异常退出遗留的 `state.lock` 不会被自动猜测为 stale 或删除；后续访问会超时并 fail closed，需要显式运维恢复，避免误删仍由活跃进程持有的锁。
+
+---
+
+## Fix Round 2 状态
+
+完成。仅修复 scoped re-review 的 2 个 Important 和 1 个 Minor，并新增对应回归测试；未派发 subagent/reviewer。
+
+## Fix Round 2 改动文件
+
+- `plugin/src/host/state/repository.ts`
+- `plugin/tests/host/state-repository.spec.ts`
+- `.superpowers/sdd/2026-08-24-02-dsh-vault-host/task-3-report.md`
+
+## Fix Round 2 RED 证据
+
+先只修改 `plugin/tests/host/state-repository.spec.ts`，再运行：
+
+```bash
+rtk pnpm --dir=plugin vitest run tests/host/state-repository.spec.ts
+```
+
+结果：退出码 `1`。
+
+```text
+Test Files  1 failed (1)
+Tests       5 failed | 20 passed (25)
+```
+
+真实失败覆盖：
+
+- backup stage 成功后主 `state.json` rename 失败时，`.bak` 已被提前发布。
+- 敏感 temp 持续清理失败后，FS 恢复时下一次 `load()` 不会扫描清除 stale temp。
+- stale temp 仍无法清理时，下一次操作仍会读取/触碰正常 state。
+- 原子调用顺序仍先发布 backup、后发布主 state。
+- 首次 audit 创建后的 file sync 失败，第二次成功 append 走 `a` 分支时不会 sync directory。
+
+## Fix Round 2 修复项
+
+1. backup 继续在同目录 temp 完整 stage/sync，但主 state rename 成功并完成目录 sync 前不发布 `.bak`；主 rename 失败只清理两个 staging temp，旧 `.bak` 保持不变。若 state 已发布而 backup 发布前失败，则使用仍在 backup temp 中的提交前 state 回滚主 state，并同步目录。
+2. `load()`、`commit()`、`appendAudit()` 均在取得跨实例锁后、任何正常状态读写前扫描仓库自己的 `.state.json.tmp-*` 与 `.state.json.bak.tmp-*` 命名空间；逐个执行三次 unlink 重试并同步目录。任一 stale temp 无法清理即明确拒绝操作，不读取、写入或 chmod 正常 state，也不吞 cleanup error。
+3. audit 每次成功 append 并完成 file sync 后都执行 directory sync，不再依赖本次是否通过 `ax` 首次创建；因此首次写/sync 失败后，后续走 `a` 的成功追加仍会持久化目录项。
+
+## Fix Round 2 原子顺序与失败语义
+
+commit 在锁内先完成 stale temp 清扫，再按以下顺序执行：
+
+1. `wx` 创建 state temp，写完整 JSON，sync 文件。
+2. `wx` 创建 backup temp，将提交前 state 复制到其中，强制 `0600`，sync 文件。
+3. rename state temp → `state.json`，sync 目录。
+4. rename backup temp → `state.json.bak`，再次 sync 目录。
+5. 全部成功并释放锁后才更新实例内 snapshot。
+
+因此 backup staging、copy 或主 state rename 失败时，旧 state 与旧 `.bak` 均不变；主 state 已发布但 backup 尚未发布的后续失败会尝试用 backup temp 回滚。temp 清理或回滚失败均以明确的 fail-closed 聚合错误暴露，并由下一次锁内操作在业务读写前重新清扫。
+
+## Fix Round 2 GREEN / 验证
+
+- 聚焦测试：`rtk pnpm --dir=plugin vitest run tests/host/state-repository.spec.ts` → exit `0`，`1` file、`25/25` tests passed。
+- plugin 全量测试：`rtk pnpm --dir=plugin test` → exit `0`，`3` files、`42/42` tests passed。
+- typecheck：`rtk pnpm --dir=plugin typecheck` → exit `0`，`tsc -p tsconfig.host.json --noEmit`。
+- build：`rtk pnpm --dir=plugin build` → exit `0`，tsdown 成功生成 `6` 个文件。
+- whitespace：`rtk git diff --check` → exit `0`。
+
+## Fix Round 2 自审
+
+- Finding 1：测试直接构造已有 revision 1 state 与 revision 0 backup，注入主 state rename 失败；断言提交失败后两者内容均保持不变且无 temp 残留。成功路径继续断言 `.bak` 精确等于提交前 state。
+- Finding 2：测试覆盖持续 unlink 失败留下敏感 temp、FS 恢复后下一次 `load()` 清扫成功；另一个测试断言清扫持续失败时正常 state 的 chmod/read 次数均为零。三类公开操作共用同一锁内前置清扫路径。
+- Finding 3：测试覆盖首次 `ax` 写入后 audit file sync 失败、下一次 `a` 成功追加，并断言成功调用执行一次 directory sync。
+- temp 扫描仅匹配仓库生成的两个固定前缀，不删除无关文件；清扫发生在跨实例锁内。
+- 未改变 schema/contracts，无新依赖，无 plaintext secret 日志，无本轮范围外扩展。
+
+## Fix Round 2 Commit
+
+`fix(vault): recover interrupted persistence`（本报告随该提交提交）
+
+## Fix Round 2 Concerns
+
+- 无阻塞项。若底层文件系统持续拒绝删除 stale temp，仓库会按要求保持 fail closed，直至权限或文件系统故障恢复。

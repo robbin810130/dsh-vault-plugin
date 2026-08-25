@@ -173,6 +173,7 @@ describe('VaultStateRepository', () => {
 
   it('fails closed with an explicit cleanup error when a sensitive temp cannot be removed', async () => {
     await new VaultStateRepository(dir).load()
+    let cleanupFails = true
     const faultingFs = {
       ...fs,
       rename: async (oldPath: PathLike, newPath: PathLike) => {
@@ -180,7 +181,9 @@ describe('VaultStateRepository', () => {
         return fs.rename(oldPath, newPath)
       },
       unlink: async (path: PathLike) => {
-        if (String(path).includes('.tmp-')) throw ioError('device busy', 'EBUSY')
+        if (cleanupFails && String(path).includes('.tmp-')) {
+          throw ioError('device busy', 'EBUSY')
+        }
         return fs.unlink(path)
       },
     }
@@ -189,6 +192,40 @@ describe('VaultStateRepository', () => {
 
     await expect(repo.commit(0, stateAt(1))).rejects.toThrow(/cleanup/i)
     await expect(readJson(join(dir, STATE_FILE))).resolves.toEqual(stateAt(0))
+    expect((await fs.readdir(dir)).filter((name) => name.includes('.tmp-')).length).toBeGreaterThan(0)
+
+    cleanupFails = false
+    await expect(repo.load()).resolves.toEqual(stateAt(0))
+    expect((await fs.readdir(dir)).filter((name) => name.includes('.tmp-'))).toEqual([])
+  })
+
+  it('refuses to touch normal state while stale temp cleanup is failing', async () => {
+    await new VaultStateRepository(dir).load()
+    const staleTemp = join(dir, '.state.json.tmp-stale-sensitive')
+    await fs.writeFile(staleTemp, '{sensitive-candidate}', { mode: 0o600 })
+    let stateTouches = 0
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      chmod: async (path, fileMode) => {
+        if (String(path) === join(dir, STATE_FILE) || String(path) === join(dir, BACKUP_FILE)) {
+          stateTouches += 1
+        }
+        await fs.chmod(path, fileMode)
+      },
+      readFile: async (path, encoding) => {
+        stateTouches += 1
+        return fs.readFile(path, encoding)
+      },
+      unlink: async (path) => {
+        if (String(path) === staleTemp) throw ioError('cleanup denied', 'EACCES')
+        await fs.unlink(path)
+      },
+    }
+
+    await expect(new VaultStateRepository(dir, faultingFs).load()).rejects.toThrow(/cleanup/i)
+    expect(stateTouches).toBe(0)
+    await expect(readJson(join(dir, STATE_FILE))).resolves.toEqual(stateAt(0))
+    await expect(fs.readFile(staleTemp, 'utf8')).resolves.toBe('{sensitive-candidate}')
   })
 
   it('performs the replacement from a same-directory temp while the old state remains readable', async () => {
@@ -263,10 +300,10 @@ describe('VaultStateRepository', () => {
       'backup-copy',
       'backup-sync-open',
       'backup-temp-sync',
-      'backup-rename',
+      'state-rename',
       'directory-open',
       'directory-sync',
-      'state-rename',
+      'backup-rename',
       'directory-open',
       'directory-sync',
     ])
@@ -289,6 +326,28 @@ describe('VaultStateRepository', () => {
     await faultingRepo.load()
 
     await expect(faultingRepo.commit(1, stateAt(2))).rejects.toThrow('backup copy failed')
+    await expect(readJson(join(dir, STATE_FILE))).resolves.toEqual(stateAt(1))
+    await expect(readJson(join(dir, BACKUP_FILE))).resolves.toEqual(stateAt(0))
+    expect((await fs.readdir(dir)).filter((name) => name.includes('.tmp-'))).toEqual([])
+  })
+
+  it('does not publish the staged backup when the main state rename fails', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    await expect(readJson(join(dir, BACKUP_FILE))).resolves.toEqual(stateAt(0))
+
+    const faultingFs = {
+      ...fs,
+      rename: async (source: PathLike, destination: PathLike) => {
+        if (String(destination) === join(dir, STATE_FILE)) throw new Error('state rename failed')
+        await fs.rename(source, destination)
+      },
+    }
+    const faultingRepo = new VaultStateRepository(dir, faultingFs)
+    await faultingRepo.load()
+
+    await expect(faultingRepo.commit(1, stateAt(2))).rejects.toThrow('state rename failed')
     await expect(readJson(join(dir, STATE_FILE))).resolves.toEqual(stateAt(1))
     await expect(readJson(join(dir, BACKUP_FILE))).resolves.toEqual(stateAt(0))
     expect((await fs.readdir(dir)).filter((name) => name.includes('.tmp-'))).toEqual([])
@@ -437,5 +496,40 @@ describe('VaultStateRepository', () => {
     })
 
     expect(calls).toEqual(['audit-open', 'audit-sync', 'directory-open', 'directory-sync'])
+  })
+
+  it('syncs the directory after a successful append that follows a failed first append', async () => {
+    let failAuditSync = true
+    let directorySyncs = 0
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        const isAudit = String(path) === join(dir, AUDIT_FILE)
+        const isDirectory = String(path) === dir
+        return {
+          writeFile: (data) => handle.writeFile(data).then(() => undefined),
+          sync: async () => {
+            if (isAudit && failAuditSync) {
+              failAuditSync = false
+              throw new Error('audit sync failed')
+            }
+            if (isDirectory) directorySyncs += 1
+            await handle.sync()
+          },
+          close: () => handle.close(),
+        }
+      },
+    }
+    const repo = new VaultStateRepository(dir, faultingFs)
+    const event = {
+      timestamp: '2026-08-25T00:00:00.000Z',
+      action: 'repository-loaded',
+    } as const
+
+    await expect(repo.appendAudit(event)).rejects.toThrow('audit sync failed')
+    await expect(repo.appendAudit(event)).resolves.toBeUndefined()
+
+    expect(directorySyncs).toBe(1)
   })
 })

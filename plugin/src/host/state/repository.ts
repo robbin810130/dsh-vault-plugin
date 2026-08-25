@@ -9,6 +9,8 @@ const FILE_MODE = 0o600
 const LOCK_RETRY_ATTEMPTS = 100
 const LOCK_RETRY_DELAY_MS = 10
 const CLEANUP_ATTEMPTS = 3
+const STATE_TEMP_PREFIX = '.state.json.tmp-'
+const BACKUP_TEMP_PREFIX = '.state.json.bak.tmp-'
 
 interface RepositoryFileHandle {
   writeFile(data: string): Promise<void>
@@ -21,6 +23,7 @@ export interface RepositoryFileSystem {
   chmod(path: string, mode: number): Promise<void>
   open(path: string, flags: string, mode?: number): Promise<RepositoryFileHandle>
   readFile(path: string, encoding: 'utf8'): Promise<string>
+  readdir(path: string): Promise<string[]>
   copyFile(source: string, destination: string): Promise<void>
   rename(source: string, destination: string): Promise<void>
   unlink(path: string): Promise<void>
@@ -113,16 +116,13 @@ export class VaultStateRepository {
   }
 
   appendAudit(event: AuditEvent): Promise<void> {
-    return this.#exclusive(async () => {
+    return this.#exclusive(() => this.#withStateLock(async () => {
       const parsed = parseAuditEvent(structuredClone(event))
       const line = `${JSON.stringify(parsed)}\n`
 
-      await this.#ensureDirectory()
-      let created = false
       let handle: RepositoryFileHandle
       try {
         handle = await this.fileSystem.open(this.#auditPath, 'ax', FILE_MODE)
-        created = true
       } catch (error) {
         if (!hasCode(error, 'EEXIST')) throw error
         handle = await this.fileSystem.open(this.#auditPath, 'a', FILE_MODE)
@@ -133,8 +133,8 @@ export class VaultStateRepository {
         await handle.writeFile(line)
         await handle.sync()
       })
-      if (created) await this.#syncDirectory()
-    })
+      await this.#syncDirectory()
+    }))
   }
 
   #exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -155,6 +155,7 @@ export class VaultStateRepository {
     let result: T | undefined
     let operationError: unknown
     try {
+      await this.#cleanupStaleTemps()
       result = await operation()
     } catch (error) {
       operationError = error
@@ -238,10 +239,11 @@ export class VaultStateRepository {
   async #persist(next: VaultState, currentExists: boolean): Promise<void> {
     await this.#ensureDirectory()
     const suffix = `${process.pid}-${randomUUID()}`
-    const stateTempPath = join(this.stateDirectory, `.state.json.tmp-${suffix}`)
-    const backupTempPath = join(this.stateDirectory, `.state.json.bak.tmp-${suffix}`)
+    const stateTempPath = join(this.stateDirectory, `${STATE_TEMP_PREFIX}${suffix}`)
+    const backupTempPath = join(this.stateDirectory, `${BACKUP_TEMP_PREFIX}${suffix}`)
     let stateTempExists = false
     let backupTempExists = false
+    let stateReplaced = false
 
     try {
       const stateTemp = await this.fileSystem.open(stateTempPath, 'wx', FILE_MODE)
@@ -260,16 +262,30 @@ export class VaultStateRepository {
         await this.fileSystem.chmod(backupTempPath, FILE_MODE)
         const backupTemp = await this.fileSystem.open(backupTempPath, 'r+')
         await closeAfter(backupTemp, () => backupTemp.sync())
-        await this.fileSystem.rename(backupTempPath, this.#backupPath)
-        backupTempExists = false
-        await this.#syncDirectory()
       }
 
       await this.fileSystem.rename(stateTempPath, this.#statePath)
       stateTempExists = false
+      stateReplaced = true
       await this.#syncDirectory()
+
+      if (currentExists) {
+        await this.fileSystem.rename(backupTempPath, this.#backupPath)
+        backupTempExists = false
+        await this.#syncDirectory()
+      }
     } catch (error) {
       const cleanupErrors: unknown[] = []
+      if (stateReplaced && backupTempExists) {
+        try {
+          await this.fileSystem.rename(backupTempPath, this.#statePath)
+          backupTempExists = false
+          stateReplaced = false
+          await this.#syncDirectory()
+        } catch (rollbackError) {
+          cleanupErrors.push(new Error('Vault state rollback failed', { cause: rollbackError }))
+        }
+      }
       if (backupTempExists) {
         try {
           await this.#unlinkWithRetries(backupTempPath, 'backup temp')
@@ -297,6 +313,18 @@ export class VaultStateRepository {
   async #syncDirectory(): Promise<void> {
     const directory = await this.fileSystem.open(this.stateDirectory, 'r')
     await closeAfter(directory, () => directory.sync())
+  }
+
+  async #cleanupStaleTemps(): Promise<void> {
+    const names = await this.fileSystem.readdir(this.stateDirectory)
+    const staleNames = names.filter((name) =>
+      name.startsWith(STATE_TEMP_PREFIX) || name.startsWith(BACKUP_TEMP_PREFIX))
+    if (staleNames.length === 0) return
+
+    for (const name of staleNames) {
+      await this.#unlinkWithRetries(join(this.stateDirectory, name), 'stale temp')
+    }
+    await this.#syncDirectory()
   }
 
   async #unlinkWithRetries(path: string, label: string): Promise<void> {
