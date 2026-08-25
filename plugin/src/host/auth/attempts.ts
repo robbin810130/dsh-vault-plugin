@@ -13,7 +13,8 @@ export type FailedAttemptDecision =
 
 interface AttemptState {
   readonly failures: number
-  readonly cooldownDeadline?: number
+  /** null means deadline construction failed and the cooldown remains fail-closed. */
+  readonly cooldownDeadline?: number | null
   readonly retryAt?: number
 }
 
@@ -51,7 +52,7 @@ export class FailedAttemptStore {
     if (state?.cooldownDeadline === undefined || state.retryAt === undefined) {
       return { kind: 'allowed' }
     }
-    if (now >= state.cooldownDeadline) {
+    if (state.cooldownDeadline !== null && now >= state.cooldownDeadline) {
       this.delete(groupId, clientInstanceId)
       return { kind: 'allowed' }
     }
@@ -71,7 +72,7 @@ export class FailedAttemptStore {
         return { kind: 'rejected' }
       }
       const now = this.readMonotonicNow()
-      if (now === undefined || now < current.cooldownDeadline) {
+      if (now === undefined || current.cooldownDeadline === null || now < current.cooldownDeadline) {
         return { kind: 'cooldown', retryAt: current.retryAt }
       }
       this.delete(groupId, clientInstanceId)
@@ -86,7 +87,7 @@ export class FailedAttemptStore {
       return { kind: 'rejected' }
     }
     if (current?.cooldownDeadline !== undefined && current.retryAt !== undefined) {
-      if (now < current.cooldownDeadline) {
+      if (current.cooldownDeadline === null || now < current.cooldownDeadline) {
         return { kind: 'cooldown', retryAt: current.retryAt }
       }
       this.delete(groupId, clientInstanceId)
@@ -96,10 +97,15 @@ export class FailedAttemptStore {
     const nextFailures = failures + 1
     if (nextFailures >= policy.maxAttempts) {
       const cooldownMs = policy.cooldownSeconds * 1_000
-      const retryAt = this.dependencies.wallNow() + cooldownMs
+      const cooldownDeadline = this.deadlineFrom(now, cooldownMs)
+      const wallNow = this.dependencies.wallNow()
+      const retryAtCandidate = wallNow + cooldownMs
+      const retryAt = Number.isFinite(retryAtCandidate)
+        ? retryAtCandidate
+        : (Number.isFinite(wallNow) ? wallNow : 0)
       this.set(groupId, clientInstanceId, {
         failures: nextFailures,
-        cooldownDeadline: now + cooldownMs,
+        cooldownDeadline,
         retryAt,
       })
       return { kind: 'cooldown', retryAt }
@@ -173,5 +179,15 @@ export class FailedAttemptStore {
   private failClosedRetryAt(): number {
     const retryAt = this.dependencies.wallNow()
     return Number.isFinite(retryAt) ? retryAt : 0
+  }
+
+  private deadlineFrom(now: number, cooldownMs: number): number | null {
+    const deadline = now + cooldownMs
+    return Number.isFinite(cooldownMs)
+      && cooldownMs > 0
+      && Number.isFinite(deadline)
+      && deadline > now
+      ? deadline
+      : null
   }
 }

@@ -210,4 +210,40 @@ describe('FailedAttemptStore', () => {
     })
     expect(store.recordFailure('group-b', 'client-b', disabled)).toEqual({ kind: 'rejected' })
   })
+
+  it('fails closed when a cooldown deadline cannot advance beyond Number.MAX_VALUE', () => {
+    const store = new FailedAttemptStore({
+      monotonicNow: () => Number.MAX_VALUE,
+      wallNow: () => 50_000,
+    })
+    const policy = enabled(1, 1)
+
+    expect(store.recordFailure('group-a', 'client-a', policy)).toEqual({
+      kind: 'cooldown',
+      retryAt: 51_000,
+    })
+    expect(store.check('group-a', 'client-a', policy)).toEqual({
+      kind: 'cooldown',
+      retryAt: 51_000,
+    })
+  })
+
+  it('does not retain a non-finite cooldown deadline after arithmetic overflow', () => {
+    const store = new FailedAttemptStore({
+      monotonicNow: () => 1,
+      wallNow: () => 50_000,
+    })
+    const policy = enabled(1, Number.MAX_VALUE)
+
+    expect(store.recordFailure('group-a', 'client-a', policy)).toEqual({
+      kind: 'cooldown',
+      retryAt: 50_000,
+    })
+    const groups = (store as unknown as {
+      groups: Map<string, Map<string, { cooldownDeadline?: number | null }>>
+    }).groups
+
+    expect(groups.get('group-a')?.get('client-a')?.cooldownDeadline).toBeNull()
+    expect(store.check('group-a', 'client-a', policy).kind).toBe('cooldown')
+  })
 })

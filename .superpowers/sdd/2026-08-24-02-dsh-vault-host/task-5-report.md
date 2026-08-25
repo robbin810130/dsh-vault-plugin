@@ -163,3 +163,55 @@ rtk pnpm --dir=plugin vitest run tests/host/grants.spec.ts tests/host/attempts.s
 提交信息：`feat(vault): issue grants and enforce attempt policy`
 
 本轮 commit SHA 由提交完成后的最终回复给出。
+
+---
+
+# Task 5 Fix Round 2 Report
+
+## 状态与范围
+
+2026-08-25 完成。基于 `187a9db4bc029be4542c3a5472a0f8147f851b63`，仅修复 `FailedAttemptStore` cooldown deadline 构造不安全这一项 Important；未处理其他内容。
+
+## 严格 TDD：RED
+
+先仅向 `plugin/tests/host/attempts.spec.ts` 增加回归测试，再运行：
+
+```bash
+rtk pnpm --dir=plugin vitest run tests/host/attempts.spec.ts
+```
+
+首次结果：exit `1`，`2 failed | 8 passed`。
+
+- `monotonicNow=Number.MAX_VALUE`、正常 1 秒 cooldown 时，`now + cooldownMs === now`；`recordFailure()` 返回 cooldown 后紧接 `check()` 实际返回 `allowed`。
+- 超大 `cooldownSeconds` 使算术结果为 `Infinity`，store 实际保存了非有限 `cooldownDeadline`。
+
+增加直接相关的有限展示时间断言后再次运行 RED：exit `1`，`1 failed | 9 passed`；overflow 路径返回了 `retryAt: Infinity`，而非有限的 display-only 值。
+
+## 最小修复
+
+- 新增严格 `deadlineFrom(now, cooldownMs)`：仅接受有限、正数 cooldown，且结果必须有限并严格大于 `now`。
+- deadline 构造失败时保存显式 `null` fail-closed sentinel，不保存 `Infinity` 或可立即过期的 deadline。
+- `check()`、enabled/disabled `recordFailure()` 均把 sentinel 视为持续 cooldown；只能由 success/reset/clear/Host restart 等显式状态清理解除，不会返回 `allowed`。
+- overflow 时 `retryAt` 回退为有限 wall-clock 展示值；它不参与 cooldown 安全判断。
+- 未改动 grant、策略转换或其他 Task 5 语义。
+
+## GREEN 与完整验证
+
+- focused attempt：`rtk pnpm --dir=plugin vitest run tests/host/attempts.spec.ts` → exit `0`，`10/10` tests passed。
+- focused Task 5：`rtk pnpm --dir=plugin vitest run tests/host/grants.spec.ts tests/host/attempts.spec.ts` → exit `0`，`2` files、`21/21` tests passed。
+- full：`rtk pnpm --dir=plugin test` → exit `0`，`6` files、`79/79` tests passed。
+- typecheck：`rtk pnpm --dir=plugin typecheck` → exit `0`。
+- build：`rtk pnpm --dir=plugin build` → exit `0`，生成 `6` 个构建文件。
+- diff-check：`rtk git diff --check` → exit `0`。
+
+## 自审风险
+
+- `null` 是内部 fail-closed sentinel，不进入 shared contracts，不改变公开 decision union。
+- 极端算术异常会保持 cooldown，直到显式清理或 Host 重启；这是避免 fail-open 的保守行为。
+- `retryAt` 仍仅用于展示，是否允许由 monotonic deadline/sentinel 决定。
+
+## Commit
+
+提交信息：`feat(vault): issue grants and enforce attempt policy`
+
+本轮 commit SHA 由提交完成后的最终回复给出。
