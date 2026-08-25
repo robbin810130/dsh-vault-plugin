@@ -19,6 +19,7 @@ const PARAMETERS = {
   keyLength: 32,
 } as const
 
+const MIN_SECRET_CHARACTERS = 8
 const MAX_SECRET_BYTES = 512
 const SALT_LENGTH = 16
 const SCRYPT_MAX_MEMORY = 64 * 1024 * 1024
@@ -30,6 +31,9 @@ const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
 function prepareSecret(secret: string): string {
   if (Buffer.byteLength(secret, 'utf8') > MAX_SECRET_BYTES) {
     throw new RangeError(`Secret must not exceed ${MAX_SECRET_BYTES} UTF-8 bytes`)
+  }
+  if (Array.from(secret).length < MIN_SECRET_CHARACTERS) {
+    throw new RangeError(`Secret must contain at least ${MIN_SECRET_CHARACTERS} Unicode code points`)
   }
 
   if (COMPACT_RECOVERY_KEY.test(secret)) return secret

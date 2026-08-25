@@ -48,6 +48,14 @@ describe('password and recovery verifier', () => {
     await expect(verifySecret('  eight chars  ', record)).resolves.toBe(true)
   })
 
+  it('rejects 7 Unicode code points and accepts 8 including non-BMP characters', async () => {
+    const sevenCharacters = '🔐'.repeat(7)
+    const eightCharacters = '🔐'.repeat(8)
+
+    await expect(createVerifier(sevenCharacters)).rejects.toThrow(RangeError)
+    await expect(createVerifier(eightCharacters)).resolves.toMatchObject({ kdf: 'scrypt' })
+  })
+
   it('accepts 512 UTF-8 bytes and rejects 513 UTF-8 bytes including multibyte input', async () => {
     const exactly512Bytes = `${'界'.repeat(170)}ab`
     const exactly513Bytes = `${'界'.repeat(170)}abc`
