@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -16,8 +16,12 @@ const patchPath = join(repoRoot, 'compat', 'dsh-v0.1.1-rc.2', '0001-plugin-acces
 
 const required = [
   'packages/client/runtime/src/client/navigation/access.ts',
+  'packages/client/ui-agent-preset/src/client/index.ts',
+  'packages/client/ui-sidebar/src/client/contract/slots.ts',
   'packages/client/ui-workspace/src/client/row-extensions.ts',
   'packages/client/ui-conversation/tests/access-gate.client.spec.tsx',
+  'packages/extensions/cordis-client-runner/src/client/api-catalog.ts',
+  'packages/test-support/client-runtime/src/workspaces.ts',
 ]
 
 async function git(cwd, args) {
@@ -27,6 +31,15 @@ async function git(cwd, args) {
 
 test('exported DSH compatibility patch applies to pinned upstream and contains required seams', async () => {
   assert.equal(existsSync(patchPath), true, `missing exported patch: ${patchPath}`)
+  const patch = await readFile(patchPath, 'utf8')
+
+  for (const file of required) {
+    assert.match(
+      patch,
+      new RegExp(`^diff --git a/${file} b/${file}$`, 'm'),
+      `expected patch entry: ${file}`,
+    )
+  }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'dsh-patch-roundtrip-'))
   try {

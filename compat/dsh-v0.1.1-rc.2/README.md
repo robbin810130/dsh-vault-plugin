@@ -7,15 +7,19 @@ This directory contains the reviewed compatibility patch for DeepSeek Harness pl
 - Repository: `https://github.com/deepseek-ai/deepseek-harness.git`
 - Tag: `dsh-v0.1.1-rc.2`
 - Pinned commit: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
-- Reviewed head: `96dd876bb065983620acaf8161b20e71137493b7`
+- Reviewed head: `4352bf0d3845da302a0202f431ed71d03fa16d3c`
 
-The reviewed DSH branch contains eleven source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
+The reviewed DSH branch contains twelve source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
 
 ## Changed Packages
 
 - `packages/client/runtime`
+- `packages/client/ui-agent-preset`
+- `packages/client/ui-sidebar`
 - `packages/client/ui-workspace`
 - `packages/client/ui-conversation`
+- `packages/extensions/cordis-client-runner`
+- `packages/test-support/client-runtime`
 
 ## Public Contracts
 
@@ -44,7 +48,7 @@ compat/dsh-v0.1.1-rc.2/0001-plugin-access-seams.patch
 It is generated from the reviewed DSH checkout with:
 
 ```bash
-git diff --binary b150a551b8d465e31e418e1b2eaf5e79bbb7d28e..HEAD -- packages/client/runtime packages/client/ui-workspace packages/client/ui-conversation
+git diff --binary b150a551b8d465e31e418e1b2eaf5e79bbb7d28e..HEAD -- packages/client/runtime packages/client/ui-agent-preset packages/client/ui-sidebar packages/client/ui-workspace packages/client/ui-conversation packages/extensions/cordis-client-runner packages/test-support/client-runtime
 ```
 
 ## Apply

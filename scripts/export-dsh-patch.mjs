@@ -11,8 +11,12 @@ const defaultSource = join(repoRoot, '.cache', 'deepseek-harness')
 const defaultOutput = join(repoRoot, 'compat', 'dsh-v0.1.1-rc.2', '0001-plugin-access-seams.patch')
 const diffPackages = [
   'packages/client/runtime',
+  'packages/client/ui-agent-preset',
+  'packages/client/ui-sidebar',
   'packages/client/ui-workspace',
   'packages/client/ui-conversation',
+  'packages/extensions/cordis-client-runner',
+  'packages/test-support/client-runtime',
 ]
 
 function readArg(name, fallback) {
