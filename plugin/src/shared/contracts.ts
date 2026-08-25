@@ -89,3 +89,12 @@ export interface UnlockResult {
   readonly grant: GrantProof
   readonly expiresAt: number
 }
+
+export interface GrantValidationResult {
+  readonly valid: boolean
+}
+
+export interface ActivityTouchResult {
+  readonly valid: boolean
+  readonly touched: boolean
+}
