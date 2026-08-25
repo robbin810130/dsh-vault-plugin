@@ -73,6 +73,7 @@ export class VaultService {
 
   async handle(request: VaultApiRequest): Promise<ServiceResult> {
     try {
+      await this.state()
       switch (request.action) {
         case 'snapshot': return { ok: true, value: await this.snapshot() }
         case 'unlock': return await this.unlock(request.clientInstanceId, request.groupId, request.password)
@@ -302,8 +303,29 @@ export class VaultService {
   private ttlMs(): number { return this.policy.autoLockMinutes === 0 ? 0 : this.policy.autoLockMinutes * 60_000 }
 
   private async state(): Promise<VaultState> {
-    if (!this.#state) this.#state = await this.repository.load()
-    return this.#state
+    const loaded = await this.repository.load()
+    const previous = this.#state
+    if (previous === undefined || loaded.revision >= previous.revision) {
+      if (previous !== undefined && loaded.revision > previous.revision) this.reconcileExternalState(previous, loaded)
+      this.#state = loaded
+    }
+    return this.#state as VaultState
+  }
+
+  private reconcileExternalState(previous: VaultState, next: VaultState): void {
+    this.grants.clear()
+    const groupIds = new Set([...Object.keys(previous.groups), ...Object.keys(next.groups)])
+    for (const groupId of groupIds) {
+      const previousGroup = previous.groups[groupId]
+      const nextGroup = next.groups[groupId]
+      const previousBindings = previous.bindings.filter((binding) => binding.passwordGroupId === groupId)
+      const nextBindings = next.bindings.filter((binding) => binding.passwordGroupId === groupId)
+      if (nextGroup === undefined
+        || previousGroup?.credentialVersion !== nextGroup.credentialVersion
+        || JSON.stringify(previousBindings) !== JSON.stringify(nextBindings)) {
+        this.grants.revokeGroup(groupId)
+      }
+    }
   }
 
   private async commit(expectedRevision: number, next: VaultState): Promise<'ok' | 'conflict' | 'failed'> {

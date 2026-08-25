@@ -115,26 +115,67 @@ export class VaultStateRepository {
     })
   }
 
-  appendAudit(event: AuditEvent): Promise<void> {
-    return this.#exclusive(() => this.#withStateLock(async () => {
-      const parsed = parseAuditEvent(structuredClone(event))
-      const line = `${JSON.stringify(parsed)}\n`
+  commitWithAudit(
+    expectedRevision: number,
+    next: VaultState,
+    attempt: AuditEvent,
+    success: AuditEvent,
+  ): Promise<CommitResult> {
+    return this.#exclusive(async () => {
+      const committed = await this.#withStateLock(async (): Promise<LockedCommit> => {
+        const current = await this.#loadFromDiskLocked()
+        if (current.revision !== expectedRevision) {
+          await this.#appendAuditLocked(attempt)
+          return { result: { ok: false, code: 'revision-conflict' }, snapshot: current }
+        }
 
-      let handle: RepositoryFileHandle
-      try {
-        handle = await this.fileSystem.open(this.#auditPath, 'ax', FILE_MODE)
-      } catch (error) {
-        if (!hasCode(error, 'EEXIST')) throw error
-        handle = await this.fileSystem.open(this.#auditPath, 'a', FILE_MODE)
-      }
+        const candidate = parseVaultState(structuredClone(next))
+        if (candidate.revision !== expectedRevision + 1) {
+          throw new TypeError('Next vault state revision must increment expectedRevision by one')
+        }
 
-      await closeAfter(handle, async () => {
-        await this.fileSystem.chmod(this.#auditPath, FILE_MODE)
-        await handle.writeFile(line)
-        await handle.sync()
+        await this.#appendAuditLocked(attempt)
+        await this.#persist(candidate, true)
+        try {
+          await this.#appendAuditLocked(success)
+        } catch (error) {
+          try {
+            await this.#persist(current, true)
+          } catch (rollbackError) {
+            throw new AggregateError([error, rollbackError], 'Vault audit commit rollback failed')
+          }
+          throw error
+        }
+        return { result: { ok: true, revision: candidate.revision }, snapshot: freezeDeep(candidate) }
       })
-      await this.#syncDirectory()
-    }))
+
+      this.#snapshot = committed.snapshot
+      return committed.result
+    })
+  }
+
+  appendAudit(event: AuditEvent): Promise<void> {
+    return this.#exclusive(() => this.#withStateLock(() => this.#appendAuditLocked(event)))
+  }
+
+  async #appendAuditLocked(event: AuditEvent): Promise<void> {
+    const parsed = parseAuditEvent(structuredClone(event))
+    const line = `${JSON.stringify(parsed)}\n`
+
+    let handle: RepositoryFileHandle
+    try {
+      handle = await this.fileSystem.open(this.#auditPath, 'ax', FILE_MODE)
+    } catch (error) {
+      if (!hasCode(error, 'EEXIST')) throw error
+      handle = await this.fileSystem.open(this.#auditPath, 'a', FILE_MODE)
+    }
+
+    await closeAfter(handle, async () => {
+      await this.fileSystem.chmod(this.#auditPath, FILE_MODE)
+      await handle.writeFile(line)
+      await handle.sync()
+    })
+    await this.#syncDirectory()
   }
 
   #exclusive<T>(operation: () => Promise<T>): Promise<T> {

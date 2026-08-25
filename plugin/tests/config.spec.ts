@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { ConfigSchema, VaultPolicySchema } from '../src/config.js'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { ConfigSchema, resolveStateDirectory, VaultPolicySchema } from '../src/config.js'
 
 describe('VaultPolicySchema', () => {
   it('normalizes the documented policy defaults', () => {
@@ -29,5 +31,21 @@ describe('ConfigSchema', () => {
 
   it('rejects a non-absolute explicit state directory', () => {
     expect(() => ConfigSchema({ stateDir: 'vault-lock' })).toThrow()
+  })
+
+  it('defaults to the DSH authority directory under the user home', () => {
+    expect(resolveStateDirectory(undefined, { DSH_HOME: '/wrong', DSH_VAULT_STATE_DIR: undefined }))
+      .toBe(join(homedir(), '.dsh', 'vault-lock'))
+  })
+
+  it('uses the environment override, then gives an absolute explicit path precedence', () => {
+    const environment = { DSH_VAULT_STATE_DIR: '/env/vault-lock' }
+    expect(resolveStateDirectory(undefined, environment)).toBe('/env/vault-lock')
+    expect(resolveStateDirectory('/flag/vault-lock', environment)).toBe('/flag/vault-lock')
+  })
+
+  it('rejects relative environment and explicit state directories', () => {
+    expect(() => resolveStateDirectory(undefined, { DSH_VAULT_STATE_DIR: 'relative-vault' })).toThrow()
+    expect(() => resolveStateDirectory('relative-vault', {})).toThrow()
   })
 })

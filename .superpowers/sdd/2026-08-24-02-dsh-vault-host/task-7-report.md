@@ -5,7 +5,7 @@
 - 实现 dsh-vault Settings namespace，仅暴露非敏感 VaultPolicy 字段。
 - 默认值复用 VaultPolicySchema，通过真实 installSettingsSection() 接入 Cordis，并支持 live onChange。
 - VaultService 支持实时替换 policy，并同步 failed-attempt protection 配置。
-- Host 与 CLI 共用 DSH_HOME/vault-lock state directory resolution。
+- Host 与 CLI 共用 `~/.dsh/vault-lock` state directory resolution，并支持显式 absolute Config.stateDir。
 - 新增 dsh-vault CLI binary，支持：
   dsh plugin --profile web exec dsh-vault protection remove --group <full-group-id>。
 - CLI 展示 group name/member count，要求输入完整 group id 二次确认；仅删除目标组的 protection bindings，保留 direct Session 等无关 binding。
@@ -35,3 +35,27 @@
 - 未 merge、push、publish。
 - 未修改 rtk-token-keeper。
 - 未派生 subagent/reviewer。
+
+## Fix Round 1（基于 f9396d5）
+
+范围严格限定为 1 Critical + 3 Important：
+
+- Critical：`isCliEntrypoint()` 改为通过 `node:fs.realpathSync` 比较模块路径与 `process.argv[1]`，同时保留不可解析路径的绝对路径回退；真实 `.bin/dsh-vault` symlink spawn 已验证不再静默退出。
+- Important：Host/CLI 共用 `resolveStateDirectory()`；默认固定为 `os.homedir()/.dsh/vault-lock`，支持 `DSH_VAULT_STATE_DIR` 与 CLI `--state-dir`，显式路径优先且相对路径 fail closed；README 已补充一致性约束。
+- Important：新增 repository `commitWithAudit()` 原子协议。预提交只写 sanitized `protection-removal-attempt`；revision conflict 只保留 attempt，不写虚假 success；审计预提交失败不触碰 state；成功写入可追溯 sanitized success event，success audit 故障触发状态回滚。无原子协议的外部 repository 不执行不安全 commit。
+- Important：VaultService 每次 Host request/snapshot 前 reload repository；仅接受不低于缓存 revision 的快照，外部 revision 变化立即清除 grants，刷新失败由 API fail closed。
+
+### Fix Round TDD
+
+- RED：先加入默认 stateDir/env/相对路径、真实 symlink spawn、audit fault/conflict、CLI flag precedence、Host external revision/refresh failure 回归；生产修复前 focused suite 真实失败。
+- GREEN：`tests/config.spec.ts`、`tests/cli.spec.ts`、`tests/host/service.spec.ts` focused suite：3 files / 40 tests passed。
+
+### Fix Round 验证
+
+- 完整 suite：12 files / 124 tests passed。
+- Typecheck：`pnpm -C plugin exec tsc -p tsconfig.host.json --noEmit` 通过。
+- Build：`pnpm -C plugin build` 通过，`lib/cli.js` executable。
+- Pack dry-run：通过，包含 `lib/index.js`、`lib/cli.js`、declarations、`cordis.patch.yml`、README、LICENSE；无 `tests/`、`src/`。
+- 实际 tarball：`artifacts/robbin810130-dsh-vault-plugin-0.1.0.tgz`。
+- `git diff --check`：通过。
+- 未安装用户 DSH；当前环境没有 `dsh` executable，因此未执行用户 DSH wrapper 命令。

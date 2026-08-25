@@ -318,6 +318,45 @@ describe('VaultService', () => {
     expect((await service.snapshot()).revision).toBe(0)
   })
 
+  it('reloads external revisions before snapshots and grant authorization', async () => {
+    const external = new VaultStateRepository(join(root, 'vault-lock'))
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: {
+      name: 'Primary', password: 'correct horse', bindings: [],
+    } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const unlocked = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'correct horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+    const externalState = await external.load()
+    await expect(external.commit(externalState.revision, {
+      ...externalState,
+      revision: externalState.revision + 1,
+      bindings: [],
+    })).resolves.toEqual({ ok: true, revision: 2 })
+
+    await expect(service.snapshot()).resolves.toMatchObject({ revision: 2, bindings: [] })
+    await expect(service.handle({ action: 'grants-validate', clientInstanceId: 'client-1', grants: [unlocked.value.grant] }))
+      .resolves.toEqual({ ok: true, value: { valid: false } })
+  })
+
+  it('fails closed when a state refresh fails after the initial cache', async () => {
+    let loads = 0
+    const repository = {
+      load: async () => {
+        loads += 1
+        if (loads === 1) return { schemaVersion: 1 as const, revision: 0, groups: {}, bindings: [] }
+        throw new Error('state unavailable')
+      },
+      commit: async () => ({ ok: false as const, code: 'revision-conflict' as const }),
+      appendAudit: async () => undefined,
+    }
+    const failing = new VaultService({ repository, policy })
+
+    await expect(failing.snapshot()).resolves.toMatchObject({ revision: 0 })
+    await expect(failing.handle({ action: 'snapshot', clientInstanceId: 'client-1' }))
+      .resolves.toEqual({ ok: false, error: { code: 'operation-failed', message: 'Vault operation failed' } })
+  })
+
   it('preserves existing bindings when creating another group', async () => {
     const first = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'First', password: 'correct horse', bindings: [] } })
     expect(first.ok).toBe(true)
