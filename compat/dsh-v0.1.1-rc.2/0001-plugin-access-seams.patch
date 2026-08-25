@@ -30,6 +30,23 @@ index 551c3a16ee..f431fb2979 100644
    /** Clear the current selection into the no-session view state. */
    clear(): void
  }
+diff --git a/packages/client/runtime/src/client/contract/sessions.ts b/packages/client/runtime/src/client/contract/sessions.ts
+index 27b9d2d13b..a8f704d1c5 100644
+--- a/packages/client/runtime/src/client/contract/sessions.ts
++++ b/packages/client/runtime/src/client/contract/sessions.ts
+@@ -39,6 +39,12 @@ export interface ISessions {
+    * @param id - session id (must exist in the list; unknown ids fail loud).
+    */
+   open(id: SessionId): void
++  /**
++   * Select a session and await the guarded outcome.
++   * @param id - session id (must exist in the list; unknown ids fail loud synchronously).
++   * @returns true only when this request remains current and selects the target.
++   */
++  openAndWait(id: SessionId): Promise<boolean>
+   /**
+    * Open a healthy catalog child through its exact direct-parent address.
+    * @param address - catalog-derived parent and child ids.
 diff --git a/packages/client/runtime/src/client/contract/workspaces.ts b/packages/client/runtime/src/client/contract/workspaces.ts
 index 4012086c3d..948735b580 100644
 --- a/packages/client/runtime/src/client/contract/workspaces.ts
@@ -335,7 +352,7 @@ index 13aa20d1c8..6acfd26851 100644
      })
    }
 diff --git a/packages/client/runtime/src/client/sessions/service.ts b/packages/client/runtime/src/client/sessions/service.ts
-index c66da4e0d3..d1c847a847 100644
+index c66da4e0d3..2d30fbb0d0 100644
 --- a/packages/client/runtime/src/client/sessions/service.ts
 +++ b/packages/client/runtime/src/client/sessions/service.ts
 @@ -27,6 +27,8 @@ import type {
@@ -382,7 +399,7 @@ index c66da4e0d3..d1c847a847 100644
      )
      this.list = createSnapshotStore<SessionListState>({
        ids: [], byId: {}, current: undefined, phase: 'pending',
-@@ -370,7 +382,37 @@ export class SessionRuntime implements ISessions {
+@@ -370,7 +382,36 @@ export class SessionRuntime implements ISessions {
     * @param id - listed or addressed session id.
     */
    open(id: SessionId): void {
@@ -392,9 +409,8 @@ index c66da4e0d3..d1c847a847 100644
 +
 +  /**
 +   * Select a listed or retained catalog-addressed session and report whether
-+   * the guarded request remained current through selection. Kept off the
-+   * outward ISessions face for runtime composition that needs truthful
-+   * completion without changing fire-and-forget UI callbacks.
++   * the guarded request remained current through selection. The outward face
++   * exposes this truthful completion only; callers cannot bypass access.
 +   * @param id - listed or addressed session id.
 +   * @returns true only when this request selects the target.
 +   */
@@ -421,7 +437,7 @@ index c66da4e0d3..d1c847a847 100644
    }
  
    /**
-@@ -378,7 +420,27 @@ export class SessionRuntime implements ISessions {
+@@ -378,7 +419,27 @@ export class SessionRuntime implements ISessions {
     * @param address - catalog-derived parent and child ids.
     */
    openSubagent(address: SubagentAddress): void {
@@ -450,7 +466,7 @@ index c66da4e0d3..d1c847a847 100644
    }
  
    /**
-@@ -420,6 +482,10 @@ export class SessionRuntime implements ISessions {
+@@ -420,6 +481,10 @@ export class SessionRuntime implements ISessions {
     * per the masked-gap contract until the next open() moves the stage.
     */
    clear(): void {
@@ -461,7 +477,7 @@ index c66da4e0d3..d1c847a847 100644
      this.manager.clearSelection()
    }
  
-@@ -483,6 +549,7 @@ export class SessionRuntime implements ISessions {
+@@ -483,6 +548,7 @@ export class SessionRuntime implements ISessions {
     * @throws {SessionCreateError} with the requested id.
     */
    async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
@@ -469,7 +485,7 @@ index c66da4e0d3..d1c847a847 100644
      const result = await this.manager.create(opts)
      if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
      this.projectList()
-@@ -509,6 +576,7 @@ export class SessionRuntime implements ISessions {
+@@ -509,6 +575,7 @@ export class SessionRuntime implements ISessions {
      atSeq?: number
      increaseTitle?: boolean
    }): Promise<SessionId> {
@@ -477,7 +493,7 @@ index c66da4e0d3..d1c847a847 100644
      const sourceTitle = opts.increaseTitle
        ? this.list.getSnapshot().byId[opts.sessionId]?.title
        : undefined
-@@ -531,6 +599,24 @@ export class SessionRuntime implements ISessions {
+@@ -531,6 +598,24 @@ export class SessionRuntime implements ISessions {
      return childId
    }
  
@@ -502,7 +518,7 @@ index c66da4e0d3..d1c847a847 100644
    /**
     * Resolve an Agent-scoped context view (use-and-discard).
     * @param id - session id (the agent identity — 1:1 same axis).
-@@ -714,11 +800,12 @@ export class SessionRuntime implements ISessions {
+@@ -714,11 +799,12 @@ export class SessionRuntime implements ISessions {
          address = this.manager.navigationAddress(address.parentSessionId)
        }
      }
@@ -516,7 +532,7 @@ index c66da4e0d3..d1c847a847 100644
      } else if (byId[current] !== undefined
        && (persisted !== current
          || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
-@@ -733,6 +820,45 @@ export class SessionRuntime implements ISessions {
+@@ -733,6 +819,45 @@ export class SessionRuntime implements ISessions {
      this.pruneScopes()
    }
  
@@ -1126,7 +1142,7 @@ index 19e80dfd5b..ac975d3a8c 100644
      const { api, session } = makeSession()
      api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
 diff --git a/packages/client/runtime/tests/sessions-service.client.spec.ts b/packages/client/runtime/tests/sessions-service.client.spec.ts
-index b135b56ebe..48f4c7699e 100644
+index b135b56ebe..8887436913 100644
 --- a/packages/client/runtime/tests/sessions-service.client.spec.ts
 +++ b/packages/client/runtime/tests/sessions-service.client.spec.ts
 @@ -8,11 +8,13 @@
@@ -1271,7 +1287,15 @@ index b135b56ebe..48f4c7699e 100644
  /** Refresh the manager list from programmable rows and flush the microtask batch. */
  type FeedRow = {
    id: string
-@@ -231,6 +344,343 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
+@@ -183,6 +296,7 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
+     b.svc.open(sid('s1'))
+     expect(b.svc.list.getSnapshot().current).toBe('s1')
+     expect(() => { b.svc.open(sid('ghost')) }).toThrow(/unknown session ghost/)
++    expect(() => b.svc.openAndWait(sid('ghost'))).toThrow(/unknown session ghost/)
+     expect(b.svc.list.getSnapshot().current).toBe('s1') // failed open leaves the selection alone
+   })
+ 
+@@ -231,6 +345,343 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
      await feedList(second, [{ id: 's1' }])
      expect(second.svc.list.getSnapshot().current).toBe('s1')
    })
@@ -1615,7 +1639,7 @@ index b135b56ebe..48f4c7699e 100644
  })
  
  describe('cell (render-layer session kit)', () => {
-@@ -332,14 +782,8 @@ describe('cell (render-layer session kit)', () => {
+@@ -332,14 +783,8 @@ describe('cell (render-layer session kit)', () => {
      expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1', 's2'])
    })
  
@@ -1632,7 +1656,7 @@ index b135b56ebe..48f4c7699e 100644
      try {
        const b = bench()
        expect(b.api.calls.filter(c => c.method === 'session.history')).toHaveLength(0)
-@@ -379,6 +823,31 @@ describe('slot-store scope prune hook', () => {
+@@ -379,6 +824,31 @@ describe('slot-store scope prune hook', () => {
  })
  
  describe('catalog-addressed navigation', () => {
@@ -1664,7 +1688,7 @@ index b135b56ebe..48f4c7699e 100644
    it('uses catalog labels for a listed addressed route', async () => {
      const b = bench()
      b.api.onSubagentList = (payload) => {
-@@ -462,9 +931,90 @@ describe('catalog-addressed navigation', () => {
+@@ -462,9 +932,90 @@ describe('catalog-addressed navigation', () => {
        parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
      })
    })
@@ -1755,7 +1779,7 @@ index b135b56ebe..48f4c7699e 100644
    it('passes a preallocated id and preserves it on ordinary failure', async () => {
      const b = bench()
      b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('fresh') }))
-@@ -521,6 +1071,18 @@ describe('create', () => {
+@@ -521,6 +1072,18 @@ describe('create', () => {
  })
  
  describe('fork', () => {
@@ -2251,7 +2275,7 @@ index e28039fe45..f4472500f4 100644
        const chip = scope.slots.register({
          name: 'conversation.hero.agentPreset',
 diff --git a/packages/client/ui-conversation/src/client/apply.ts b/packages/client/ui-conversation/src/client/apply.ts
-index 7920104d68..e04a5f9a85 100644
+index 7920104d68..776536a2a6 100644
 --- a/packages/client/ui-conversation/src/client/apply.ts
 +++ b/packages/client/ui-conversation/src/client/apply.ts
 @@ -198,6 +198,7 @@ export function apply(ctx: Context): void {
@@ -2262,7 +2286,7 @@ index 7920104d68..e04a5f9a85 100644
        'conversation.session.header': { kind: 'single', scope: 'session' },
        'conversation.composer': { kind: 'chain', scope: 'session' },
        'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
-@@ -211,6 +212,7 @@ export function apply(ctx: Context): void {
+@@ -211,9 +212,12 @@ export function apply(ctx: Context): void {
        'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
      },
      inject: (sessionId: SessionId | undefined): ConversationInjected => ({
@@ -2270,6 +2294,19 @@ index 7920104d68..e04a5f9a85 100644
        hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },
        selectWorkspace: async (workspaceId) => {
          const nextId = await workspaces.connectWorkspace(workspaceId)
++        const opened = await sessions.openAndWait(nextId)
++        if (!opened) return
+         if (sessionId !== undefined && nextId !== sessionId) {
+           const from = inputHub.shell(sessionId)
+           const draft = from.snapshot.draft
+@@ -229,7 +233,6 @@ export function apply(ctx: Context): void {
+             }
+           }
+         }
+-        sessions.open(nextId)
+       },
+     }),
+   }, ConversationRoot)
 diff --git a/packages/client/ui-conversation/src/client/contract/slots.ts b/packages/client/ui-conversation/src/client/contract/slots.ts
 index 307ac38482..34016dbe1d 100644
 --- a/packages/client/ui-conversation/src/client/contract/slots.ts
@@ -2590,10 +2627,89 @@ index 0000000000..c4eb33619b
 +  })
 +})
 diff --git a/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx b/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
-index 1f61399fda..31623df17e 100644
+index 1f61399fda..64e9fd1ff8 100644
 --- a/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
 +++ b/packages/client/ui-conversation/tests/apply-inject.client.spec.tsx
-@@ -312,6 +312,14 @@ describe('conversation slot inject API', () => {
+@@ -112,11 +112,13 @@ async function bench() {
+   const inputApi = (id: SessionId) => {
+     const info = runtime.sessions.provideInfo(id)!
+     const state = info.hooks['input'] as {
+-      getSnapshot: () => { draft: string }
++      getSnapshot: () => { draft: string; imageIds: readonly string[] }
+       subscribe: (fn: () => void) => () => void
+     }
+     const actions = info.props['inputActions'] as {
+       setDraft: (text: string) => void
++      addImages: (ids: readonly never[]) => boolean
++      removeImage: (id: never) => void
+       submit: () => void
+     }
+     return { state, actions }
+@@ -279,6 +281,63 @@ describe('conversation slot inject API', () => {
+     await b.runtime.dispose()
+   })
+ 
++  it.each([
++    'session deny',
++    'session access provider error',
++    'stale session allow',
++    'removed target',
++  ])('leaves both input shells untouched when workspace allow ends in %s', async () => {
++    const b = await bench()
++    const OTHER = 'guarded-target' as SessionId
++    await b.runtime.sessions.add({ id: OTHER }, { current: false })
++    const source = b.inputApi(ROOT)
++    const target = b.inputApi(OTHER)
++    source.actions.setDraft('source draft')
++    source.actions.addImages(['source-image' as never])
++    target.actions.setDraft('target draft')
++    target.actions.addImages(['target-image' as never])
++
++    // SessionRuntime normalizes deny, provider failure, stale completion, and
++    // target removal to the same truthful false outcome. Composition must not
++    // mutate either shell until that outcome is true.
++    const openAndWait = vi.spyOn(b.runtime.sessions, 'openAndWait').mockResolvedValue(false)
++    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(OTHER))
++
++    await b.residentApi(ROOT).selectWorkspace('guarded-workspace' as never)
++
++    expect(source.state.getSnapshot()).toMatchObject({
++      draft: 'source draft', imageIds: ['source-image'],
++    })
++    expect(target.state.getSnapshot()).toMatchObject({
++      draft: 'target draft', imageIds: ['target-image'],
++    })
++    expect(openAndWait).toHaveBeenCalledTimes(1)
++    expect(openAndWait).toHaveBeenCalledWith(OTHER)
++    await b.runtime.dispose()
++  })
++
++  it('moves draft and images once after a no-match session allow without a second access request', async () => {
++    const b = await bench()
++    const OTHER = 'allowed-target' as SessionId
++    await b.runtime.sessions.add({ id: OTHER }, { current: false })
++    const source = b.inputApi(ROOT)
++    const target = b.inputApi(OTHER)
++    source.actions.setDraft('carry once')
++    source.actions.addImages(['carried-image' as never])
++    const openAndWait = vi.spyOn(b.runtime.sessions, 'openAndWait')
++    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(OTHER))
++
++    await b.residentApi(ROOT).selectWorkspace('plain-workspace' as never)
++
++    expect(source.state.getSnapshot()).toMatchObject({ draft: '', imageIds: [] })
++    expect(target.state.getSnapshot()).toMatchObject({
++      draft: 'carry once', imageIds: ['carried-image'],
++    })
++    expect(openAndWait).toHaveBeenCalledTimes(1)
++    expect(openAndWait).toHaveBeenCalledWith(OTHER)
++    await b.runtime.dispose()
++  })
++
+   it('selectWorkspace edge arms: no-session resident, empty-draft move, connect failure retryable', async () => {
+     const b = await bench()
+     // No-session resident (hero before any session): connect resolves and
+@@ -312,6 +371,14 @@ describe('conversation slot inject API', () => {
      await b.runtime.dispose()
    })
  
@@ -4887,10 +5003,23 @@ index 820d2bd66b..5ae227c0e6 100644
 +  }
 +}
 diff --git a/packages/extensions/cordis-client-runner/src/client/api-catalog.ts b/packages/extensions/cordis-client-runner/src/client/api-catalog.ts
-index 216652dc05..ee17b89c4c 100644
+index 216652dc05..585f4dc674 100644
 --- a/packages/extensions/cordis-client-runner/src/client/api-catalog.ts
 +++ b/packages/extensions/cordis-client-runner/src/client/api-catalog.ts
-@@ -308,8 +308,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+@@ -167,6 +167,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+         description: 'Select a session as current.',
+         parameters: [{ name: 'id', description: 'session id (must exist in the list; unknown ids fail loud).' }],
+       },
++      {
++        signature: 'openAndWait(id: SessionId): Promise<boolean>',
++        description: 'Select a session and await the guarded outcome.',
++        parameters: [{ name: 'id', description: 'session id (must exist in the list; unknown ids fail loud synchronously).' }],
++        returns: 'true only when this request remains current and selects the target.',
++      },
+       {
+         signature: 'openSubagent(address: SubagentAddress): void',
+         description: 'Open a healthy catalog child through its exact direct-parent address.',
+@@ -308,8 +314,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
          returns: 'the connected session id.',
        },
        {
@@ -4902,7 +5031,7 @@ index 216652dc05..ee17b89c4c 100644
        },
        {
 diff --git a/packages/test-support/client-runtime/src/sessions.ts b/packages/test-support/client-runtime/src/sessions.ts
-index c014d6f002..8b4fcc621c 100644
+index c014d6f002..983c55d0bc 100644
 --- a/packages/test-support/client-runtime/src/sessions.ts
 +++ b/packages/test-support/client-runtime/src/sessions.ts
 @@ -405,12 +405,18 @@ export class TestSessions implements ISessions {
@@ -4912,7 +5041,7 @@ index c014d6f002..8b4fcc621c 100644
 +    void this.openAndWait(id)
 +  }
 +
-+  /** Open an existing fixture and expose completion to sibling runtime services. */
++  /** Open an existing fixture and expose the same truthful completion as the outward service face. */
 +  openAndWait(id: SessionId): Promise<boolean> {
      this.calls.push({ method: 'open', args: [id] })
      this.require(id)

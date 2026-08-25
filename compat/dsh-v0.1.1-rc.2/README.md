@@ -7,9 +7,9 @@ This directory contains the reviewed compatibility patch for DeepSeek Harness pl
 - Repository: `https://github.com/deepseek-ai/deepseek-harness.git`
 - Tag: `dsh-v0.1.1-rc.2`
 - Pinned commit: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
-- Reviewed head: `80cb197ea495a5a0d686b9c4730688734e087593`
+- Reviewed head: `3466357c663c9c00168c273b939e82ac9d7a42be`
 
-The reviewed DSH branch contains thirteen source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
+The reviewed DSH branch contains fourteen source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
 
 ## Changed Packages
 
@@ -31,7 +31,9 @@ The patch exposes generic compatibility seams only; it contains no Vault, passwo
 
 All public session opening paths converge on the runtime boundary: sidebar rows, search results, restored selections, fork auto-open, subagent/workflow/plugin calls, `sessions.open()`, and `openSubagent()`.
 
-The runtime-internal session port also exposes truthful guarded-open completion so `startSession()` reports success only after the target is authorized and selected. Workspace connects single-flight the whole guarded operation without a public authorization bypass. Workspace and Session reorder requests reserve their generation before awaiting access, and stale authorization or unary Host completions cannot overwrite a newer gesture. UI-owned local Session orders use the same generic session access boundary.
+The sessions face exposes truthful guarded-open completion so UI composition and `startSession()` can wait until the target is authorized and selected before applying dependent local state. It does not expose an authorization bypass. Workspace connects single-flight the whole guarded operation. Workspace and Session reorder requests reserve their generation before awaiting access, and stale authorization or unary Host completions cannot overwrite a newer gesture. UI-owned local Session orders use the same generic session access boundary.
+
+Conversation workspace switching awaits that truthful session result before moving draft text or image ids between session-local shells. Deny, provider failure, stale completion, or target removal therefore leaves both shells untouched; allow/no-match performs the existing move once without a second session-access request.
 
 ## Export
 
