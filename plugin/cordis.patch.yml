@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-vault
+      name: '@robbin810130/dsh-vault-plugin'
