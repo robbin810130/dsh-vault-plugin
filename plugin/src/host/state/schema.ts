@@ -1,8 +1,11 @@
 import type { SecretVerifier } from '../crypto/verifier.js'
 import type { ProtectionBinding } from '../../shared/contracts.js'
-import type { PasswordGroup, VaultState } from './model.js'
+import type { AuditEvent, PasswordGroup, VaultState } from './model.js'
 
 type JsonRecord = Record<string, unknown>
+
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const STABLE_SLUG = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 function invalid(path: string, message: string): never {
   throw new TypeError(`Invalid vault state at ${path}: ${message}`)
@@ -38,6 +41,21 @@ function positiveInteger(value: unknown, path: string): number {
   return parsed
 }
 
+function canonicalBase64(value: unknown, path: string, byteLength: number): string {
+  const encoded = string(value, path)
+  if (!BASE64.test(encoded)) invalid(path, 'expected canonical base64')
+  const decoded = Buffer.from(encoded, 'base64')
+  if (decoded.toString('base64') !== encoded) invalid(path, 'expected canonical base64')
+  if (decoded.length !== byteLength) invalid(path, `expected ${byteLength} bytes`)
+  return encoded
+}
+
+function stableSlug(value: unknown, path: string): string {
+  const parsed = string(value, path)
+  if (!STABLE_SLUG.test(parsed)) invalid(path, 'expected a stable lowercase slug')
+  return parsed
+}
+
 function secretVerifier(value: unknown, path: string): SecretVerifier {
   const source = record(value, path)
   exactKeys(source, ['salt', 'verifier', 'kdf', 'parameters'], path)
@@ -53,8 +71,8 @@ function secretVerifier(value: unknown, path: string): SecretVerifier {
   }
 
   return {
-    salt: string(source.salt, `${path}.salt`),
-    verifier: string(source.verifier, `${path}.verifier`),
+    salt: canonicalBase64(source.salt, `${path}.salt`, 16),
+    verifier: canonicalBase64(source.verifier, `${path}.verifier`, 32),
     kdf: 'scrypt',
     parameters: { cost: 32768, blockSize: 8, parallelization: 1, keyLength: 32 },
   }
@@ -164,5 +182,66 @@ export function parseVaultState(value: unknown): VaultState {
     revision: nonNegativeInteger(source.revision, '$.revision'),
     groups,
     bindings: source.bindings.map((binding, index) => protectionBinding(binding, `$.bindings[${index}]`)),
+  }
+}
+
+export function parseAuditEvent(value: unknown): AuditEvent {
+  const source = record(value, '$audit')
+  exactKeys(source, [
+    'timestamp',
+    'action',
+    'clientInstanceId',
+    'groupId',
+    'targetType',
+    'targetId',
+    'workspaceId',
+    'revision',
+    'credentialVersion',
+    'count',
+    'result',
+    'reasonCode',
+  ], '$audit')
+
+  if (source.targetType !== undefined
+    && source.targetType !== 'workspace'
+    && source.targetType !== 'session') {
+    invalid('$audit.targetType', 'expected workspace or session')
+  }
+  if (source.result !== undefined
+    && source.result !== 'success'
+    && source.result !== 'denied'
+    && source.result !== 'failure') {
+    invalid('$audit.result', 'expected success, denied, or failure')
+  }
+
+  return {
+    timestamp: string(source.timestamp, '$audit.timestamp'),
+    action: stableSlug(source.action, '$audit.action'),
+    ...(source.clientInstanceId === undefined
+      ? {}
+      : { clientInstanceId: string(source.clientInstanceId, '$audit.clientInstanceId') }),
+    ...(source.groupId === undefined
+      ? {}
+      : { groupId: string(source.groupId, '$audit.groupId') }),
+    ...(source.targetType === undefined ? {} : { targetType: source.targetType }),
+    ...(source.targetId === undefined
+      ? {}
+      : { targetId: string(source.targetId, '$audit.targetId') }),
+    ...(source.workspaceId === undefined
+      ? {}
+      : { workspaceId: string(source.workspaceId, '$audit.workspaceId') }),
+    ...(source.revision === undefined
+      ? {}
+      : { revision: nonNegativeInteger(source.revision, '$audit.revision') }),
+    ...(source.credentialVersion === undefined
+      ? {}
+      : { credentialVersion: positiveInteger(source.credentialVersion, '$audit.credentialVersion') }),
+    ...(source.count === undefined
+      ? {}
+      : { count: nonNegativeInteger(source.count, '$audit.count') }),
+    ...(source.result === undefined ? {} : { result: source.result }),
+    ...(source.reasonCode === undefined
+      ? {}
+      : { reasonCode: stableSlug(source.reasonCode, '$audit.reasonCode') }),
   }
 }

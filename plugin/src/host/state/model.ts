@@ -25,4 +25,17 @@ export type CommitResult =
   | { readonly ok: true; readonly revision: number }
   | { readonly ok: false; readonly code: 'revision-conflict' }
 
-export type AuditEvent = Readonly<Record<string, unknown>>
+export interface AuditEvent {
+  readonly timestamp: string
+  readonly action: string
+  readonly clientInstanceId?: string
+  readonly groupId?: string
+  readonly targetType?: ProtectionBinding['targetType']
+  readonly targetId?: string
+  readonly workspaceId?: string
+  readonly revision?: number
+  readonly credentialVersion?: number
+  readonly count?: number
+  readonly result?: 'success' | 'denied' | 'failure'
+  readonly reasonCode?: string
+}

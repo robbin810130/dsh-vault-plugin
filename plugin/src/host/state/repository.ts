@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto'
 import * as nodeFs from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import type { AuditEvent, CommitResult, VaultState } from './model.js'
-import { emptyVaultState, parseVaultState } from './schema.js'
+import { emptyVaultState, parseAuditEvent, parseVaultState } from './schema.js'
 
 const DIRECTORY_MODE = 0o700
 const FILE_MODE = 0o600
-const REDACTED = '[REDACTED]'
+const LOCK_RETRY_ATTEMPTS = 100
+const LOCK_RETRY_DELAY_MS = 10
+const CLEANUP_ATTEMPTS = 3
 
 interface RepositoryFileHandle {
   writeFile(data: string): Promise<void>
@@ -24,8 +26,8 @@ export interface RepositoryFileSystem {
   unlink(path: string): Promise<void>
 }
 
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+function hasCode(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code
 }
 
 function freezeDeep<T>(value: T): T {
@@ -36,43 +38,8 @@ function freezeDeep<T>(value: T): T {
   return value
 }
 
-function secretKey(key: string): boolean {
-  const normalized = key.replaceAll('-', '').replaceAll('_', '').toLowerCase()
-  return normalized === 'token'
-    || normalized.endsWith('password')
-    || normalized.endsWith('recoverykey')
-    || normalized.endsWith('granttoken')
-}
-
-function sanitizeAuditValue(value: unknown, seen: Set<object>): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('Audit events require finite numbers')
-    return value
-  }
-  if (value === undefined) return undefined
-  if (typeof value !== 'object') throw new TypeError('Audit events must be JSON serializable')
-  if (seen.has(value)) throw new TypeError('Audit events must not contain cycles')
-
-  seen.add(value)
-  try {
-    if (Array.isArray(value)) {
-      return value.map((entry) => sanitizeAuditValue(entry, seen) ?? null)
-    }
-
-    const sanitized: Record<string, unknown> = {}
-    for (const [key, entry] of Object.entries(value)) {
-      if (secretKey(key)) {
-        sanitized[key] = REDACTED
-        continue
-      }
-      const safe = sanitizeAuditValue(entry, seen)
-      if (safe !== undefined) sanitized[key] = safe
-    }
-    return sanitized
-  } finally {
-    seen.delete(value)
-  }
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 async function closeAfter(handle: RepositoryFileHandle, operation: () => Promise<void>): Promise<void> {
@@ -91,10 +58,16 @@ async function closeAfter(handle: RepositoryFileHandle, operation: () => Promise
   }
 }
 
+interface LockedCommit {
+  readonly result: CommitResult
+  readonly snapshot: VaultState
+}
+
 export class VaultStateRepository {
   readonly #statePath: string
   readonly #backupPath: string
   readonly #auditPath: string
+  readonly #lockPath: string
   #snapshot: VaultState | undefined
   #tail: Promise<void> = Promise.resolve()
 
@@ -106,45 +79,61 @@ export class VaultStateRepository {
     this.#statePath = join(stateDirectory, 'state.json')
     this.#backupPath = join(stateDirectory, 'state.json.bak')
     this.#auditPath = join(stateDirectory, 'audit.jsonl')
+    this.#lockPath = join(stateDirectory, 'state.lock')
   }
 
   load(): Promise<VaultState> {
-    return this.#exclusive(() => this.#loadFromDisk())
+    return this.#exclusive(async () => {
+      const loaded = await this.#withStateLock(() => this.#loadFromDiskLocked())
+      this.#snapshot = loaded
+      return this.#snapshot
+    })
   }
 
   commit(expectedRevision: number, next: VaultState): Promise<CommitResult> {
     return this.#exclusive(async () => {
-      const current = this.#snapshot ?? await this.#loadFromDisk()
-      if (current.revision !== expectedRevision) {
-        return { ok: false, code: 'revision-conflict' }
-      }
+      const committed = await this.#withStateLock(async (): Promise<LockedCommit> => {
+        const current = await this.#loadFromDiskLocked()
+        if (current.revision !== expectedRevision) {
+          return { result: { ok: false, code: 'revision-conflict' }, snapshot: current }
+        }
 
-      const candidate = parseVaultState(structuredClone(next))
-      if (candidate.revision !== expectedRevision + 1) {
-        throw new TypeError('Next vault state revision must increment expectedRevision by one')
-      }
+        const candidate = parseVaultState(structuredClone(next))
+        if (candidate.revision !== expectedRevision + 1) {
+          throw new TypeError('Next vault state revision must increment expectedRevision by one')
+        }
 
-      await this.#persist(candidate, true)
-      this.#snapshot = freezeDeep(candidate)
-      return { ok: true, revision: candidate.revision }
+        await this.#persist(candidate, true)
+        return { result: { ok: true, revision: candidate.revision }, snapshot: freezeDeep(candidate) }
+      })
+
+      this.#snapshot = committed.snapshot
+      return committed.result
     })
   }
 
   appendAudit(event: AuditEvent): Promise<void> {
     return this.#exclusive(async () => {
-      const source = sanitizeAuditValue(event, new Set())
-      if (source === null || typeof source !== 'object' || Array.isArray(source)) {
-        throw new TypeError('Audit event must be an object')
-      }
-      const line = `${JSON.stringify(source)}\n`
+      const parsed = parseAuditEvent(structuredClone(event))
+      const line = `${JSON.stringify(parsed)}\n`
 
       await this.#ensureDirectory()
-      const handle = await this.fileSystem.open(this.#auditPath, 'a', FILE_MODE)
+      let created = false
+      let handle: RepositoryFileHandle
+      try {
+        handle = await this.fileSystem.open(this.#auditPath, 'ax', FILE_MODE)
+        created = true
+      } catch (error) {
+        if (!hasCode(error, 'EEXIST')) throw error
+        handle = await this.fileSystem.open(this.#auditPath, 'a', FILE_MODE)
+      }
+
       await closeAfter(handle, async () => {
         await this.fileSystem.chmod(this.#auditPath, FILE_MODE)
         await handle.writeFile(line)
         await handle.sync()
       })
+      if (created) await this.#syncDirectory()
     })
   }
 
@@ -159,18 +148,70 @@ export class VaultStateRepository {
     await this.fileSystem.chmod(this.stateDirectory, DIRECTORY_MODE)
   }
 
-  async #loadFromDisk(): Promise<VaultState> {
+  async #withStateLock<T>(operation: () => Promise<T>): Promise<T> {
     await this.#ensureDirectory()
+    await this.#acquireStateLock()
+
+    let result: T | undefined
+    let operationError: unknown
+    try {
+      result = await operation()
+    } catch (error) {
+      operationError = error
+    }
+
+    try {
+      await this.#unlinkWithRetries(this.#lockPath, 'state lock')
+    } catch (cleanupError) {
+      if (operationError !== undefined) {
+        throw new AggregateError(
+          [operationError, cleanupError],
+          'Vault state operation failed and state lock cleanup failed',
+        )
+      }
+      throw cleanupError
+    }
+
+    if (operationError !== undefined) throw operationError
+    return result as T
+  }
+
+  async #acquireStateLock(): Promise<void> {
+    for (let attempt = 1; attempt <= LOCK_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const handle = await this.fileSystem.open(this.#lockPath, 'wx', FILE_MODE)
+        try {
+          await handle.close()
+        } catch (error) {
+          await this.#unlinkWithRetries(this.#lockPath, 'state lock')
+          throw error
+        }
+        return
+      } catch (error) {
+        if (!hasCode(error, 'EEXIST')) throw error
+        if (attempt === LOCK_RETRY_ATTEMPTS) {
+          throw new Error('Vault state lock is busy; refusing unsafe concurrent access', { cause: error })
+        }
+        await delay(LOCK_RETRY_DELAY_MS)
+      }
+    }
+  }
+
+  async #loadFromDiskLocked(): Promise<VaultState> {
+    await this.#ensureDirectory()
+    const backupExists = await this.#secureBackupIfPresent()
 
     let source: string
     try {
       await this.fileSystem.chmod(this.#statePath, FILE_MODE)
       source = await this.fileSystem.readFile(this.#statePath, 'utf8')
     } catch (error) {
-      if (!isMissing(error)) throw error
+      if (!hasCode(error, 'ENOENT')) throw error
+      if (backupExists) {
+        throw new Error('Vault state is missing while a backup exists; explicit recovery is required')
+      }
       const initial = freezeDeep(emptyVaultState())
       await this.#persist(initial, false)
-      this.#snapshot = initial
       return initial
     }
 
@@ -181,49 +222,96 @@ export class VaultStateRepository {
       throw new SyntaxError('Corrupt vault state JSON', { cause: error })
     }
 
-    const loaded = freezeDeep(parseVaultState(decoded))
-    this.#snapshot = loaded
-    return loaded
+    return freezeDeep(parseVaultState(decoded))
+  }
+
+  async #secureBackupIfPresent(): Promise<boolean> {
+    try {
+      await this.fileSystem.chmod(this.#backupPath, FILE_MODE)
+      return true
+    } catch (error) {
+      if (hasCode(error, 'ENOENT')) return false
+      throw error
+    }
   }
 
   async #persist(next: VaultState, currentExists: boolean): Promise<void> {
     await this.#ensureDirectory()
-    const tempPath = join(this.stateDirectory, `.state.json.tmp-${process.pid}-${randomUUID()}`)
-    let tempExists = false
-    let replaced = false
+    const suffix = `${process.pid}-${randomUUID()}`
+    const stateTempPath = join(this.stateDirectory, `.state.json.tmp-${suffix}`)
+    const backupTempPath = join(this.stateDirectory, `.state.json.bak.tmp-${suffix}`)
+    let stateTempExists = false
+    let backupTempExists = false
 
     try {
-      const handle = await this.fileSystem.open(tempPath, 'wx', FILE_MODE)
-      tempExists = true
-      await closeAfter(handle, async () => {
-        await handle.writeFile(`${JSON.stringify(next)}\n`)
-        await handle.sync()
+      const stateTemp = await this.fileSystem.open(stateTempPath, 'wx', FILE_MODE)
+      stateTempExists = true
+      await closeAfter(stateTemp, async () => {
+        await this.fileSystem.chmod(stateTempPath, FILE_MODE)
+        await stateTemp.writeFile(`${JSON.stringify(next)}\n`)
+        await stateTemp.sync()
       })
 
       if (currentExists) {
-        await this.fileSystem.copyFile(this.#statePath, this.#backupPath)
-        await this.fileSystem.chmod(this.#backupPath, FILE_MODE)
+        const reservedBackupTemp = await this.fileSystem.open(backupTempPath, 'wx', FILE_MODE)
+        backupTempExists = true
+        await reservedBackupTemp.close()
+        await this.fileSystem.copyFile(this.#statePath, backupTempPath)
+        await this.fileSystem.chmod(backupTempPath, FILE_MODE)
+        const backupTemp = await this.fileSystem.open(backupTempPath, 'r+')
+        await closeAfter(backupTemp, () => backupTemp.sync())
+        await this.fileSystem.rename(backupTempPath, this.#backupPath)
+        backupTempExists = false
+        await this.#syncDirectory()
       }
 
-      await this.fileSystem.rename(tempPath, this.#statePath)
-      tempExists = false
-      replaced = true
-
-      const directory = await this.fileSystem.open(this.stateDirectory, 'r')
-      await closeAfter(directory, () => directory.sync())
+      await this.fileSystem.rename(stateTempPath, this.#statePath)
+      stateTempExists = false
+      await this.#syncDirectory()
     } catch (error) {
-      if (replaced) this.#snapshot = undefined
-      throw error
-    } finally {
-      if (tempExists) {
+      const cleanupErrors: unknown[] = []
+      if (backupTempExists) {
         try {
-          await this.fileSystem.unlink(tempPath)
-        } catch (error) {
-          if (!isMissing(error)) {
-            // Preserve the persistence failure; a stale temp is never treated as committed state.
-          }
+          await this.#unlinkWithRetries(backupTempPath, 'backup temp')
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError)
         }
       }
+      if (stateTempExists) {
+        try {
+          await this.#unlinkWithRetries(stateTempPath, 'state temp')
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError)
+        }
+      }
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...cleanupErrors],
+          'Vault persistence failed and sensitive temp cleanup failed',
+        )
+      }
+      throw error
     }
+  }
+
+  async #syncDirectory(): Promise<void> {
+    const directory = await this.fileSystem.open(this.stateDirectory, 'r')
+    await closeAfter(directory, () => directory.sync())
+  }
+
+  async #unlinkWithRetries(path: string, label: string): Promise<void> {
+    let lastError: unknown
+    for (let attempt = 1; attempt <= CLEANUP_ATTEMPTS; attempt += 1) {
+      try {
+        await this.fileSystem.unlink(path)
+        return
+      } catch (error) {
+        if (hasCode(error, 'ENOENT')) return
+        lastError = error
+      }
+    }
+    throw new Error(`Vault ${label} cleanup failed after ${CLEANUP_ATTEMPTS} attempts`, {
+      cause: lastError,
+    })
   }
 }
