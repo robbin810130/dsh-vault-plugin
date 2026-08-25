@@ -120,6 +120,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
   readonly #api: VaultApiClient
   readonly #grants = new Map<string, GrantProof>()
   readonly #listeners = new Set<() => void>()
+  #refreshGeneration = 0
   #snapshot = immutableSnapshot('loading', 0, [], [], [])
 
   constructor(api: VaultApiClient) {
@@ -148,22 +149,31 @@ class VaultClientStoreImplementation implements VaultClientStore {
   }
 
   async refresh(signal?: AbortSignal): Promise<VaultApiResult<VaultClientSnapshot>> {
+    const generation = ++this.#refreshGeneration
     const response = await this.#call<VaultSnapshot>({
       action: 'snapshot',
       clientInstanceId: this.clientInstanceId,
     }, signal)
+    if (!this.#isCurrentRefresh(generation)) {
+      return response.ok ? { ok: true, value: this.#snapshot } : response
+    }
     if (!response.ok) {
       this.#markOffline()
       return response
     }
     if (!this.#acceptSnapshot(response.value, [])) return this.#invalidResponse()
 
-    const validation = await this.validateGrants(signal)
+    const validation = await this.#validateGrants(signal, generation)
     if (!validation.ok) return validation
     return { ok: true, value: this.#snapshot }
   }
 
   async validateGrants(signal?: AbortSignal): Promise<VaultApiResult<GrantValidationResult>> {
+    return this.#validateGrants(signal)
+  }
+
+  async #validateGrants(signal?: AbortSignal, generation?: number): Promise<VaultApiResult<GrantValidationResult>> {
+    if (!this.#isCurrentRefresh(generation)) return { ok: true, value: { valid: true } }
     const candidates = [...this.#grants.entries()]
     if (candidates.length === 0) {
       this.#publish(this.#snapshot.host, [])
@@ -174,6 +184,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
     const validGroupIds: string[] = []
     let allValid = true
     for (const [groupId, proof] of candidates) {
+      if (!this.#isCurrentRefresh(generation)) return { ok: true, value: { valid: allValid } }
       const group = groups.get(groupId)
       if (group === undefined || group.credentialVersion !== proof.credentialVersion) {
         if (sameProof(this.#grants.get(groupId), proof)) this.#grants.delete(groupId)
@@ -186,6 +197,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
         clientInstanceId: this.clientInstanceId,
         grants: [proof],
       }, signal)
+      if (!this.#isCurrentRefresh(generation)) return response
       if (!response.ok) {
         this.#markOffline()
         return response
@@ -198,6 +210,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
       if (sameProof(this.#grants.get(groupId), proof)) validGroupIds.push(groupId)
     }
 
+    if (!this.#isCurrentRefresh(generation)) return { ok: true, value: { valid: allValid } }
     this.#publish('ready', validGroupIds)
     return { ok: true, value: { valid: allValid } }
   }
@@ -352,6 +365,10 @@ class VaultClientStoreImplementation implements VaultClientStore {
 
   #proofs(): readonly GrantProof[] {
     return [...this.#grants.values()].map(proof => ({ ...proof }))
+  }
+
+  #isCurrentRefresh(generation: number | undefined): boolean {
+    return generation === undefined || generation === this.#refreshGeneration
   }
 
   #validLocalGroupIds(snapshot: Pick<VaultSnapshot, 'groups'> = this.#snapshot): readonly string[] {

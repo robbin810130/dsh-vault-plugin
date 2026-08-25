@@ -83,6 +83,12 @@ class RecordingApi implements VaultApiClient {
   }
 }
 
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((settle) => { resolve = settle })
+  return { promise, resolve }
+}
+
 function installBrowserPersistenceTraps(): () => void {
   const names = ['localStorage', 'sessionStorage', 'indexedDB'] as const
   const descriptors = new Map<PropertyKey, PropertyDescriptor | undefined>()
@@ -198,6 +204,64 @@ describe('Vault client store', () => {
     await store.refresh()
     expect(api.calls.map(call => call.action)).toEqual(['snapshot', 'grants-validate'])
     expect(api.calls[1]).toMatchObject({ action: 'grants-validate', grants: [grant('group-a')] })
+  })
+
+  it.each([
+    ['successful snapshot', ok(makeSnapshot(1))],
+    ['failed snapshot', failed()],
+  ])('ignores a stale refresh %s after a newer refresh commits', async (_name, staleResult) => {
+    const staleSnapshot = deferred<VaultApiResult<unknown>>()
+    let snapshotCalls = 0
+    const api = new RecordingApi((request) => {
+      if (request.action !== 'snapshot') throw new Error('unexpected action')
+      snapshotCalls += 1
+      return snapshotCalls === 1 ? staleSnapshot.promise : ok(makeSnapshot(2))
+    })
+    const store = createVaultClientStore(api)
+
+    const staleRefresh = store.refresh()
+    await vi.waitFor(() => expect(api.calls).toHaveLength(1))
+    const latestRefresh = store.refresh()
+    await latestRefresh
+    staleSnapshot.resolve(staleResult)
+    await staleRefresh
+
+    expect(store.getSnapshot()).toMatchObject({ host: 'ready', revision: 2 })
+  })
+
+  it.each([
+    ['invalid validation result', ok({ valid: false })],
+    ['failed validation', failed()],
+  ])('ignores a stale refresh %s without clearing its proof or current snapshot', async (_name, staleResult) => {
+    const staleValidation = deferred<VaultApiResult<unknown>>()
+    let snapshotCalls = 0
+    let validationCalls = 0
+    const api = new RecordingApi((request) => {
+      if (request.action === 'snapshot') return ok(makeSnapshot(++snapshotCalls))
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 10_000 })
+      if (request.action === 'grants-validate') {
+        validationCalls += 1
+        return validationCalls === 1 ? staleValidation.promise : ok({ valid: true })
+      }
+      throw new Error('unexpected action')
+    })
+    const store = createVaultClientStore(api)
+    await store.refresh()
+    await store.unlock('group-a', 'alpha password')
+
+    const staleRefresh = store.refresh()
+    await vi.waitFor(() => expect(validationCalls).toBe(1))
+    const latestRefresh = store.refresh()
+    await latestRefresh
+    staleValidation.resolve(staleResult)
+    await staleRefresh
+
+    expect(store.getSnapshot()).toMatchObject({ host: 'ready', revision: 3 })
+    expect([...store.getSnapshot().unlockedGroupIds]).toEqual(['group-a'])
+
+    api.calls.length = 0
+    await store.refresh()
+    expect(api.calls.map(call => call.action)).toEqual(['snapshot', 'grants-validate'])
   })
 
   it('fails closed while offline, hides unlocked state, and can retry retained proofs after reconnect', async () => {
