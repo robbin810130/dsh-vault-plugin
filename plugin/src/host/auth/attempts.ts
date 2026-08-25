@@ -1,0 +1,133 @@
+import { performance } from 'node:perf_hooks'
+import type { VaultPolicy } from '../../config.js'
+
+export type FailedAttemptPolicy = VaultPolicy['failedAttemptProtection']
+
+export type AttemptAvailability =
+  | { readonly kind: 'allowed' }
+  | { readonly kind: 'cooldown'; readonly retryAt: number }
+
+export type FailedAttemptDecision =
+  | { readonly kind: 'rejected'; readonly remainingAttempts?: number }
+  | { readonly kind: 'cooldown'; readonly retryAt: number }
+
+interface AttemptState {
+  readonly failures: number
+  readonly cooldownDeadline?: number
+  readonly retryAt?: number
+}
+
+export interface FailedAttemptStoreDependencies {
+  readonly monotonicNow: () => number
+  readonly wallNow: () => number
+}
+
+const defaults: FailedAttemptStoreDependencies = {
+  monotonicNow: () => performance.now(),
+  wallNow: () => Date.now(),
+}
+
+export class FailedAttemptStore {
+  private readonly dependencies: FailedAttemptStoreDependencies
+  private readonly groups = new Map<string, Map<string, AttemptState>>()
+
+  constructor(dependencies: Partial<FailedAttemptStoreDependencies> = {}) {
+    this.dependencies = { ...defaults, ...dependencies }
+  }
+
+  check(
+    groupId: string,
+    clientInstanceId: string,
+    policy: FailedAttemptPolicy,
+  ): AttemptAvailability {
+    if (!policy.enabled) {
+      this.delete(groupId, clientInstanceId)
+      return { kind: 'allowed' }
+    }
+
+    const state = this.get(groupId, clientInstanceId)
+    if (state?.cooldownDeadline === undefined || state.retryAt === undefined) {
+      return { kind: 'allowed' }
+    }
+    if (this.dependencies.monotonicNow() >= state.cooldownDeadline) {
+      this.delete(groupId, clientInstanceId)
+      return { kind: 'allowed' }
+    }
+    return { kind: 'cooldown', retryAt: state.retryAt }
+  }
+
+  recordFailure(
+    groupId: string,
+    clientInstanceId: string,
+    policy: FailedAttemptPolicy,
+  ): FailedAttemptDecision {
+    if (!policy.enabled) {
+      this.delete(groupId, clientInstanceId)
+      return { kind: 'rejected' }
+    }
+
+    const current = this.get(groupId, clientInstanceId)
+    const now = this.dependencies.monotonicNow()
+    if (current?.cooldownDeadline !== undefined && current.retryAt !== undefined) {
+      if (now < current.cooldownDeadline) {
+        return { kind: 'cooldown', retryAt: current.retryAt }
+      }
+      this.delete(groupId, clientInstanceId)
+    }
+
+    const failures = (current?.cooldownDeadline === undefined ? current?.failures : undefined) ?? 0
+    const nextFailures = failures + 1
+    if (nextFailures >= policy.maxAttempts) {
+      const cooldownMs = policy.cooldownSeconds * 1_000
+      const retryAt = this.dependencies.wallNow() + cooldownMs
+      this.set(groupId, clientInstanceId, {
+        failures: nextFailures,
+        cooldownDeadline: now + cooldownMs,
+        retryAt,
+      })
+      return { kind: 'cooldown', retryAt }
+    }
+
+    this.set(groupId, clientInstanceId, { failures: nextFailures })
+    return {
+      kind: 'rejected',
+      remainingAttempts: policy.maxAttempts - nextFailures,
+    }
+  }
+
+  recordSuccess(groupId: string, clientInstanceId: string): void {
+    this.delete(groupId, clientInstanceId)
+  }
+
+  resetGroup(groupId: string): void {
+    this.groups.delete(groupId)
+  }
+
+  resetClient(clientInstanceId: string): void {
+    for (const [groupId, clients] of this.groups) {
+      clients.delete(clientInstanceId)
+      if (clients.size === 0) this.groups.delete(groupId)
+    }
+  }
+
+  clear(): void {
+    this.groups.clear()
+  }
+
+  private get(groupId: string, clientInstanceId: string): AttemptState | undefined {
+    return this.groups.get(groupId)?.get(clientInstanceId)
+  }
+
+  private set(groupId: string, clientInstanceId: string, state: AttemptState): void {
+    const clients = this.groups.get(groupId) ?? new Map<string, AttemptState>()
+    clients.set(clientInstanceId, state)
+    this.groups.set(groupId, clients)
+  }
+
+  private delete(groupId: string, clientInstanceId: string): void {
+    const clients = this.groups.get(groupId)
+    if (!clients) return
+    clients.delete(clientInstanceId)
+    if (clients.size === 0) this.groups.delete(groupId)
+  }
+}
