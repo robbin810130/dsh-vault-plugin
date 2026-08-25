@@ -11,6 +11,8 @@ const LOCK_RETRY_DELAY_MS = 10
 const CLEANUP_ATTEMPTS = 3
 const STATE_TEMP_PREFIX = '.state.json.tmp-'
 const BACKUP_TEMP_PREFIX = '.state.json.bak.tmp-'
+const STATE_RESTORE_TEMP_PREFIX = '.state.json.restore.tmp-'
+const BACKUP_RESTORE_TEMP_PREFIX = '.state.json.bak.restore.tmp-'
 
 interface RepositoryFileHandle {
   writeFile(data: string): Promise<void>
@@ -27,6 +29,7 @@ export interface RepositoryFileSystem {
   copyFile(source: string, destination: string): Promise<void>
   rename(source: string, destination: string): Promise<void>
   unlink(path: string): Promise<void>
+  truncate(path: string, length: number): Promise<void>
 }
 
 function hasCode(error: unknown, code: string): boolean {
@@ -134,13 +137,15 @@ export class VaultStateRepository {
           throw new TypeError('Next vault state revision must increment expectedRevision by one')
         }
 
+        const stateBefore = await this.fileSystem.readFile(this.#statePath, 'utf8')
+        const backupBefore = await this.#readOptional(this.#backupPath)
         await this.#appendAuditLocked(attempt)
         await this.#persist(candidate, true)
         try {
           await this.#appendAuditLocked(success)
         } catch (error) {
           try {
-            await this.#persist(current, true)
+            await this.#restoreStateFilesLocked(stateBefore, backupBefore)
           } catch (rollbackError) {
             throw new AggregateError([error, rollbackError], 'Vault audit commit rollback failed')
           }
@@ -161,21 +166,32 @@ export class VaultStateRepository {
   async #appendAuditLocked(event: AuditEvent): Promise<void> {
     const parsed = parseAuditEvent(structuredClone(event))
     const line = `${JSON.stringify(parsed)}\n`
+    const original = await this.#readOptional(this.#auditPath)
+    const originalLength = original === undefined ? 0 : Buffer.byteLength(original)
 
-    let handle: RepositoryFileHandle
     try {
-      handle = await this.fileSystem.open(this.#auditPath, 'ax', FILE_MODE)
-    } catch (error) {
-      if (!hasCode(error, 'EEXIST')) throw error
-      handle = await this.fileSystem.open(this.#auditPath, 'a', FILE_MODE)
-    }
+      let handle: RepositoryFileHandle
+      try {
+        handle = await this.fileSystem.open(this.#auditPath, 'ax', FILE_MODE)
+      } catch (error) {
+        if (!hasCode(error, 'EEXIST')) throw error
+        handle = await this.fileSystem.open(this.#auditPath, 'a', FILE_MODE)
+      }
 
-    await closeAfter(handle, async () => {
-      await this.fileSystem.chmod(this.#auditPath, FILE_MODE)
-      await handle.writeFile(line)
-      await handle.sync()
-    })
-    await this.#syncDirectory()
+      await closeAfter(handle, async () => {
+        await this.fileSystem.chmod(this.#auditPath, FILE_MODE)
+        await handle.writeFile(line)
+        await handle.sync()
+      })
+      await this.#syncDirectory()
+    } catch (error) {
+      try {
+        await this.#restoreAuditLocked(original !== undefined, originalLength)
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], 'Vault audit append rollback failed')
+      }
+      throw error
+    }
   }
 
   #exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -374,10 +390,97 @@ export class VaultStateRepository {
     await closeAfter(file, () => file.sync())
   }
 
+  async #readOptional(path: string): Promise<string | undefined> {
+    try {
+      return await this.fileSystem.readFile(path, 'utf8')
+    } catch (error) {
+      if (hasCode(error, 'ENOENT')) return undefined
+      throw error
+    }
+  }
+
+  async #restoreAuditLocked(originalExists: boolean, originalLength: number): Promise<void> {
+    if (originalExists) {
+      await this.fileSystem.truncate(this.#auditPath, originalLength)
+      await this.#syncFile(this.#auditPath)
+    } else {
+      await this.#unlinkWithRetries(this.#auditPath, 'audit rollback')
+    }
+    await this.#syncDirectory()
+  }
+
+  async #restoreStateFilesLocked(stateBefore: string, backupBefore: string | undefined): Promise<void> {
+    await this.#ensureDirectory()
+    const suffix = `${process.pid}-${randomUUID()}`
+    const stateRestorePath = join(this.stateDirectory, `${STATE_RESTORE_TEMP_PREFIX}${suffix}`)
+    const backupRestorePath = join(this.stateDirectory, `${BACKUP_RESTORE_TEMP_PREFIX}${suffix}`)
+    let stateRestoreExists = false
+    let backupRestoreExists = false
+
+    try {
+      const stateRestore = await this.fileSystem.open(stateRestorePath, 'wx', FILE_MODE)
+      stateRestoreExists = true
+      await closeAfter(stateRestore, async () => {
+        await this.fileSystem.chmod(stateRestorePath, FILE_MODE)
+        await stateRestore.writeFile(stateBefore)
+        await stateRestore.sync()
+      })
+
+      if (backupBefore !== undefined) {
+        const backupRestore = await this.fileSystem.open(backupRestorePath, 'wx', FILE_MODE)
+        backupRestoreExists = true
+        await closeAfter(backupRestore, async () => {
+          await this.fileSystem.chmod(backupRestorePath, FILE_MODE)
+          await backupRestore.writeFile(backupBefore)
+          await backupRestore.sync()
+        })
+      }
+
+      await this.fileSystem.rename(stateRestorePath, this.#statePath)
+      stateRestoreExists = false
+      await this.#syncDirectory()
+
+      if (backupBefore !== undefined) {
+        await this.fileSystem.rename(backupRestorePath, this.#backupPath)
+        backupRestoreExists = false
+        await this.#syncDirectory()
+      } else {
+        await this.#unlinkWithRetries(this.#backupPath, 'backup rollback')
+        await this.#syncDirectory()
+      }
+    } catch (error) {
+      const cleanupErrors: unknown[] = []
+      if (stateRestoreExists) {
+        try {
+          await this.#unlinkWithRetries(stateRestorePath, 'state restore temp')
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError)
+        }
+      }
+      if (backupRestoreExists) {
+        try {
+          await this.#unlinkWithRetries(backupRestorePath, 'backup restore temp')
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError)
+        }
+      }
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...cleanupErrors],
+          'Vault state restore failed and sensitive temp cleanup failed',
+        )
+      }
+      throw error
+    }
+  }
+
   async #cleanupStaleTemps(): Promise<void> {
     const names = await this.fileSystem.readdir(this.stateDirectory)
     const staleNames = names.filter((name) =>
-      name.startsWith(STATE_TEMP_PREFIX) || name.startsWith(BACKUP_TEMP_PREFIX))
+      name.startsWith(STATE_TEMP_PREFIX) ||
+      name.startsWith(BACKUP_TEMP_PREFIX) ||
+      name.startsWith(STATE_RESTORE_TEMP_PREFIX) ||
+      name.startsWith(BACKUP_RESTORE_TEMP_PREFIX))
     if (staleNames.length === 0) return
 
     for (const name of staleNames) {

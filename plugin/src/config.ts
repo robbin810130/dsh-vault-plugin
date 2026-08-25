@@ -43,11 +43,21 @@ export function resolveStateDirectory(
   stateDir?: string,
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
-  const candidate = stateDir ?? environment.DSH_VAULT_STATE_DIR
-  if (candidate !== undefined && !isAbsolute(candidate)) {
-    throw new TypeError('Vault state directory must be absolute')
+  const supplied = [
+    ['explicit state directory', stateDir],
+    ['DSH_VAULT_STATE_DIR', environment.DSH_VAULT_STATE_DIR],
+    ['DSH_HOME', environment.DSH_HOME],
+  ] as const
+  for (const [label, value] of supplied) {
+    if (value !== undefined && !isAbsolute(value)) {
+      throw new TypeError(`Vault ${label} must be absolute`)
+    }
   }
-  return candidate ?? join(homedir(), '.dsh', 'vault-lock')
+
+  if (stateDir !== undefined) return stateDir
+  if (environment.DSH_VAULT_STATE_DIR !== undefined) return environment.DSH_VAULT_STATE_DIR
+  if (environment.DSH_HOME !== undefined) return join(environment.DSH_HOME, 'vault-lock')
+  return join(homedir(), '.dsh', 'vault-lock')
 }
 
 export const VaultPolicySchema: z<VaultPolicyInput, VaultPolicy> = z.object({

@@ -339,6 +339,83 @@ describe('VaultService', () => {
       .resolves.toEqual({ ok: true, value: { valid: false } })
   })
 
+  it('fails closed and revokes grants when same-revision external state differs', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: {
+      name: 'Primary', password: 'correct horse', bindings: [],
+    } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const unlocked = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'correct horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+
+    const external = new VaultStateRepository(join(root, 'vault-lock'))
+    const state = await external.load()
+    const changed = {
+      ...state,
+      groups: { ...state.groups, [groupId]: { ...state.groups[groupId]!, name: 'Externally changed' } },
+    }
+    await fs.writeFile(join(root, 'vault-lock', 'state.json'), JSON.stringify(changed))
+    await expect(external.load()).resolves.toMatchObject({ revision: 1, groups: { [groupId]: { name: 'Externally changed' } } })
+
+    await expect(service.handle({ action: 'grants-validate', clientInstanceId: 'client-1', grants: [unlocked.value.grant] }))
+      .resolves.toEqual({ ok: false, error: { code: 'operation-failed', message: 'Vault operation failed' } })
+    expect(service.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
+  it('fails closed and revokes grants when an external state revision goes backwards', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: {
+      name: 'Primary', password: 'correct horse', bindings: [],
+    } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const unlocked = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'correct horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+
+    const external = new VaultStateRepository(join(root, 'vault-lock'))
+    const state = await external.load()
+    await fs.writeFile(join(root, 'vault-lock', 'state.json'), JSON.stringify({ ...state, revision: 0 }))
+    await expect(external.load()).resolves.toMatchObject({ revision: 0 })
+
+    await expect(service.handle({ action: 'grants-validate', clientInstanceId: 'client-1', grants: [unlocked.value.grant] }))
+      .resolves.toEqual({ ok: false, error: { code: 'operation-failed', message: 'Vault operation failed' } })
+    expect(service.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
+  it('reconciles and revokes grants after a revision-conflict reload', async () => {
+    const backing = new VaultStateRepository(join(root, 'vault-lock'))
+    const seeded = new VaultService({ repository: backing, policy })
+    const created = await seeded.handle({ action: 'group-create', expectedRevision: 0, input: {
+      name: 'Primary', password: 'correct horse', bindings: [],
+    } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const external = new VaultStateRepository(join(root, 'vault-lock'))
+    let conflictNextCommit = true
+    const conflicted = new VaultService({
+      repository: {
+        load: () => backing.load(),
+        commit: async (expectedRevision, next) => {
+          if (conflictNextCommit) {
+            conflictNextCommit = false
+            const current = await external.load()
+            await external.commit(current.revision, { ...current, revision: current.revision + 1, bindings: [] })
+          }
+          return backing.commit(expectedRevision, next)
+        },
+        appendAudit: (event) => backing.appendAudit(event),
+      },
+      policy,
+    })
+    const unlocked = await conflicted.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'correct horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+
+    await expect(conflicted.handle({
+      action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 1,
+      input: { groupId, currentPassword: 'correct horse', newPassword: 'new password', rotateRecovery: false },
+    })).resolves.toEqual({ ok: false, error: { code: 'revision-conflict', message: 'Vault revision changed' } })
+    expect(conflicted.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
   it('fails closed when a state refresh fails after the initial cache', async () => {
     let loads = 0
     const repository = {

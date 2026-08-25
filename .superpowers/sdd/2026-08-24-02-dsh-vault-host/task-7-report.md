@@ -59,3 +59,19 @@
 - 实际 tarball：`artifacts/robbin810130-dsh-vault-plugin-0.1.0.tgz`。
 - `git diff --check`：通过。
 - 未安装用户 DSH；当前环境没有 `dsh` executable，因此未执行用户 DSH wrapper 命令。
+
+## Fix Round 2（基于 5575081）
+
+- Host/CLI state resolver 的 canonical priority 固化为：explicit Host `Config.stateDir` 或 CLI `--state-dir`、`DSH_VAULT_STATE_DIR`、`DSH_HOME/vault-lock`、`~/.dsh/vault-lock`；所有已提供路径即使被高优先级值遮蔽也必须为绝对路径。
+- `commitWithAudit()` 的 audit append 对 partial write、file sync 与 directory sync 失败回滚到精确原始字节；success audit 失败时恢复 `state.json` 与 `state.json.bak` 的精确 durable 内容，恢复自身失败返回 `AggregateError` 并 fail closed。
+- Host external refresh 统一校验：higher revision 正常接收并撤销 grants；same revision 内容漂移与 lower revision 均撤销 grants 并 fail closed；revision-conflict reload 复用同一 reconcile/validation 路径；load failure 继续 fail closed。
+- README 已记录 canonical directory 规则。
+
+### Fix Round 2 TDD 与验证
+
+- RED：先新增 same-revision 内容漂移、lower revision、revision-conflict reload 三个 Host 回归；生产实现前 `tests/host/service.spec.ts` 以对应三个断言失败。
+- GREEN focused：`tests/config.spec.ts`、`tests/cli.spec.ts`、`tests/host/state-repository.spec.ts`、`tests/host/service.spec.ts`、`tests/host/settings.spec.ts` 共 80 tests passed。
+- Full：12 files / 135 tests passed。
+- Typecheck：`tsc -p tsconfig.host.json --noEmit` 通过。
+- Build：`tsdown` 通过，`lib/cli.js` 可执行。
+- Pack dry-run：只包含发布所需 `lib`、`cordis.patch.yml`、`LICENSE`、`package.json`、`README.md`，不含 `src` 或 `tests`。

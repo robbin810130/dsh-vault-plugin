@@ -33,9 +33,9 @@ describe('ConfigSchema', () => {
     expect(() => ConfigSchema({ stateDir: 'vault-lock' })).toThrow()
   })
 
-  it('defaults to the DSH authority directory under the user home', () => {
-    expect(resolveStateDirectory(undefined, { DSH_HOME: '/wrong', DSH_VAULT_STATE_DIR: undefined }))
-      .toBe(join(homedir(), '.dsh', 'vault-lock'))
+  it('uses DSH_HOME/vault-lock before the homedir fallback', () => {
+    expect(resolveStateDirectory(undefined, { DSH_HOME: '/dsh-home', DSH_VAULT_STATE_DIR: undefined }))
+      .toBe('/dsh-home/vault-lock')
   })
 
   it('uses the environment override, then gives an absolute explicit path precedence', () => {
@@ -47,5 +47,19 @@ describe('ConfigSchema', () => {
   it('rejects relative environment and explicit state directories', () => {
     expect(() => resolveStateDirectory(undefined, { DSH_VAULT_STATE_DIR: 'relative-vault' })).toThrow()
     expect(() => resolveStateDirectory('relative-vault', {})).toThrow()
+  })
+
+  it('gives explicit, vault-env, DSH_HOME, and fallback paths their canonical priority', () => {
+    const environment = { DSH_VAULT_STATE_DIR: '/env/vault-lock', DSH_HOME: '/dsh-home' }
+    expect(resolveStateDirectory(undefined, environment)).toBe('/env/vault-lock')
+    expect(resolveStateDirectory('/explicit/vault-lock', environment)).toBe('/explicit/vault-lock')
+    expect(resolveStateDirectory(undefined, { DSH_HOME: '/dsh-home' })).toBe('/dsh-home/vault-lock')
+    expect(resolveStateDirectory(undefined, {})).toBe(join(homedir(), '.dsh', 'vault-lock'))
+  })
+
+  it('rejects every relative supplied path even when a higher-priority source wins', () => {
+    expect(() => resolveStateDirectory(undefined, { DSH_HOME: 'relative-home' })).toThrow()
+    expect(() => resolveStateDirectory('/explicit/vault-lock', { DSH_VAULT_STATE_DIR: '/env/vault-lock', DSH_HOME: 'relative-home' })).toThrow()
+    expect(() => resolveStateDirectory(undefined, { DSH_VAULT_STATE_DIR: 'relative-vault', DSH_HOME: '/dsh-home' })).toThrow()
   })
 })

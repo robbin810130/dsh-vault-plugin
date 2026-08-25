@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import type { VaultPolicy } from '../config.js'
 import { type BindingMutation, type ChangePasswordInput, type CreateGroupInput, type GrantProof, type RecoveryKeyResult, type RecoverGroupInput, type UnlockResult, type VaultApiRequest, type VaultApiResult, type VaultSnapshot } from '../shared/contracts.js'
 import { createVerifier, generateRecoveryKey, verifySecret } from './crypto/verifier.js'
@@ -303,13 +304,24 @@ export class VaultService {
   private ttlMs(): number { return this.policy.autoLockMinutes === 0 ? 0 : this.policy.autoLockMinutes * 60_000 }
 
   private async state(): Promise<VaultState> {
+    return this.refreshState()
+  }
+
+  private async refreshState(): Promise<VaultState> {
     const loaded = await this.repository.load()
     const previous = this.#state
-    if (previous === undefined || loaded.revision >= previous.revision) {
-      if (previous !== undefined && loaded.revision > previous.revision) this.reconcileExternalState(previous, loaded)
+    if (previous === undefined) {
       this.#state = loaded
+      return loaded
     }
-    return this.#state as VaultState
+    if (loaded.revision < previous.revision
+      || (loaded.revision === previous.revision && !isDeepStrictEqual(loaded, previous))) {
+      this.grants.clear()
+      throw new Error('Vault state refresh is not monotonic')
+    }
+    if (loaded.revision > previous.revision) this.reconcileExternalState(previous, loaded)
+    this.#state = loaded
+    return loaded
   }
 
   private reconcileExternalState(previous: VaultState, next: VaultState): void {
@@ -331,7 +343,10 @@ export class VaultService {
   private async commit(expectedRevision: number, next: VaultState): Promise<'ok' | 'conflict' | 'failed'> {
     try {
       const result = await this.repository.commit(expectedRevision, next)
-      if (!result.ok) { this.#state = await this.repository.load(); return 'conflict' }
+      if (!result.ok) {
+        await this.refreshState()
+        return 'conflict'
+      }
       this.#state = next
       return 'ok'
     } catch { return 'failed' }

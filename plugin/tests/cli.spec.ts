@@ -172,4 +172,24 @@ describe('dsh-vault emergency CLI', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('uses the canonical DSH_HOME state directory when no CLI flag or vault env is supplied', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-vault-cli-dsh-home-'))
+    try {
+      const stateDirectory = join(root, 'dsh-home', 'vault-lock')
+      await mkdir(stateDirectory, { recursive: true })
+      const state = await protectedState()
+      await writeFile(join(stateDirectory, 'state.json'), JSON.stringify(state))
+
+      const result = await runCli(['protection', 'remove', '--group', 'group-1'], {
+        stdin: lines('group-1'),
+        environment: { DSH_HOME: join(root, 'dsh-home') },
+      })
+
+      expect(result.exitCode).toBe(0)
+      expect(await new VaultStateRepository(stateDirectory).load()).toMatchObject({ revision: 8 })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

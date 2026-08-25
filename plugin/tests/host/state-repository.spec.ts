@@ -564,6 +564,217 @@ describe('VaultStateRepository', () => {
     await expect(repo.appendAudit(event)).rejects.toThrow('audit sync failed')
     await expect(repo.appendAudit(event)).resolves.toBeUndefined()
 
-    expect(directorySyncs).toBe(1)
+    expect(directorySyncs).toBe(2)
+  })
+
+  it('removes a partially written new audit line when the write fails', async () => {
+    let failWrite = true
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        const isAudit = String(path) === join(dir, AUDIT_FILE)
+        return {
+          writeFile: async (data) => {
+            if (isAudit && failWrite) {
+              failWrite = false
+              await handle.writeFile(data.slice(0, 7))
+              throw new Error('partial audit write failed')
+            }
+            await handle.writeFile(data)
+          },
+          sync: () => handle.sync(),
+          close: () => handle.close(),
+        }
+      },
+    }
+
+    const repo = new VaultStateRepository(dir, faultingFs)
+    await expect(repo.appendAudit({ timestamp: '2026-08-25T00:00:00.000Z', action: 'repository-loaded' }))
+      .rejects.toThrow('partial audit write failed')
+    await expect(fs.access(join(dir, AUDIT_FILE))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('restores an existing audit file when its post-append directory sync fails', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.appendAudit({ timestamp: '2026-08-25T00:00:00.000Z', action: 'repository-loaded' })
+    const before = await fs.readFile(join(dir, AUDIT_FILE))
+    let failDirectorySync = true
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        const isDirectory = String(path) === dir
+        return {
+          writeFile: (data) => handle.writeFile(data).then(() => undefined),
+          sync: async () => {
+            if (isDirectory && failDirectorySync) {
+              failDirectorySync = false
+              throw new Error('audit directory sync failed')
+            }
+            await handle.sync()
+          },
+          close: () => handle.close(),
+        }
+      },
+    }
+
+    const faultingRepo = new VaultStateRepository(dir, faultingFs)
+    await expect(faultingRepo.appendAudit({ timestamp: '2026-08-25T00:00:01.000Z', action: 'repository-loaded' }))
+      .rejects.toThrow('audit directory sync failed')
+    await expect(fs.readFile(join(dir, AUDIT_FILE))).resolves.toEqual(before)
+  })
+
+  it('rolls back a success audit append after write succeeds but file sync fails', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    await repo.appendAudit({
+      timestamp: '2026-08-25T00:00:00.000Z',
+      action: 'repository-loaded',
+    })
+
+    const beforeState = await fs.readFile(join(dir, STATE_FILE))
+    const beforeBackup = await fs.readFile(join(dir, BACKUP_FILE))
+    const beforeAudit = await fs.readFile(join(dir, AUDIT_FILE))
+    let auditAppends = 0
+    let failSuccessSync = false
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        const isAudit = String(path) === join(dir, AUDIT_FILE)
+        if (isAudit && (flags === 'a' || flags === 'ax')) auditAppends += 1
+        return {
+          writeFile: (data) => handle.writeFile(data).then(() => undefined),
+          sync: async () => {
+            if (isAudit && auditAppends === 2 && !failSuccessSync) {
+              failSuccessSync = true
+              throw new Error('success audit sync failed')
+            }
+            await handle.sync()
+          },
+          close: () => handle.close(),
+        }
+      },
+    }
+
+    const faultingRepo = new VaultStateRepository(dir, faultingFs)
+    await expect(faultingRepo.commitWithAudit(
+      1,
+      stateAt(2),
+      {
+        timestamp: '2026-08-25T00:00:01.000Z',
+        action: 'protection-removal-attempt',
+        groupId: 'primary',
+        count: 1,
+        reasonCode: 'pending-commit',
+      },
+      {
+        timestamp: '2026-08-25T00:00:02.000Z',
+        action: 'protection-removed',
+        groupId: 'primary',
+        count: 1,
+        revision: 2,
+        result: 'success',
+      },
+    )).rejects.toThrow('success audit sync failed')
+
+    await expect(fs.readFile(join(dir, STATE_FILE))).resolves.toEqual(beforeState)
+    await expect(fs.readFile(join(dir, BACKUP_FILE))).resolves.toEqual(beforeBackup)
+    const auditAfter = await fs.readFile(join(dir, AUDIT_FILE), 'utf8')
+    expect(auditAfter.startsWith(beforeAudit.toString('utf8'))).toBe(true)
+    expect(auditAfter).not.toContain('protection-removed')
+    expect(auditAfter).toContain('protection-removal-attempt')
+  })
+
+  it('restores state, backup, and audit when the success audit directory sync fails', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    await repo.appendAudit({ timestamp: '2026-08-25T00:00:00.000Z', action: 'repository-loaded' })
+    const beforeState = await fs.readFile(join(dir, STATE_FILE))
+    const beforeBackup = await fs.readFile(join(dir, BACKUP_FILE))
+    const beforeAudit = await fs.readFile(join(dir, AUDIT_FILE))
+    let auditAppends = 0
+    let failSuccessDirectorySync = true
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        const isAudit = String(path) === join(dir, AUDIT_FILE)
+        const isDirectory = String(path) === dir
+        if (isAudit && (flags === 'a' || flags === 'ax')) auditAppends += 1
+        return {
+          writeFile: (data) => handle.writeFile(data).then(() => undefined),
+          sync: async () => {
+            if (isDirectory && auditAppends === 2 && failSuccessDirectorySync) {
+              failSuccessDirectorySync = false
+              throw new Error('success audit directory sync failed')
+            }
+            await handle.sync()
+          },
+          close: () => handle.close(),
+        }
+      },
+    }
+
+    const faultingRepo = new VaultStateRepository(dir, faultingFs)
+    await expect(faultingRepo.commitWithAudit(
+      1,
+      stateAt(2),
+      { timestamp: '2026-08-25T00:00:01.000Z', action: 'protection-removal-attempt', groupId: 'primary', count: 1, reasonCode: 'pending-commit' },
+      { timestamp: '2026-08-25T00:00:02.000Z', action: 'protection-removed', groupId: 'primary', count: 1, revision: 2, result: 'success' },
+    )).rejects.toThrow('success audit directory sync failed')
+
+    await expect(fs.readFile(join(dir, STATE_FILE))).resolves.toEqual(beforeState)
+    await expect(fs.readFile(join(dir, BACKUP_FILE))).resolves.toEqual(beforeBackup)
+    const auditAfter = await fs.readFile(join(dir, AUDIT_FILE), 'utf8')
+    expect(auditAfter.startsWith(beforeAudit.toString('utf8'))).toBe(true)
+    expect(auditAfter).toContain('protection-removal-attempt')
+    expect(auditAfter).not.toContain('protection-removed')
+  })
+
+  it('fails closed with an AggregateError when success-audit rollback cannot restore state', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    let auditAppends = 0
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        const isAudit = String(path) === join(dir, AUDIT_FILE)
+        if (isAudit && (flags === 'a' || flags === 'ax')) auditAppends += 1
+        return {
+          writeFile: (data) => handle.writeFile(data).then(() => undefined),
+          sync: async () => {
+            if (isAudit && auditAppends === 2) throw new Error('success audit sync failed')
+            await handle.sync()
+          },
+          close: () => handle.close(),
+        }
+      },
+      rename: async (source, destination) => {
+        if (String(source).includes('.state.json.restore.tmp-') && String(destination) === join(dir, STATE_FILE)) {
+          throw new Error('state restore rename failed')
+        }
+        await fs.rename(source, destination)
+      },
+    }
+
+    const faultingRepo = new VaultStateRepository(dir, faultingFs)
+    try {
+      await faultingRepo.commitWithAudit(
+        1,
+        stateAt(2),
+        { timestamp: '2026-08-25T00:00:01.000Z', action: 'protection-removal-attempt', groupId: 'primary', count: 1, reasonCode: 'pending-commit' },
+        { timestamp: '2026-08-25T00:00:02.000Z', action: 'protection-removed', groupId: 'primary', count: 1, revision: 2, result: 'success' },
+      )
+      throw new Error('expected commitWithAudit to fail')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError)
+      expect(error).toMatchObject({ message: 'Vault audit commit rollback failed' })
+    }
   })
 })
