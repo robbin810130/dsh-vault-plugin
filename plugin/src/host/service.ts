@@ -178,7 +178,7 @@ export class VaultService {
       if (binding.mode === 'direct' && binding.passwordGroupId !== id) return failed('invalid-binding')
       const mutation = { kind: 'replace' as const, binding }
       const updated = applyBindingMutation(next, mutation, () => now)
-      for (const groupId of this.bindingAffectedGroups(next, updated, mutation)) {
+      for (const groupId of this.bindingAffectedGroups(next, updated, mutation, state)) {
         if (state.groups[groupId] !== undefined) affectedGroups.add(groupId)
       }
       next = updated
@@ -286,7 +286,12 @@ export class VaultService {
     return true
   }
 
-  private bindingAffectedGroups(state: VaultState, next: VaultState, mutation: BindingMutation): Set<string> {
+  private bindingAffectedGroups(
+    state: VaultState,
+    next: VaultState,
+    mutation: BindingMutation,
+    authorizationState: VaultState = state,
+  ): Set<string> {
     const affected = new Set<string>()
     if (mutation.kind === 'delete-group') {
       affected.add(mutation.groupId)
@@ -297,8 +302,8 @@ export class VaultService {
     const targetType = mutation.kind === 'replace' ? mutation.binding.targetType : mutation.targetType
     const targetId = mutation.kind === 'replace' ? mutation.binding.targetId : mutation.targetId
 
-    const collect = (candidate: VaultState): void => {
-      if (targetType === 'workspace') {
+    if (targetType === 'workspace') {
+      const collect = (candidate: VaultState): void => {
         for (const binding of candidate.bindings) {
           if (binding.targetType === 'workspace' && binding.targetId === targetId && binding.mode === 'direct' && binding.passwordGroupId !== undefined) {
             affected.add(binding.passwordGroupId)
@@ -307,25 +312,30 @@ export class VaultService {
           const protection = resolveSessionProtection(binding.targetId, binding.workspaceId, candidate.bindings)
           if (protection.protected && protection.source === 'workspace') affected.add(protection.groupId)
         }
-        return
       }
-
-      const oldBinding = state.bindings.find((binding) => (
-        binding.targetType === 'session' && binding.targetId === targetId
-      ))
-      const newBinding = mutation.kind === 'replace' && mutation.binding.targetType === 'session'
-        ? mutation.binding
-        : undefined
-      const oldWorkspaceId = oldBinding?.workspaceId ?? newBinding?.workspaceId
-      const newWorkspaceId = newBinding?.workspaceId ?? oldBinding?.workspaceId
-      const oldProtection = resolveSessionProtection(targetId, oldWorkspaceId, state.bindings)
-      const newProtection = resolveSessionProtection(targetId, newWorkspaceId, next.bindings)
-      if (oldProtection.protected) affected.add(oldProtection.groupId)
-      if (newProtection.protected) affected.add(newProtection.groupId)
+      collect(state)
+      collect(next)
+      return affected
     }
 
-    collect(state)
-    collect(next)
+    const oldBinding = state.bindings.find((binding) => (
+      binding.targetType === 'session' && binding.targetId === targetId
+    ))
+    const newBinding = next.bindings.find((binding) => (
+      binding.targetType === 'session' && binding.targetId === targetId
+    ))
+    if (oldBinding?.mode === 'direct' && oldBinding.passwordGroupId !== undefined) affected.add(oldBinding.passwordGroupId)
+    if (newBinding?.mode === 'direct' && newBinding.passwordGroupId !== undefined) affected.add(newBinding.passwordGroupId)
+
+    const oldTopology = oldBinding?.mode ?? 'absent'
+    const newTopology = newBinding?.mode ?? 'absent'
+    if (oldTopology !== newTopology) {
+      for (const binding of authorizationState.bindings) {
+        if (binding.targetType === 'workspace' && binding.mode === 'direct' && binding.passwordGroupId !== undefined) {
+          affected.add(binding.passwordGroupId)
+        }
+      }
+    }
     return affected
   }
 

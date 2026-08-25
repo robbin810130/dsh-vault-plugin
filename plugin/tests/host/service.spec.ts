@@ -681,6 +681,80 @@ describe('VaultService', () => {
     expect(service.validateGrants('client-1', [oldGrant.value.grant])).toEqual({ valid: false })
   })
 
+  it.each([
+    ['missing', undefined],
+    ['forged', 'workspace-unprotected'],
+  ] as const)('rejects bindings-update with %s workspaceId when it could suppress protected Workspace inheritance', async (label, workspaceId) => {
+    const created = await service.handle(groupCreateRequest(0, { name: 'Protected', password: 'protected horse', bindings: [] }))
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+    const workspaceBinding = { targetType: 'workspace' as const, targetId: 'workspace-1', mode: 'direct' as const, passwordGroupId: groupId, createdAt: timestamp, updatedAt: timestamp }
+    const setupGrant = await service.handle({ action: 'unlock', clientInstanceId: 'owner', groupId, password: 'protected horse' })
+    if (!setupGrant.ok) throw new Error('unlock failed')
+    await expect(service.handle(bindingsUpdateRequest(1, { kind: 'replace', binding: workspaceBinding }, [setupGrant.value.grant], 'owner')))
+      .resolves.toMatchObject({ ok: true })
+    const existingGrant = await service.handle({ action: 'unlock', clientInstanceId: 'owner', groupId, password: 'protected horse' })
+    if (!existingGrant.ok) throw new Error('unlock failed')
+    const before = await service.snapshot()
+    const auditPath = join(root, 'vault-lock', 'audit.jsonl')
+    const auditBefore = await fs.readFile(auditPath)
+    const binding = {
+      targetType: 'session' as const,
+      targetId: `session-update-${label}`,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      mode: 'no-inherit' as const,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+
+    await expect(service.handle(bindingsUpdateRequest(2, { kind: 'replace', binding }, [], 'attacker')))
+      .resolves.toEqual({ ok: false, error: { code: 'invalid-credentials', message: 'Invalid credentials' } })
+    expect(await service.snapshot()).toEqual(before)
+    await expect(fs.readFile(auditPath)).resolves.toEqual(auditBefore)
+    expect(service.validateGrants('owner', [existingGrant.value.grant])).toEqual({ valid: true })
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['forged', 'workspace-unprotected'],
+  ] as const)('rejects group-create with %s workspaceId when a candidate binding could suppress protected Workspace inheritance', async (label, workspaceId) => {
+    const created = await service.handle(groupCreateRequest(0, { name: 'Protected', password: 'protected horse', bindings: [] }))
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+    const workspaceBinding = { targetType: 'workspace' as const, targetId: 'workspace-1', mode: 'direct' as const, passwordGroupId: groupId, createdAt: timestamp, updatedAt: timestamp }
+    const setupGrant = await service.handle({ action: 'unlock', clientInstanceId: 'owner', groupId, password: 'protected horse' })
+    if (!setupGrant.ok) throw new Error('unlock failed')
+    await expect(service.handle(bindingsUpdateRequest(1, { kind: 'replace', binding: workspaceBinding }, [setupGrant.value.grant], 'owner')))
+      .resolves.toMatchObject({ ok: true })
+    const existingGrant = await service.handle({ action: 'unlock', clientInstanceId: 'owner', groupId, password: 'protected horse' })
+    if (!existingGrant.ok) throw new Error('unlock failed')
+    const before = await service.snapshot()
+    const auditPath = join(root, 'vault-lock', 'audit.jsonl')
+    const auditBefore = await fs.readFile(auditPath)
+    const sessionBinding = {
+      targetType: 'session' as const,
+      targetId: `session-create-${label}`,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      mode: 'no-inherit' as const,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+
+    await expect(service.handle(groupCreateRequest(2, {
+      name: `Attacker ${label}`,
+      password: 'attacker horse',
+      bindings: [
+        { targetType: 'workspace', targetId: `attacker-workspace-${label}`, mode: 'direct', createdAt: timestamp, updatedAt: timestamp },
+        sessionBinding,
+      ],
+    }, [], 'attacker'))).resolves.toEqual({ ok: false, error: { code: 'invalid-credentials', message: 'Invalid credentials' } })
+    expect(await service.snapshot()).toEqual(before)
+    await expect(fs.readFile(auditPath)).resolves.toEqual(auditBefore)
+    expect(service.validateGrants('owner', [existingGrant.value.grant])).toEqual({ valid: true })
+  })
+
   it('requires both direct and inherited groups when a session changes protection source', async () => {
     const workspaceCreated = await service.handle(groupCreateRequest(0, { name: 'Workspace', password: 'workspace horse', bindings: [] }))
     const directCreated = await service.handle(groupCreateRequest(1, { name: 'Direct', password: 'direct horse', bindings: [] }))
