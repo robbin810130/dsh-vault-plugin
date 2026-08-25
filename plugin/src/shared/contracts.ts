@@ -71,10 +71,10 @@ export type VaultApiRequest =
   | { readonly action: 'activity-touch'; readonly clientInstanceId: string; readonly grants: readonly GrantProof[] }
   | { readonly action: 'lock-group'; readonly clientInstanceId: string; readonly groupId: string }
   | { readonly action: 'lock-all'; readonly clientInstanceId: string }
-  | { readonly action: 'group-create'; readonly expectedRevision: number; readonly input: CreateGroupInput }
+  | { readonly action: 'group-create'; readonly clientInstanceId: string; readonly expectedRevision: number; readonly grants: readonly GrantProof[]; readonly input: CreateGroupInput }
   | { readonly action: 'group-change-password'; readonly clientInstanceId: string; readonly expectedRevision: number; readonly input: ChangePasswordInput }
   | { readonly action: 'group-recover'; readonly clientInstanceId: string; readonly expectedRevision: number; readonly input: RecoverGroupInput }
-  | { readonly action: 'bindings-update'; readonly expectedRevision: number; readonly input: BindingMutation }
+  | { readonly action: 'bindings-update'; readonly clientInstanceId: string; readonly expectedRevision: number; readonly grants: readonly GrantProof[]; readonly input: BindingMutation }
 
 export type VaultApiResult<T> =
   | { readonly ok: true; readonly value: T }

@@ -8,6 +8,7 @@ import {
   type RepositoryFileSystem,
   VaultStateRepository,
 } from '../../src/host/state/repository.js'
+import { parseVaultState } from '../../src/host/state/schema.js'
 
 const STATE_FILE = 'state.json'
 const BACKUP_FILE = 'state.json.bak'
@@ -73,6 +74,48 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   })
   return { promise, resolve }
 }
+
+const bindingTimestamps = {
+  createdAt: '2026-08-25T00:00:00.000Z',
+  updatedAt: '2026-08-25T00:00:00.000Z',
+}
+
+function persistedState(bindings: readonly unknown[]): unknown {
+  return { ...stateAt(1), bindings }
+}
+
+describe('parseVaultState binding semantics', () => {
+  it.each([
+    ['workspace inherit mode', [{ targetType: 'workspace', targetId: 'workspace-1', mode: 'inherit', ...bindingTimestamps }]],
+    ['workspace no-inherit mode', [{ targetType: 'workspace', targetId: 'workspace-1', mode: 'no-inherit', ...bindingTimestamps }]],
+    ['workspace workspaceId', [{ targetType: 'workspace', targetId: 'workspace-1', workspaceId: 'workspace-parent', mode: 'direct', passwordGroupId: 'primary', ...bindingTimestamps }]],
+    ['direct binding without a group', [{ targetType: 'session', targetId: 'session-1', mode: 'direct', ...bindingTimestamps }]],
+    ['direct binding with a missing group', [{ targetType: 'session', targetId: 'session-1', mode: 'direct', passwordGroupId: 'missing', ...bindingTimestamps }]],
+    ['direct binding with an inherited object-property group', [{ targetType: 'session', targetId: 'session-1', mode: 'direct', passwordGroupId: 'toString', ...bindingTimestamps }]],
+    ['inherit binding with a group', [{ targetType: 'session', targetId: 'session-1', mode: 'inherit', passwordGroupId: 'primary', ...bindingTimestamps }]],
+    ['no-inherit binding with a group', [{ targetType: 'session', targetId: 'session-1', mode: 'no-inherit', passwordGroupId: 'primary', ...bindingTimestamps }]],
+    ['duplicate target pair', [
+      { targetType: 'session', targetId: 'session-1', mode: 'inherit', ...bindingTimestamps },
+      { targetType: 'session', targetId: 'session-1', mode: 'no-inherit', ...bindingTimestamps },
+    ]],
+    ['empty target id', [{ targetType: 'session', targetId: '', mode: 'inherit', ...bindingTimestamps }]],
+    ['empty group id', [{ targetType: 'session', targetId: 'session-1', mode: 'direct', passwordGroupId: '', ...bindingTimestamps }]],
+    ['empty workspace id', [{ targetType: 'session', targetId: 'session-1', workspaceId: '', mode: 'inherit', ...bindingTimestamps }]],
+  ])('rejects %s', (_label, bindings) => {
+    expect(() => parseVaultState(persistedState(bindings))).toThrow(/Invalid vault state/)
+  })
+
+  it('accepts valid session modes and soft-orphan target identities', () => {
+    const state = persistedState([
+      { targetType: 'workspace', targetId: 'unknown-workspace', mode: 'direct', passwordGroupId: 'primary', ...bindingTimestamps },
+      { targetType: 'session', targetId: 'unknown-direct-session', workspaceId: 'unknown-workspace', mode: 'direct', passwordGroupId: 'primary', ...bindingTimestamps },
+      { targetType: 'session', targetId: 'unknown-inherit-session', workspaceId: 'unknown-workspace', mode: 'inherit', ...bindingTimestamps },
+      { targetType: 'session', targetId: 'unknown-opt-out-session', mode: 'no-inherit', ...bindingTimestamps },
+    ])
+
+    expect(parseVaultState(state)).toEqual(state)
+  })
+})
 
 describe('VaultStateRepository', () => {
   let root: string

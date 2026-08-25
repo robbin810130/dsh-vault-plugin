@@ -176,12 +176,32 @@ export function parseVaultState(value: unknown): VaultState {
     return [id, parsed]
   }))
   if (!Array.isArray(source.bindings)) invalid('$.bindings', 'expected an array')
+  const bindings = source.bindings.map((binding, index) => protectionBinding(binding, `$.bindings[${index}]`))
+  const targets = new Set<string>()
+  for (const [index, binding] of bindings.entries()) {
+    const path = `$.bindings[${index}]`
+    const targetKey = `${binding.targetType}\0${binding.targetId}`
+    if (targets.has(targetKey)) invalid(path, 'duplicate target binding')
+    targets.add(targetKey)
+
+    if (binding.targetType === 'workspace') {
+      if (binding.mode !== 'direct') invalid(`${path}.mode`, 'workspace binding must use direct mode')
+      if (binding.workspaceId !== undefined) invalid(`${path}.workspaceId`, 'workspace binding must not include workspaceId')
+    }
+
+    if (binding.mode === 'direct') {
+      if (binding.passwordGroupId === undefined) invalid(`${path}.passwordGroupId`, 'direct binding requires a password group id')
+      if (!Object.hasOwn(groups, binding.passwordGroupId)) invalid(`${path}.passwordGroupId`, 'password group does not exist')
+    } else if (binding.passwordGroupId !== undefined) {
+      invalid(`${path}.passwordGroupId`, `${binding.mode} binding must not include a password group id`)
+    }
+  }
 
   return {
     schemaVersion: 1,
     revision: nonNegativeInteger(source.revision, '$.revision'),
     groups,
-    bindings: source.bindings.map((binding, index) => protectionBinding(binding, `$.bindings[${index}]`)),
+    bindings,
   }
 }
 

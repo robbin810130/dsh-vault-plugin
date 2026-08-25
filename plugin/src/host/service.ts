@@ -82,10 +82,10 @@ export class VaultService {
         case 'activity-touch': return { ok: true, value: this.touchActivity(request.clientInstanceId, request.grants) }
         case 'lock-group': return this.lockGroup(request.clientInstanceId, request.groupId)
         case 'lock-all': return this.lockAll(request.clientInstanceId)
-        case 'group-create': return await this.createGroup(request.expectedRevision, request.input)
+        case 'group-create': return await this.createGroup(request.clientInstanceId, request.expectedRevision, request.grants, request.input)
         case 'group-change-password': return await this.changePassword(request.clientInstanceId, request.expectedRevision, request.input)
         case 'group-recover': return await this.recoverGroup(request.clientInstanceId, request.expectedRevision, request.input)
-        case 'bindings-update': return await this.updateBindings(request.expectedRevision, request.input)
+        case 'bindings-update': return await this.updateBindings(request.clientInstanceId, request.expectedRevision, request.grants, request.input)
       }
     } catch {
       return SAFE_ERROR
@@ -97,7 +97,9 @@ export class VaultService {
     if (!state || proofs.length === 0) return { valid: false }
     return { valid: proofs.every((proof) => {
       const group = state.groups[proof.groupId]
-      return group !== undefined && this.grants.authorize(proof.token, group.id, group.credentialVersion, clientInstanceId)
+      return group !== undefined
+        && proof.credentialVersion === group.credentialVersion
+        && this.grants.authorize(proof.token, group.id, group.credentialVersion, clientInstanceId)
     }) }
   }
 
@@ -129,6 +131,10 @@ export class VaultService {
   }
 
   dispose(): void {
+    this.invalidateVolatileState()
+  }
+
+  private invalidateVolatileState(): void {
     this.grants.clear()
     this.attempts.clear()
     this.#lastTouch.clear()
@@ -155,7 +161,7 @@ export class VaultService {
     } catch { return SAFE_ERROR }
   }
 
-  private async createGroup(expectedRevision: number, input: CreateGroupInput): Promise<ServiceResult> {
+  private async createGroup(clientInstanceId: string, expectedRevision: number, proofs: readonly GrantProof[], input: CreateGroupInput): Promise<ServiceResult> {
     const state = await this.state()
     if (state.revision !== expectedRevision) return failed('revision-conflict')
     if (Object.values(state.groups).some((group) => group.name === input.name)) return failed('duplicate-name')
@@ -164,17 +170,25 @@ export class VaultService {
     const recoveryKey = generateRecoveryKey()
     const group: PasswordGroup = { id, name: input.name, password: await createVerifier(input.password), recovery: { ...(await createVerifier(recoveryKey)), generatedAt: now }, credentialVersion: 1, createdAt: now, updatedAt: now }
     let next: VaultState = { ...state, revision: expectedRevision, groups: { ...state.groups, [id]: group }, bindings: state.bindings }
+    const affectedGroups = new Set<string>()
     for (const candidate of input.bindings) {
       const binding = candidate.mode === 'direct'
         ? { ...candidate, passwordGroupId: candidate.passwordGroupId ?? id }
         : candidate
       if (binding.mode === 'direct' && binding.passwordGroupId !== id) return failed('invalid-binding')
-      next = applyBindingMutation(next, { kind: 'replace', binding }, () => now)
+      const mutation = { kind: 'replace' as const, binding }
+      const updated = applyBindingMutation(next, mutation, () => now)
+      for (const groupId of this.bindingAffectedGroups(next, updated, mutation)) {
+        if (state.groups[groupId] !== undefined) affectedGroups.add(groupId)
+      }
+      next = updated
     }
+    if (!this.authorizeAffectedGroups(state, affectedGroups, clientInstanceId, proofs)) return failed('invalid-credentials')
     next = { ...next, revision: expectedRevision + 1 }
     const committed = await this.commit(expectedRevision, next)
     if (committed === 'conflict') return failed('revision-conflict')
     if (committed === 'failed') return failed('persistence-failed')
+    for (const groupId of affectedGroups) this.grants.revokeGroup(groupId)
     await this.safeAudit({ action: 'group-created', groupId: id, credentialVersion: group.credentialVersion, revision: next.revision, result: 'success' })
     const value: RecoveryKeyResult = { snapshot: this.redacted(next), recoveryKey }
     return { ok: true, value }
@@ -233,12 +247,13 @@ export class VaultService {
     return { ok: true, value }
   }
 
-  private async updateBindings(expectedRevision: number, mutation: BindingMutation): Promise<ServiceResult> {
+  private async updateBindings(clientInstanceId: string, expectedRevision: number, proofs: readonly GrantProof[], mutation: BindingMutation): Promise<ServiceResult> {
     const state = await this.state()
     if (state.revision !== expectedRevision) return failed('revision-conflict')
     const next = applyBindingMutation(state, mutation, this.#now)
     const committed = { ...next, revision: expectedRevision + 1 }
     const affectedGroups = this.bindingAffectedGroups(state, committed, mutation)
+    if (!this.authorizeAffectedGroups(state, affectedGroups, clientInstanceId, proofs)) return failed('invalid-credentials')
     const commitResult = await this.commit(expectedRevision, committed)
     if (commitResult === 'conflict') return failed('revision-conflict')
     if (commitResult === 'failed') return failed('persistence-failed')
@@ -250,6 +265,25 @@ export class VaultService {
       }
     }
     return { ok: true, value: this.redacted(committed) }
+  }
+
+  private authorizeAffectedGroups(
+    state: VaultState,
+    groupIds: ReadonlySet<string>,
+    clientInstanceId: string,
+    proofs: readonly GrantProof[],
+  ): boolean {
+    for (const groupId of groupIds) {
+      const group = state.groups[groupId]
+      if (group === undefined) continue
+      const authorized = proofs.some((proof) => (
+        proof.groupId === group.id
+        && proof.credentialVersion === group.credentialVersion
+        && this.grants.authorize(proof.token, group.id, group.credentialVersion, clientInstanceId)
+      ))
+      if (!authorized) return false
+    }
+    return true
   }
 
   private bindingAffectedGroups(state: VaultState, next: VaultState, mutation: BindingMutation): Set<string> {
@@ -308,7 +342,13 @@ export class VaultService {
   }
 
   private async refreshState(): Promise<VaultState> {
-    const loaded = await this.repository.load()
+    let loaded: VaultState
+    try {
+      loaded = await this.repository.load()
+    } catch (error) {
+      this.invalidateVolatileState()
+      throw error
+    }
     const previous = this.#state
     if (previous === undefined) {
       this.#state = loaded
@@ -316,7 +356,7 @@ export class VaultService {
     }
     if (loaded.revision < previous.revision
       || (loaded.revision === previous.revision && !isDeepStrictEqual(loaded, previous))) {
-      this.grants.clear()
+      this.invalidateVolatileState()
       throw new Error('Vault state refresh is not monotonic')
     }
     if (loaded.revision > previous.revision) this.reconcileExternalState(previous, loaded)
@@ -344,6 +384,7 @@ export class VaultService {
     try {
       const result = await this.repository.commit(expectedRevision, next)
       if (!result.ok) {
+        this.invalidateVolatileState()
         await this.refreshState()
         return 'conflict'
       }

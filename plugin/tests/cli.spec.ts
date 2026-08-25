@@ -25,6 +25,15 @@ async function protectedState(groupId = 'group-1'): Promise<VaultState> {
         createdAt: now,
         updatedAt: now,
       },
+      'other-group': {
+        id: 'other-group',
+        name: 'Other',
+        password: await createVerifier('other-password'),
+        recovery: { ...(await createVerifier('other-recovery-key')), generatedAt: now },
+        credentialVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
     },
     bindings: [
       { targetType: 'workspace', targetId: 'ws-1', mode: 'direct', passwordGroupId: groupId, createdAt: now, updatedAt: now },
