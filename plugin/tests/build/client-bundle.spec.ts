@@ -74,8 +74,10 @@ describe('DSH client artifact', () => {
   it('emits declarations for the client export', async () => {
     const declarations = await readFile(new URL('../../lib/client.d.ts', import.meta.url), 'utf8')
 
-    expect(declarations).toContain('declare const inject: readonly string[]')
-    expect(declarations).toContain('declare function apply(): void')
+    expect(declarations).toContain(
+      'declare const inject: readonly ["slots", "locale", "settingsScope", "navigationAccess", "workspaceRows"];',
+    )
+    expect(declarations).toContain('declare function apply(ctx: ClientContext): void;')
   })
 
   it('injects one plugin-tagged stylesheet when the factory executes', async () => {

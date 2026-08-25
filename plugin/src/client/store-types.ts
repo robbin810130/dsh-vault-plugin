@@ -9,6 +9,7 @@ import type {
   RecoveryKeyResult,
   RedactedPasswordGroup,
   UnlockResult,
+  VaultPolicy,
   VaultApiResult,
   VaultSnapshot,
   VaultTarget,
@@ -24,6 +25,7 @@ export interface VaultClientSnapshot {
   readonly revision: number
   readonly groups: readonly RedactedPasswordGroup[]
   readonly bindings: readonly ProtectionBinding[]
+  readonly policy: VaultPolicy
   readonly unlockedGroupIds: ReadonlySet<string>
   readonly prompt: UnlockPromptState | null
 }
@@ -41,6 +43,9 @@ export interface VaultClientStore {
   validateGrants(signal?: AbortSignal): Promise<VaultApiResult<GrantValidationResult>>
   touchActivity(signal?: AbortSignal): Promise<VaultApiResult<ActivityTouchResult>>
   unlock(groupId: string, password: string, signal?: AbortSignal): Promise<VaultApiResult<UnlockResult>>
+  requestUnlock(groupId: string, target: VaultTarget): Promise<boolean>
+  settleUnlock(groupId: string): void
+  cancelUnlock(groupId: string): void
   lockGroup(groupId: string, signal?: AbortSignal): Promise<VaultApiResult<null>>
   lockAll(signal?: AbortSignal): Promise<VaultApiResult<null>>
   createGroup(input: CreateGroupInput, signal?: AbortSignal): Promise<VaultApiResult<RecoveryKeyResult>>

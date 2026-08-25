@@ -11,6 +11,7 @@ import type {
   VaultApiRequest,
   VaultApiResult,
   VaultSnapshot,
+  VaultTarget,
 } from '../shared/contracts.js'
 import { createVaultApiClient, type VaultApiClient } from './api.js'
 import type { ChangePasswordResult, UnlockPromptState, VaultClientSnapshot, VaultClientStore } from './store-types.js'
@@ -91,6 +92,7 @@ function immutableSnapshot(
   revision: number,
   groups: VaultSnapshot['groups'],
   bindings: VaultSnapshot['bindings'],
+  policy: VaultSnapshot['policy'],
   unlockedGroupIds: Iterable<string>,
   prompt: UnlockPromptState | null = null,
 ): VaultClientSnapshot {
@@ -104,6 +106,7 @@ function immutableSnapshot(
     revision,
     groups: frozenGroups,
     bindings: frozenBindings,
+    policy: Object.freeze({ ...policy, failedAttemptProtection: Object.freeze({ ...policy.failedAttemptProtection }) }),
     unlockedGroupIds: new ImmutableStringSet(unlockedGroupIds),
     prompt: frozenPrompt,
   })
@@ -120,8 +123,18 @@ class VaultClientStoreImplementation implements VaultClientStore {
   readonly #api: VaultApiClient
   readonly #grants = new Map<string, GrantProof>()
   readonly #listeners = new Set<() => void>()
+  #pendingUnlock: {
+    readonly groupId: string
+    readonly resolve: (allow: boolean) => void
+    readonly promise: Promise<boolean>
+  } | undefined
   #refreshGeneration = 0
-  #snapshot = immutableSnapshot('loading', 0, [], [], [])
+  #snapshot = immutableSnapshot('loading', 0, [], [], {
+    autoLockMinutes: 15,
+    lockOnSystemSleep: true,
+    lockedNameVisibility: 'workspace-visible-session-hidden',
+    failedAttemptProtection: { enabled: true, maxAttempts: 3, cooldownSeconds: 300 },
+  }, [])
 
   constructor(api: VaultApiClient) {
     const randomUUID = globalThis.crypto?.randomUUID
@@ -136,6 +149,33 @@ class VaultClientStoreImplementation implements VaultClientStore {
 
   getSnapshot(): VaultClientSnapshot {
     return this.#snapshot
+  }
+
+  requestUnlock(groupId: string, target: VaultTarget): Promise<boolean> {
+    const snapshot = this.#snapshot
+    if (snapshot.host !== 'ready' || !snapshot.groups.some(group => group.id === groupId)) return Promise.resolve(false)
+    if (snapshot.unlockedGroupIds.has(groupId)) return Promise.resolve(true)
+    if (this.#pendingUnlock !== undefined) {
+      return this.#pendingUnlock.groupId === groupId
+        ? this.#pendingUnlock.promise
+        : Promise.resolve(false)
+    }
+
+    let resolve!: (allow: boolean) => void
+    const promise = new Promise<boolean>(res => { resolve = res })
+    this.#pendingUnlock = { groupId, resolve, promise }
+    this.#publish('ready', snapshot.unlockedGroupIds, { groupId, target }, true)
+    return promise
+  }
+
+  settleUnlock(groupId: string): void {
+    if (this.#pendingUnlock?.groupId !== groupId) return
+    this.#finishUnlock(this.#snapshot.host === 'ready' && this.#snapshot.unlockedGroupIds.has(groupId))
+  }
+
+  cancelUnlock(groupId: string): void {
+    if (this.#pendingUnlock?.groupId !== groupId) return
+    this.#finishUnlock(false)
   }
 
   subscribe(listener: () => void): () => void {
@@ -256,6 +296,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
 
   async lockGroup(groupId: string, signal?: AbortSignal): Promise<VaultApiResult<null>> {
     this.#grants.delete(groupId)
+    if (this.#pendingUnlock?.groupId === groupId) this.#finishUnlock(false)
     this.#publish(this.#snapshot.host, this.#validLocalGroupIds())
     const response = await this.#call<null>({
       action: 'lock-group',
@@ -268,6 +309,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
 
   async lockAll(signal?: AbortSignal): Promise<VaultApiResult<null>> {
     this.#grants.clear()
+    if (this.#pendingUnlock !== undefined) this.#finishUnlock(false)
     this.#publish(this.#snapshot.host, [])
     const response = await this.#call<null>({
       action: 'lock-all',
@@ -384,7 +426,8 @@ class VaultClientStoreImplementation implements VaultClientStore {
   #acceptSnapshot(snapshot: VaultSnapshot, unlockedGroupIds: Iterable<string>): boolean {
     try {
       if (!Number.isSafeInteger(snapshot.revision) || snapshot.revision < this.#snapshot.revision) return false
-      this.#snapshot = immutableSnapshot('ready', snapshot.revision, snapshot.groups, snapshot.bindings, unlockedGroupIds)
+      if (this.#pendingUnlock !== undefined) this.#finishUnlock(false)
+      this.#snapshot = immutableSnapshot('ready', snapshot.revision, snapshot.groups, snapshot.bindings, snapshot.policy, unlockedGroupIds)
       this.#notify()
       return true
     } catch {
@@ -392,20 +435,50 @@ class VaultClientStoreImplementation implements VaultClientStore {
     }
   }
 
-  #publish(host: VaultClientSnapshot['host'], unlockedGroupIds: Iterable<string>): void {
+  #publish(
+    host: VaultClientSnapshot['host'],
+    unlockedGroupIds: Iterable<string>,
+    prompt: UnlockPromptState | null = this.#snapshot.prompt,
+    preservePending = false,
+  ): void {
+    const ids = [...unlockedGroupIds]
+    if (!preservePending && this.#pendingUnlock !== undefined
+      && (host !== 'ready' || !ids.includes(this.#pendingUnlock.groupId))) {
+      this.#finishUnlock(false)
+      prompt = null
+    }
     this.#snapshot = immutableSnapshot(
       host,
       this.#snapshot.revision,
       this.#snapshot.groups,
       this.#snapshot.bindings,
-      unlockedGroupIds,
-      this.#snapshot.prompt,
+      this.#snapshot.policy,
+      ids,
+      prompt,
     )
     this.#notify()
   }
 
   #markOffline(): void {
+    if (this.#pendingUnlock !== undefined) this.#finishUnlock(false)
     this.#publish('offline', [])
+  }
+
+  #finishUnlock(allow: boolean): void {
+    const pending = this.#pendingUnlock
+    if (pending === undefined) return
+    this.#pendingUnlock = undefined
+    this.#snapshot = immutableSnapshot(
+      this.#snapshot.host,
+      this.#snapshot.revision,
+      this.#snapshot.groups,
+      this.#snapshot.bindings,
+      this.#snapshot.policy,
+      this.#snapshot.unlockedGroupIds,
+      null,
+    )
+    this.#notify()
+    pending.resolve(allow)
   }
 
   #invalidResponse<T>(): VaultApiResult<T> {
