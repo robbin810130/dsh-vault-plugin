@@ -217,6 +217,19 @@ describe('InMemoryGrantStore', () => {
     expect(store.authorize(groupBClientA.token, 'group-b', 1, 'client-a')).toBe(false)
   })
 
+  it('revokes only one client within a group', () => {
+    const tokens = [bytes(20), bytes(21), bytes(22)]
+    const store = new InMemoryGrantStore({ randomBytes: () => tokens.shift()! })
+    const groupAClientA = store.issue('group-a', 1, 'client-a', 1_000)
+    const groupAClientB = store.issue('group-a', 1, 'client-b', 1_000)
+    const groupBClientA = store.issue('group-b', 1, 'client-a', 1_000)
+
+    store.revokeGroupForClient('group-a', 'client-a')
+    expect(store.authorize(groupAClientA.token, 'group-a', 1, 'client-a')).toBe(false)
+    expect(store.authorize(groupAClientB.token, 'group-a', 1, 'client-b')).toBe(true)
+    expect(store.authorize(groupBClientA.token, 'group-b', 1, 'client-a')).toBe(true)
+  })
+
   it('clears all grants and starts empty after a Host restart', () => {
     const options = { randomBytes: () => bytes(8) }
     const beforeRestart = new InMemoryGrantStore(options)

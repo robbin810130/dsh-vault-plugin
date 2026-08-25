@@ -28,6 +28,7 @@ export interface GrantStore {
     ttlMs: number,
   ): GrantTouchResult
   revokeGroup(groupId: string): void
+  revokeGroupForClient(groupId: string, clientInstanceId: string): void
   revokeClient(clientInstanceId: string): void
   clear(): void
 }
@@ -169,6 +170,12 @@ export class InMemoryGrantStore implements GrantStore {
   revokeGroup(groupId: string): void {
     for (const [digest, grant] of this.grants) {
       if (grant.groupId === groupId) this.grants.delete(digest)
+    }
+  }
+
+  revokeGroupForClient(groupId: string, clientInstanceId: string): void {
+    for (const [digest, grant] of this.grants) {
+      if (grant.groupId === groupId && grant.clientInstanceId === clientInstanceId) this.grants.delete(digest)
     }
   }
 

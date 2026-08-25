@@ -146,11 +146,11 @@ export function parseVaultApiRequest(value: unknown): VaultApiRequest {
       exact(source, ['action', 'expectedRevision', 'input'])
       return { action, expectedRevision: revision(source.expectedRevision), input: createInput(source.input) }
     case 'group-change-password':
-      exact(source, ['action', 'expectedRevision', 'input'])
-      return { action, expectedRevision: revision(source.expectedRevision), input: changeInput(source.input) }
+      exact(source, ['action', 'clientInstanceId', 'expectedRevision', 'input'])
+      return { action, clientInstanceId: id(source.clientInstanceId), expectedRevision: revision(source.expectedRevision), input: changeInput(source.input) }
     case 'group-recover':
-      exact(source, ['action', 'expectedRevision', 'input'])
-      return { action, expectedRevision: revision(source.expectedRevision), input: recoverInput(source.input) }
+      exact(source, ['action', 'clientInstanceId', 'expectedRevision', 'input'])
+      return { action, clientInstanceId: id(source.clientInstanceId), expectedRevision: revision(source.expectedRevision), input: recoverInput(source.input) }
     case 'bindings-update':
       exact(source, ['action', 'expectedRevision', 'input'])
       return { action, expectedRevision: revision(source.expectedRevision), input: mutation(source.input) }

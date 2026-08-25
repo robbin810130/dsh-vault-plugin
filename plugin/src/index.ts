@@ -36,3 +36,5 @@ export function apply(ctx: Context, config: VaultConfig): void {
     }
   }, 'dsh-vault/api')
 }
+
+apply.inject = ['webServer'] as const

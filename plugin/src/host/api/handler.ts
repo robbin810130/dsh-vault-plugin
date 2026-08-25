@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { isIPv4, isIPv6 } from 'node:net'
 import { MAX_BODY_BYTES, parseVaultApiRequest } from './request.js'
 import type { VaultService } from '../service.js'
 
@@ -8,12 +9,29 @@ class BodyTooLargeError extends Error {}
 
 function header(req: IncomingMessage, name: string): string | undefined {
   const value = req.headers[name]
-  return Array.isArray(value) ? value[0] ?? undefined : value
+  if (Array.isArray(value)) return undefined
+  return value
 }
 
-function localHost(host: string): boolean {
-  const hostname = host.startsWith('[') ? host.slice(1, host.indexOf(']')).toLowerCase() : (host.split(':')[0] ?? '').toLowerCase()
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+function loopbackAddress(address: string | undefined): boolean {
+  if (!address) return false
+  const normalized = address.toLowerCase()
+  if (isIPv4(normalized)) return normalized.split('.')[0] === '127'
+  if (normalized === '::1') return true
+  if (!isIPv6(normalized) || !normalized.startsWith('::ffff:')) return false
+  const suffix = normalized.slice('::ffff:'.length)
+  if (isIPv4(suffix)) return suffix.split('.')[0] === '127'
+  const parts = suffix.split(':')
+  if (parts.length !== 2 || parts.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return false
+  const first = Number.parseInt(parts[0]!, 16)
+  const second = Number.parseInt(parts[1]!, 16)
+  return Number.isInteger(first) && Number.isInteger(second) && (first >>> 8) === 0x7f
+}
+
+function localHttpHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (normalized === 'localhost' || normalized === '::1') return true
+  return isIPv4(normalized) && normalized.split('.')[0] === '127'
 }
 
 function protocol(req: IncomingMessage): 'http' | 'https' {
@@ -33,10 +51,15 @@ function checkOrigin(req: IncomingMessage): boolean {
   const scheme = protocol(req)
   const origin = header(req, 'origin')
   if (origin === undefined) return false
-  if (scheme === 'http' && !localHost(host)) return false
+  if (host.includes(',') || origin.includes(',')) return false
+  if (scheme === 'http' && !loopbackAddress(req.socket.remoteAddress)) return false
   try {
-    const expected = new URL(scheme + '://' + host).origin
-    return new URL(origin).origin === expected
+    const expectedUrl = new URL(scheme + '://' + host)
+    if (expectedUrl.username || expectedUrl.password || expectedUrl.pathname !== '/' || expectedUrl.search || expectedUrl.hash) return false
+    if (scheme === 'http' && !localHttpHostname(expectedUrl.hostname)) return false
+    const originUrl = new URL(origin)
+    if (originUrl.username || originUrl.password || originUrl.pathname !== '/' || originUrl.search || originUrl.hash) return false
+    return originUrl.origin === expectedUrl.origin
   } catch {
     return false
   }

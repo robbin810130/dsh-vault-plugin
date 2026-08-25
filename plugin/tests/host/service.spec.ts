@@ -101,6 +101,70 @@ describe('VaultService', () => {
     expect(service.validateGrants('client-1', [proof])).toEqual({ valid: false })
   })
 
+  it('does not let lock operations bypass an active failed-attempt cooldown', async () => {
+    await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Primary', password: 'correct horse', bindings: [] } })
+    const groupId = (await service.snapshot()).groups[0]!.id
+    await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'wrong horse' })
+    await expect(service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'wrong horse' })).resolves.toMatchObject({ ok: false, error: { code: 'cooldown' } })
+
+    expect(service.lockGroup('client-1', groupId)).toEqual({ ok: true, value: null })
+    await expect(service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'correct horse' })).resolves.toMatchObject({ ok: false, error: { code: 'cooldown' } })
+    expect(service.lockAll('client-1')).toEqual({ ok: true, value: null })
+    await expect(service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'correct horse' })).resolves.toMatchObject({ ok: false, error: { code: 'cooldown' } })
+  })
+
+  it('revokes old and new grants when bindings change or members migrate', async () => {
+    const first = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'First', password: 'correct horse', bindings: [] } })
+    if (!first.ok) throw new Error('first create failed')
+    const firstId = first.value.snapshot.groups[0]!.id
+    const second = await service.handle({ action: 'group-create', expectedRevision: 1, input: { name: 'Second', password: 'second horse', bindings: [] } })
+    if (!second.ok) throw new Error('second create failed')
+    const secondId = second.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Second')!.id
+    const firstBinding = { targetType: 'workspace' as const, targetId: 'workspace-1', mode: 'direct' as const, passwordGroupId: firstId, createdAt: '2026-08-25T00:00:00.000Z', updatedAt: '2026-08-25T00:00:00.000Z' }
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: firstBinding } })
+    const firstGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: firstId, password: 'correct horse' })
+    const secondGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: secondId, password: 'second horse' })
+    if (!firstGrant.ok || !secondGrant.ok) throw new Error('unlock failed')
+    const secondBinding = { ...firstBinding, passwordGroupId: secondId }
+    const replaced = await service.handle({ action: 'bindings-update', expectedRevision: 3, input: { kind: 'replace', binding: secondBinding } })
+    expect(replaced).toMatchObject({ ok: true })
+    expect(service.validateGrants('client-1', [firstGrant.value.grant])).toEqual({ valid: false })
+    expect(service.validateGrants('client-1', [secondGrant.value.grant])).toEqual({ valid: false })
+
+    const thirdGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: secondId, password: 'second horse' })
+    if (!thirdGrant.ok) throw new Error('unlock failed')
+    await service.handle({ action: 'bindings-update', expectedRevision: 4, input: { kind: 'remove', targetType: 'workspace', targetId: 'workspace-1' } })
+    expect(service.validateGrants('client-1', [thirdGrant.value.grant])).toEqual({ valid: false })
+
+    const migrationFirst = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: firstId, password: 'correct horse' })
+    const migrationSecond = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: secondId, password: 'second horse' })
+    if (!migrationFirst.ok || !migrationSecond.ok) throw new Error('unlock failed')
+    const deleted = await service.handle({ action: 'bindings-update', expectedRevision: 5, input: { kind: 'delete-group', groupId: firstId, moveToGroupId: secondId } })
+    expect(deleted).toMatchObject({ ok: true })
+    expect(service.validateGrants('client-1', [migrationFirst.value.grant])).toEqual({ valid: false })
+    expect(service.validateGrants('client-1', [migrationSecond.value.grant])).toEqual({ valid: false })
+  })
+
+  it('keeps durable create/change/recover results successful when audit append fails', async () => {
+    let auditCalls = 0
+    const repository = new VaultStateRepository(join(root, 'audit-fault-vault'))
+    const auditFault = {
+      load: () => repository.load(),
+      commit: (expectedRevision: number, next: Parameters<typeof repository.commit>[1]) => repository.commit(expectedRevision, next),
+      appendAudit: async () => { auditCalls += 1; throw new Error('audit unavailable') },
+    }
+    const audited = new VaultService({ repository: auditFault, policy, grants: new InMemoryGrantStore(), attempts: new FailedAttemptStore() })
+    const created = await audited.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Primary', password: 'correct horse', bindings: [] } })
+    expect(created).toMatchObject({ ok: true })
+    expect(auditCalls).toBe(1)
+    if (!created.ok) return
+    const groupId = created.value.snapshot.groups[0]!.id
+    const changed = await audited.handle({ action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 1, input: { groupId, currentPassword: 'correct horse', newPassword: 'new horse', rotateRecovery: true } })
+    expect(changed).toMatchObject({ ok: true })
+    const recovered = await audited.handle({ action: 'group-recover', clientInstanceId: 'client-1', expectedRevision: 2, input: { groupId, recoveryKey: changed.ok && 'recoveryKey' in changed.value ? changed.value.recoveryKey : 'invalid', newPassword: 'recovered horse' } })
+    expect(recovered).toMatchObject({ ok: true })
+  })
+
   it('returns a revision conflict without changing the snapshot', async () => {
     const result = await service.handle({ action: 'group-create', expectedRevision: 9, input: { name: 'Primary', password: 'correct horse', bindings: [] } })
     expect(result).toEqual({ ok: false, error: { code: 'revision-conflict', message: 'Vault revision changed' } })
@@ -158,5 +222,60 @@ describe('VaultService', () => {
     const fresh = await service.snapshot()
     expect(fresh.bindings).toEqual([])
     expect(fresh.groups[0]?.name).toBe('Primary')
+  })
+
+  it('checks revision before credential details and throttles password changes per client', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Primary', password: 'correct horse', bindings: [] } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+
+    const wrongRevision = await service.handle({
+      action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 9,
+      input: { groupId, currentPassword: 'correct horse', newPassword: 'new horse', rotateRecovery: false },
+    } as never)
+    expect(wrongRevision).toMatchObject({ ok: false, error: { code: 'revision-conflict' } })
+
+    const wrongCredential = await service.handle({
+      action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 1,
+      input: { groupId, currentPassword: 'wrong horse', newPassword: 'new horse', rotateRecovery: false },
+    } as never)
+    expect(wrongCredential).toMatchObject({ ok: false, error: { code: 'invalid-credentials' } })
+    const cooldown = await service.handle({
+      action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 1,
+      input: { groupId, currentPassword: 'wrong horse', newPassword: 'new horse', rotateRecovery: false },
+    } as never)
+    expect(cooldown).toMatchObject({ ok: false, error: { code: 'cooldown' } })
+  })
+
+  it('resets change and recovery failures only after successful credential commits', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Primary', password: 'correct horse', bindings: [] } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const recoveryKey = created.value.recoveryKey
+
+    await service.handle({
+      action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 1,
+      input: { groupId, currentPassword: 'wrong horse', newPassword: 'new horse', rotateRecovery: false },
+    } as never)
+    const changed = await service.handle({
+      action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 1,
+      input: { groupId, currentPassword: 'correct horse', newPassword: 'new horse', rotateRecovery: false },
+    } as never)
+    expect(changed).toMatchObject({ ok: true })
+    const afterChange = await service.handle({
+      action: 'group-change-password', clientInstanceId: 'client-1', expectedRevision: 2,
+      input: { groupId, currentPassword: 'wrong horse', newPassword: 'third horse', rotateRecovery: false },
+    } as never)
+    expect(afterChange).toMatchObject({ ok: false, error: { code: 'invalid-credentials' } })
+
+    await service.handle({
+      action: 'group-recover', clientInstanceId: 'client-2', expectedRevision: 2,
+      input: { groupId, recoveryKey: 'wrong recovery', newPassword: 'recovered horse' },
+    } as never)
+    const recovered = await service.handle({
+      action: 'group-recover', clientInstanceId: 'client-2', expectedRevision: 2,
+      input: { groupId, recoveryKey, newPassword: 'recovered horse' },
+    } as never)
+    expect(recovered).toMatchObject({ ok: true })
   })
 })

@@ -244,6 +244,7 @@ export class VaultStateRepository {
     let stateTempExists = false
     let backupTempExists = false
     let stateReplaced = false
+    let backupPublished = false
 
     try {
       const stateTemp = await this.fileSystem.open(stateTempPath, 'wx', FILE_MODE)
@@ -272,11 +273,22 @@ export class VaultStateRepository {
       if (currentExists) {
         await this.fileSystem.rename(backupTempPath, this.#backupPath)
         backupTempExists = false
+        backupPublished = true
         await this.#syncDirectory()
       }
     } catch (error) {
       const cleanupErrors: unknown[] = []
-      if (stateReplaced && backupTempExists) {
+      if (stateReplaced && backupPublished) {
+        try {
+          await this.fileSystem.copyFile(this.#backupPath, this.#statePath)
+          await this.fileSystem.chmod(this.#statePath, FILE_MODE)
+          stateReplaced = false
+          backupPublished = false
+          await this.#syncDirectory()
+        } catch (rollbackError) {
+          cleanupErrors.push(new Error('Vault state rollback failed', { cause: rollbackError }))
+        }
+      } else if (stateReplaced && backupTempExists) {
         try {
           await this.fileSystem.rename(backupTempPath, this.#statePath)
           backupTempExists = false

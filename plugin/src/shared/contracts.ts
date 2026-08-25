@@ -72,8 +72,8 @@ export type VaultApiRequest =
   | { readonly action: 'lock-group'; readonly clientInstanceId: string; readonly groupId: string }
   | { readonly action: 'lock-all'; readonly clientInstanceId: string }
   | { readonly action: 'group-create'; readonly expectedRevision: number; readonly input: CreateGroupInput }
-  | { readonly action: 'group-change-password'; readonly expectedRevision: number; readonly input: ChangePasswordInput }
-  | { readonly action: 'group-recover'; readonly expectedRevision: number; readonly input: RecoverGroupInput }
+  | { readonly action: 'group-change-password'; readonly clientInstanceId: string; readonly expectedRevision: number; readonly input: ChangePasswordInput }
+  | { readonly action: 'group-recover'; readonly clientInstanceId: string; readonly expectedRevision: number; readonly input: RecoverGroupInput }
   | { readonly action: 'bindings-update'; readonly expectedRevision: number; readonly input: BindingMutation }
 
 export type VaultApiResult<T> =

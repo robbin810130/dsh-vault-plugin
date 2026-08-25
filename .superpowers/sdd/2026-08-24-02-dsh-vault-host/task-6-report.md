@@ -33,3 +33,65 @@
 ## 提交
 
 提交信息：feat(vault): expose secure host API
+
+## Review fix round 1（基于 61325f2）
+
+本轮只处理用户指定的 8 项 review findings；未派 subagent/reviewer，未触碰 rtk-token-keeper，未加入客户端 UI。
+
+### Critical 1 — remote HTTP spoof
+
+- RED：新增 tests/host/api-handler.spec.ts 真实 request double，带 socket.remoteAddress，覆盖远程 HTTP、loopback（127/8、::1、IPv4-mapped loopback）、userinfo/Host trick、重复 Host/Origin；focused handler 测试先因远程 HTTP 仍返回 200 而失败。
+- 修复：HTTP 同时要求真实 socket loopback 与 WHATWG URL 严格同源；拒绝 userinfo、非根路径/查询/片段、重复头、forwarded spoof；HTTPS 允许远程但仍精确 same-origin。
+- GREEN：vitest run tests/host/api-handler.spec.ts 4/4。
+
+### Critical 2 — change/recover oracle 与 cooldown
+
+- RED：新增 change/recover revision-first、错误凭据计数/cooldown、成功 reset、严格 clientInstanceId parser/contract 测试；初始 parser 拒绝扩展字段，service 在第二次错误凭据仍返回 invalid-credentials。
+- 修复：wire contract 为 credential-changing actions 增加严格 clientInstanceId；revision 检查先于 credential 验证；change/recover 接入 FailedAttemptStore，失败计数/暂停，durable commit 成功后 recordSuccess。
+- GREEN：vitest run tests/host/service.spec.ts tests/host/api-request.spec.ts 12/12。
+
+### Critical 3 — lock 绕 cooldown
+
+- RED：新增猜测→cooldown→lock-group/lock-all→正确密码仍 cooldown 回归；原实现 lock 后返回成功 unlock。
+- 修复：lock lifecycle 只撤销 grants 与 touch 状态，不 reset failed-attempt counters/cooldown。
+- GREEN：service lock regression 通过。
+
+### Important 1 — binding/member security changes revoke grants
+
+- RED：新增 replace/remove 及 delete-group migration 的旧组/新组 proof 失效测试；replace 后旧 proof 仍 valid。
+- 修复：提交成功后收集 mutation 涉及的旧组与新组，统一 revoke；迁移同时撤销源组和目标组。
+- GREEN：service binding regression 通过。
+
+### Important 2 — audit failure after durable commit
+
+- RED：新增 create/change/recover 的 appendAudit fault double；create 没有调用 audit，change/recover 的 audit failure 会把已提交结果变成失败。
+- 修复：create/change/recover/migration 使用 best-effort safeAudit；audit failure 不改变已 durable commit 的成功结果，不记录秘密。
+- GREEN：audit fault regression 通过，one-time recovery results 保持成功可用。
+
+### Important 3 — post-publish directory fsync rollback
+
+- RED：新增真实 faulting filesystem，在 backup rename 后第二次 directory fsync 抛错；API/commit 失败但磁盘仍为新 revision。
+- 修复：跟踪 backupPublished；发布后 fsync 失败时用已发布旧 backup 尽最大可能恢复主 state 并再次同步目录，保留 Task 3 cleanup/backup 语义。
+- GREEN：repository fsync regression 通过；state/revision/credentials 回到旧 durable state。
+
+### Important 4 — lock-group scope
+
+- RED：新增 GrantStore 同组双 client 测试；原 API 无 revokeGroupForClient。
+- 修复：增加最小 revokeGroupForClient(groupId, clientInstanceId)，lock-group 只撤销发起 client；lock-all 仍只 revokeClient。
+- GREEN：grant/service scope regressions 通过。
+
+### Important 5 — Cordis injection
+
+- RED：新增 tests/index.spec.ts，先验证 apply.inject 为 ['webServer'] 且依赖缺失时不注册；原 apply.inject 为 undefined。
+- 修复：导出 apply.inject = ['webServer'] as const，保留 ctx.effect 内访问 ctx.webServer，并保持 Context augmentation 与 Cordis 加载顺序。
+- GREEN：Cordis integration 1/1。
+
+## Round 1 verification
+
+- focused review suites：6 files / 58 tests passed。
+- Host suite：8 files / 94 tests passed。
+- Full suite：10 files / 101 tests passed。
+- pnpm --dir=plugin typecheck：passed。
+- pnpm --dir=plugin build：passed，tsdown complete。
+- git diff --check：passed。
+- git diff --cached --check：passed。

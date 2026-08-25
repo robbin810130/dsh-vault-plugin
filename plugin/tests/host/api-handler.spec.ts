@@ -3,8 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import { createVaultApiHandler } from '../../src/host/api/handler.js'
 
-function request(body: string, headers: Record<string, string>, method = 'POST', encrypted = false) {
-  return Object.assign(Readable.from([body]), { method, headers, socket: { encrypted } }) as unknown as IncomingMessage
+function request(body: string, headers: Record<string, string | readonly string[]>, method = 'POST', encrypted = false, remoteAddress = '127.0.0.1') {
+  return Object.assign(Readable.from([body]), { method, headers, socket: { encrypted, remoteAddress } }) as unknown as IncomingMessage
 }
 
 function response() {
@@ -43,7 +43,7 @@ describe('Vault API handler', () => {
     expect(httpsResponse.statusCode).toBe(200)
 
     const remoteHttps = response()
-    await createVaultApiHandler(service as never)(request('{"action":"snapshot","clientInstanceId":"client-1"}', { host: 'example.test:8443', origin: 'https://example.test:8443', 'content-type': 'application/json' }, 'POST', true), remoteHttps as unknown as ServerResponse)
+    await createVaultApiHandler(service as never)(request('{"action":"snapshot","clientInstanceId":"client-1"}', { host: 'example.test:8443', origin: 'https://example.test:8443', 'content-type': 'application/json' }, 'POST', true, '192.168.1.20'), remoteHttps as unknown as ServerResponse)
     expect(remoteHttps.statusCode).toBe(200)
 
     const forwardedSpoof = response()
@@ -61,6 +61,29 @@ describe('Vault API handler', () => {
     const missingOrigin = response()
     await createVaultApiHandler(service as never)(request('{"action":"snapshot","clientInstanceId":"client-1"}', { host: 'localhost:8080', 'content-type': 'application/json' }), missingOrigin as unknown as ServerResponse)
     expect(missingOrigin.statusCode).toBe(403)
+  })
+
+  it('requires HTTP requests to come from loopback and rejects host/origin tricks and duplicate headers', async () => {
+    const handler = createVaultApiHandler(service as never)
+    for (const remoteAddress of ['127.0.0.1', '127.42.9.8', '::1', '::ffff:127.0.0.1']) {
+      const res = response()
+      await handler(request('{"action":"snapshot","clientInstanceId":"client-1"}', { host: 'localhost:8080', origin: 'http://localhost:8080', 'content-type': 'application/json' }, 'POST', false, remoteAddress), res as unknown as ServerResponse)
+      expect(res.statusCode, remoteAddress).toBe(200)
+    }
+
+    const remote = response()
+    await handler(request('{"action":"snapshot","clientInstanceId":"client-1"}', { host: 'localhost:8080', origin: 'http://localhost:8080', 'content-type': 'application/json' }, 'POST', false, '192.168.1.20'), remote as unknown as ServerResponse)
+    expect(remote.statusCode).toBe(403)
+
+    const userInfo = response()
+    await handler(request('{"action":"snapshot","clientInstanceId":"client-1"}', { host: '[::1]@evil.test', origin: 'http://[::1]@evil.test', 'content-type': 'application/json' }, 'POST', false, '127.0.0.1'), userInfo as unknown as ServerResponse)
+    expect(userInfo.statusCode).toBe(403)
+
+    for (const [name, values] of [['origin', ['http://localhost:8080', 'http://localhost:8080']], ['host', ['localhost:8080', 'localhost:8080']]] as const) {
+      const duplicate = response()
+      await handler(request('{"action":"snapshot","clientInstanceId":"client-1"}', { host: 'localhost:8080', origin: 'http://localhost:8080', 'content-type': 'application/json', [name]: values }, 'POST', false, '127.0.0.1'), duplicate as unknown as ServerResponse)
+      expect(duplicate.statusCode, name).toBe(403)
+    }
   })
 
   it('rejects non-POST, non-JSON, malformed and oversized requests with sanitized errors', async () => {

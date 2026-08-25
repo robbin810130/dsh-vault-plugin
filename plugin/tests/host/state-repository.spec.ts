@@ -331,6 +331,36 @@ describe('VaultStateRepository', () => {
     expect((await fs.readdir(dir)).filter((name) => name.includes('.tmp-'))).toEqual([])
   })
 
+  it('rolls back the published state when the post-backup directory fsync fails', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    let directorySyncs = 0
+    const faultingFs: RepositoryFileSystem = {
+      ...fs,
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        const isDirectory = String(path) === dir
+        return {
+          writeFile: (data) => handle.writeFile(data).then(() => undefined),
+          sync: async () => {
+            if (isDirectory) {
+              directorySyncs += 1
+              if (directorySyncs === 2) throw new Error('post-backup directory fsync failed')
+            }
+            await handle.sync()
+          },
+          close: () => handle.close(),
+        }
+      },
+    }
+    const faultingRepo = new VaultStateRepository(dir, faultingFs)
+    await faultingRepo.load()
+
+    await expect(faultingRepo.commit(0, stateAt(1))).rejects.toThrow('post-backup directory fsync failed')
+    expect(await readJson(join(dir, STATE_FILE))).toEqual(stateAt(0))
+    expect(await new VaultStateRepository(dir).load()).toEqual(stateAt(0))
+  })
+
   it('does not publish the staged backup when the main state rename fails', async () => {
     const repo = new VaultStateRepository(dir)
     await repo.load()

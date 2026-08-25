@@ -71,8 +71,8 @@ export class VaultService {
         case 'lock-group': return this.lockGroup(request.clientInstanceId, request.groupId)
         case 'lock-all': return this.lockAll(request.clientInstanceId)
         case 'group-create': return await this.createGroup(request.expectedRevision, request.input)
-        case 'group-change-password': return await this.changePassword(request.expectedRevision, request.input)
-        case 'group-recover': return await this.recoverGroup(request.expectedRevision, request.input)
+        case 'group-change-password': return await this.changePassword(request.clientInstanceId, request.expectedRevision, request.input)
+        case 'group-recover': return await this.recoverGroup(request.clientInstanceId, request.expectedRevision, request.input)
         case 'bindings-update': return await this.updateBindings(request.expectedRevision, request.input)
       }
     } catch {
@@ -106,14 +106,12 @@ export class VaultService {
   }
 
   lockGroup(clientInstanceId: string, groupId: string): ServiceResult {
-    this.grants.revokeGroup(groupId)
-    this.attempts.resetClient(clientInstanceId)
+    this.grants.revokeGroupForClient(groupId, clientInstanceId)
     return { ok: true, value: null }
   }
 
   lockAll(clientInstanceId: string): ServiceResult {
     this.grants.revokeClient(clientInstanceId)
-    this.attempts.resetClient(clientInstanceId)
     this.#lastTouch.delete(clientInstanceId)
     return { ok: true, value: null }
   }
@@ -165,15 +163,24 @@ export class VaultService {
     const committed = await this.commit(expectedRevision, next)
     if (committed === 'conflict') return failed('revision-conflict')
     if (committed === 'failed') return failed('persistence-failed')
+    await this.safeAudit({ action: 'group-created', groupId: id, credentialVersion: group.credentialVersion, revision: next.revision, result: 'success' })
     const value: RecoveryKeyResult = { snapshot: this.redacted(next), recoveryKey }
     return { ok: true, value }
   }
 
-  private async changePassword(expectedRevision: number, input: ChangePasswordInput): Promise<ServiceResult> {
+  private async changePassword(clientInstanceId: string, expectedRevision: number, input: ChangePasswordInput): Promise<ServiceResult> {
     const state = await this.state()
-    const group = state.groups[input.groupId]
-    if (!group || !(await this.authorizeCredential(group, input))) return failed('invalid-credentials')
     if (state.revision !== expectedRevision) return failed('revision-conflict')
+    const group = state.groups[input.groupId]
+    if (!group) return failed('invalid-credentials')
+    const availability = this.attempts.check(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+    if (availability.kind === 'cooldown') return failed('cooldown', availability.retryAt)
+    let valid = false
+    try { valid = await this.authorizeCredential(group, input) } catch { valid = false }
+    if (!valid) {
+      const decision = this.attempts.recordFailure(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+      return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
+    }
     const now = this.#now()
     const recoveryKey = input.rotateRecovery ? generateRecoveryKey() : undefined
     const nextGroup: PasswordGroup = { ...group, password: await createVerifier(input.newPassword), recovery: input.rotateRecovery ? { ...(await createVerifier(recoveryKey as string)), generatedAt: now } : group.recovery, credentialVersion: group.credentialVersion + 1, updatedAt: now }
@@ -182,16 +189,24 @@ export class VaultService {
     if (committed === 'conflict') return failed('revision-conflict')
     if (committed === 'failed') return failed('persistence-failed')
     this.grants.revokeGroup(group.id)
-    this.attempts.resetGroup(group.id)
-    await this.audit({ action: 'password-changed', groupId: group.id, credentialVersion: nextGroup.credentialVersion, revision: next.revision, result: 'success' })
+    this.attempts.recordSuccess(group.id, clientInstanceId)
+    await this.safeAudit({ action: 'password-changed', groupId: group.id, credentialVersion: nextGroup.credentialVersion, revision: next.revision, result: 'success' })
     return { ok: true, value: { snapshot: this.redacted(next), ...(recoveryKey === undefined ? {} : { recoveryKey }) } }
   }
 
-  private async recoverGroup(expectedRevision: number, input: RecoverGroupInput): Promise<ServiceResult> {
+  private async recoverGroup(clientInstanceId: string, expectedRevision: number, input: RecoverGroupInput): Promise<ServiceResult> {
     const state = await this.state()
-    const group = state.groups[input.groupId]
-    if (!group || !(await verifySecret(input.recoveryKey, group.recovery))) return failed('invalid-credentials')
     if (state.revision !== expectedRevision) return failed('revision-conflict')
+    const group = state.groups[input.groupId]
+    if (!group) return failed('invalid-credentials')
+    const availability = this.attempts.check(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+    if (availability.kind === 'cooldown') return failed('cooldown', availability.retryAt)
+    let valid = false
+    try { valid = await verifySecret(input.recoveryKey, group.recovery) } catch { valid = false }
+    if (!valid) {
+      const decision = this.attempts.recordFailure(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+      return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
+    }
     const now = this.#now()
     const recoveryKey = generateRecoveryKey()
     const nextGroup: PasswordGroup = { ...group, password: await createVerifier(input.newPassword), recovery: { ...(await createVerifier(recoveryKey)), generatedAt: now, lastVerifiedAt: now }, credentialVersion: group.credentialVersion + 1, updatedAt: now }
@@ -200,8 +215,8 @@ export class VaultService {
     if (committed === 'conflict') return failed('revision-conflict')
     if (committed === 'failed') return failed('persistence-failed')
     this.grants.revokeGroup(group.id)
-    this.attempts.resetGroup(group.id)
-    await this.audit({ action: 'group-recovered', groupId: group.id, credentialVersion: nextGroup.credentialVersion, revision: next.revision, result: 'success' })
+    this.attempts.recordSuccess(group.id, clientInstanceId)
+    await this.safeAudit({ action: 'group-recovered', groupId: group.id, credentialVersion: nextGroup.credentialVersion, revision: next.revision, result: 'success' })
     const value: RecoveryKeyResult = { snapshot: this.redacted(next), recoveryKey }
     return { ok: true, value }
   }
@@ -209,19 +224,40 @@ export class VaultService {
   private async updateBindings(expectedRevision: number, mutation: BindingMutation): Promise<ServiceResult> {
     const state = await this.state()
     if (state.revision !== expectedRevision) return failed('revision-conflict')
+    const affectedGroups = this.bindingAffectedGroups(state, mutation)
     const next = applyBindingMutation(state, mutation, this.#now)
     const committed = { ...next, revision: expectedRevision + 1 }
     const commitResult = await this.commit(expectedRevision, committed)
     if (commitResult === 'conflict') return failed('revision-conflict')
     if (commitResult === 'failed') return failed('persistence-failed')
+    for (const groupId of affectedGroups) this.grants.revokeGroup(groupId)
     if (mutation.kind === 'delete-group') {
-      this.grants.revokeGroup(mutation.groupId)
       this.attempts.resetGroup(mutation.groupId)
       if (mutation.moveToGroupId !== undefined) {
-        await this.audit({ action: 'members-migrated', groupId: mutation.groupId, revision: committed.revision, result: 'success', count: state.bindings.filter((binding) => binding.passwordGroupId === mutation.groupId).length })
+        await this.safeAudit({ action: 'members-migrated', groupId: mutation.groupId, revision: committed.revision, result: 'success', count: state.bindings.filter((binding) => binding.passwordGroupId === mutation.groupId).length })
       }
     }
     return { ok: true, value: this.redacted(committed) }
+  }
+
+  private bindingAffectedGroups(state: VaultState, mutation: BindingMutation): Set<string> {
+    const affected = new Set<string>()
+    if (mutation.kind === 'delete-group') {
+      affected.add(mutation.groupId)
+      if (mutation.moveToGroupId !== undefined) affected.add(mutation.moveToGroupId)
+      return affected
+    }
+
+    const targetType = mutation.kind === 'replace' ? mutation.binding.targetType : mutation.targetType
+    const targetId = mutation.kind === 'replace' ? mutation.binding.targetId : mutation.targetId
+    for (const binding of state.bindings) {
+      const matches = binding.targetType === targetType && binding.targetId === targetId
+      if (matches && binding.passwordGroupId !== undefined) affected.add(binding.passwordGroupId)
+    }
+    if (mutation.kind === 'replace' && mutation.binding.passwordGroupId !== undefined) {
+      affected.add(mutation.binding.passwordGroupId)
+    }
+    return affected
   }
 
   private async authorizeCredential(group: PasswordGroup, input: ChangePasswordInput): Promise<boolean> {
@@ -248,6 +284,10 @@ export class VaultService {
 
   private async audit(fields: Omit<AuditEvent, 'timestamp'>): Promise<void> {
     await this.repository.appendAudit({ timestamp: this.#now(), ...fields })
+  }
+
+  private async safeAudit(fields: Omit<AuditEvent, 'timestamp'>): Promise<void> {
+    try { await this.audit(fields) } catch { /* Durable state already committed; audit is best effort. */ }
   }
 
   private redacted(state: VaultState): VaultSnapshot {
