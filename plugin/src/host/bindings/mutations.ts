@@ -7,6 +7,14 @@ function missingGroup(groupId: string): TypeError {
 
 function assertBinding(binding: ProtectionBinding, state: VaultState): void {
   if (binding.targetId.length === 0) throw new TypeError('Binding target id must not be empty')
+  if (binding.targetType === 'workspace') {
+    if (binding.mode !== 'direct') {
+      throw new TypeError('Workspace binding must use direct mode')
+    }
+    if (binding.workspaceId !== undefined) {
+      throw new TypeError('Workspace binding must not include workspaceId')
+    }
+  }
 
   if (binding.mode === 'direct') {
     if (binding.passwordGroupId === undefined) {
@@ -39,7 +47,11 @@ function replaceBinding(
   })
 }
 
-function deleteGroup(state: VaultState, mutation: Extract<BindingMutation, { kind: 'delete-group' }>): VaultState {
+function deleteGroup(
+  state: VaultState,
+  mutation: Extract<BindingMutation, { kind: 'delete-group' }>,
+  now: () => string,
+): VaultState {
   if (state.groups[mutation.groupId] === undefined) throw missingGroup(mutation.groupId)
 
   const targetGroupId = mutation.moveToGroupId
@@ -58,19 +70,27 @@ function deleteGroup(state: VaultState, mutation: Extract<BindingMutation, { kin
 
   const groups = { ...state.groups }
   delete groups[mutation.groupId]
-  const bindings = movesMembers
-    ? state.bindings.map((binding) => (
+  let bindings: readonly ProtectionBinding[]
+  if (movesMembers) {
+    const updatedAt = now()
+    bindings = state.bindings.map((binding) => (
       binding.passwordGroupId === mutation.groupId
-        ? { ...binding, passwordGroupId: targetGroupId }
+        ? { ...binding, passwordGroupId: targetGroupId, updatedAt }
         : binding
     ))
-    : state.bindings.filter((binding) => binding.passwordGroupId !== mutation.groupId)
+  } else {
+    bindings = state.bindings.filter((binding) => binding.passwordGroupId !== mutation.groupId)
+  }
 
   return { ...state, revision: state.revision + 1, groups, bindings }
 }
 
-export function applyBindingMutation(state: VaultState, mutation: BindingMutation): VaultState {
-  if (mutation.kind === 'delete-group') return deleteGroup(state, mutation)
+export function applyBindingMutation(
+  state: VaultState,
+  mutation: BindingMutation,
+  now: () => string,
+): VaultState {
+  if (mutation.kind === 'delete-group') return deleteGroup(state, mutation, now)
 
   if (mutation.kind === 'replace') {
     assertBinding(mutation.binding, state)

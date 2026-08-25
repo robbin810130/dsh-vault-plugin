@@ -55,3 +55,59 @@ Tests       no tests
 ## Concerns
 
 无阻塞项。resolver 假设持久化 binding 已通过 schema/mutation guard 形成有效 direct group 引用；group 是否仍存在由 mutation/service 状态校验负责。
+
+---
+
+## Fix Round 1
+
+### 状态
+
+完成。仅修复 review 指定的两个 Important findings：Workspace binding shape 校验与 group migration 的 `updatedAt` 注入。
+
+### RED
+
+先修改 `plugin/tests/host/bindings.spec.ts`：
+
+- 增加 Workspace `inherit` / `no-inherit` 拒绝测试，并覆盖 Workspace binding 禁止携带 `workspaceId`。
+- 将 mutation 调用改为注入固定 clock。
+- 修改 group migration 断言：`createdAt` 保持原值，`updatedAt` 必须更新为 injected time。
+
+运行：
+
+```bash
+rtk pnpm --dir=plugin vitest run tests/host/bindings.spec.ts
+```
+
+结果：退出码 `1`，`16` 个测试中 `4` 个失败、`12` 个通过：
+
+```text
+Test Files  1 failed (1)
+Tests       4 failed | 12 passed (16)
+```
+
+三个 Workspace 非法 shape 均未抛错；两个迁移 binding 的 `updatedAt` 仍为旧时间 `2026-08-25T00:00:00.000Z`，而非注入时间 `2026-08-25T12:34:56.789Z`。
+
+### GREEN / 验证
+
+- 聚焦测试：`rtk pnpm --dir=plugin vitest run tests/host/bindings.spec.ts` → `1` file、`16/16` tests passed。
+- plugin 全量：`rtk pnpm --dir=plugin test` → `4` files、`58/58` tests passed。
+- typecheck：`rtk pnpm --dir=plugin typecheck` → exit `0`。
+- build：`rtk pnpm --dir=plugin build` → exit `0`，tsdown 生成 `6` 个构建文件。
+- diff-check：`rtk git diff --check` → exit `0`。
+
+### 变更与自审
+
+- `assertBinding()` 现在只允许 Workspace binding 使用 `direct`，并禁止 Workspace binding 携带 `workspaceId`。
+- `inherit` / `no-inherit` 因此只可用于 Session；既有规则继续保证 `direct` 必须携带有效 `passwordGroupId`，非 direct 禁止携带 `passwordGroupId`。
+- `applyBindingMutation()` 新增必需的 `now: () => string` 注入，不在 mutation 模块内直接读取系统时间。
+- group migration 在完成全部校验后仅调用一次 clock；所有迁移成员保持 `createdAt`，并统一将 `updatedAt` 更新为注入值。
+- 非迁移 binding 保持对象和值不变；失败路径仍不修改输入 state。
+- 未处理额外 Minor，未派发 subagent/reviewer，未增加依赖。
+
+### Commit
+
+`fix(vault): validate binding shapes and migration time`（本节随该提交提交）
+
+### Concerns
+
+无阻塞项。Task 6 service 调用 `applyBindingMutation()` 时必须显式提供可信 clock。

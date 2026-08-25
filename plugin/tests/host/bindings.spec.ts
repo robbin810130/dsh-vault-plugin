@@ -5,6 +5,8 @@ import { applyBindingMutation } from '../../src/host/bindings/mutations.js'
 import { resolveSessionProtection } from '../../src/host/bindings/resolver.js'
 
 const NOW = '2026-08-25T00:00:00.000Z'
+const MUTATED_AT = '2026-08-25T12:34:56.789Z'
+const clock = () => MUTATED_AT
 
 function binding(
   targetType: ProtectionBinding['targetType'],
@@ -126,20 +128,34 @@ describe('resolveSessionProtection', () => {
 })
 
 describe('applyBindingMutation', () => {
+  it.each([
+    binding('workspace', 'workspace-a', 'inherit'),
+    binding('workspace', 'workspace-a', 'no-inherit'),
+    binding('workspace', 'workspace-a', 'direct', 'alpha', 'workspace-parent'),
+  ])('refuses invalid workspace binding shape %#', (invalidBinding) => {
+    const original = state([])
+
+    expect(() => applyBindingMutation(original, {
+      kind: 'replace',
+      binding: invalidBinding,
+    }, clock)).toThrow(/workspace.*direct|workspaceId/i)
+    expect(original.bindings).toEqual([])
+  })
+
   it('refuses replacement with a missing password group without mutating the input', () => {
     const original = state([binding('workspace', 'workspace-a', 'direct', 'alpha')])
 
     expect(() => applyBindingMutation(original, {
       kind: 'replace',
       binding: binding('session', 'session-a', 'direct', 'missing'),
-    })).toThrow(/missing.*group/i)
+    }, clock)).toThrow(/missing.*group/i)
     expect(original).toEqual(state([binding('workspace', 'workspace-a', 'direct', 'alpha')]))
   })
 
   it('requires an explicit migration or removeProtection choice for group deletion', () => {
     const original = state([binding('session', 'session-a', 'direct', 'alpha')])
 
-    expect(() => applyBindingMutation(original, { kind: 'delete-group', groupId: 'alpha' })).toThrow(/moveToGroupId|removeProtection/)
+    expect(() => applyBindingMutation(original, { kind: 'delete-group', groupId: 'alpha' }, clock)).toThrow(/moveToGroupId|removeProtection/)
     expect(original.groups.alpha).toBeDefined()
     expect(original.bindings).toHaveLength(1)
   })
@@ -152,17 +168,17 @@ describe('applyBindingMutation', () => {
       groupId: 'alpha',
       moveToGroupId: 'beta',
       removeProtection: true,
-    })).toThrow(/exactly one|ambiguous/i)
+    }, clock)).toThrow(/exactly one|ambiguous/i)
     expect(() => applyBindingMutation(original, {
       kind: 'delete-group',
       groupId: 'missing',
       removeProtection: true,
-    })).toThrow(/missing.*group/i)
+    }, clock)).toThrow(/missing.*group/i)
     expect(() => applyBindingMutation(original, {
       kind: 'delete-group',
       groupId: 'alpha',
       moveToGroupId: 'missing',
-    })).toThrow(/missing.*group/i)
+    }, clock)).toThrow(/missing.*group/i)
     expect(original.groups.alpha).toBeDefined()
     expect(original.bindings[0]?.passwordGroupId).toBe('alpha')
   })
@@ -176,14 +192,14 @@ describe('applyBindingMutation', () => {
       kind: 'delete-group',
       groupId: 'alpha',
       moveToGroupId: 'beta',
-    })
+    }, clock)
 
     expect(next.revision).toBe(8)
     expect(next.groups.alpha).toBeUndefined()
     expect(next.groups.beta).toBeDefined()
     expect(next.bindings).toEqual([
-      { ...archivedSession, passwordGroupId: 'beta' },
-      { ...softOrphanWorkspace, passwordGroupId: 'beta' },
+      { ...archivedSession, passwordGroupId: 'beta', createdAt: NOW, updatedAt: MUTATED_AT },
+      { ...softOrphanWorkspace, passwordGroupId: 'beta', createdAt: NOW, updatedAt: MUTATED_AT },
       unrelated,
     ])
   })
@@ -198,7 +214,7 @@ describe('applyBindingMutation', () => {
       kind: 'delete-group',
       groupId: 'alpha',
       removeProtection: true,
-    })
+    }, clock)
 
     expect(next.groups.alpha).toBeUndefined()
     expect(next.bindings).toEqual([unrelated])
@@ -213,7 +229,7 @@ describe('applyBindingMutation', () => {
       kind: 'remove',
       targetType: 'workspace',
       targetId: 'workspace-a',
-    })
+    }, clock)
 
     expect(next.bindings).toEqual([directSession])
   })
@@ -224,7 +240,7 @@ describe('applyBindingMutation', () => {
     const next = applyBindingMutation(state([
       binding('workspace', 'workspace-a', 'direct', 'alpha'),
       archivedSession,
-    ]), { kind: 'replace', binding: replacement })
+    ]), { kind: 'replace', binding: replacement }, clock)
 
     expect(next.bindings).toEqual([replacement, archivedSession])
   })
