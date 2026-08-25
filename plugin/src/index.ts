@@ -1,10 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
-import { join } from 'node:path'
 import type { Config as VaultConfig } from './config.js'
-import { VaultPolicySchema } from './config.js'
+import { resolveStateDirectory } from './config.js'
 import { createVaultApiHandler } from './host/api/handler.js'
 import { VaultService } from './host/service.js'
+import { DEFAULT_VAULT_POLICY, installVaultPolicySettings } from './host/settings.js'
 import { VaultStateRepository } from './host/state/repository.js'
 
 declare module '@deepseek-ai/cordis' {
@@ -16,15 +16,17 @@ declare module '@deepseek-ai/cordis' {
 
 export * from './config.js'
 export * from './shared/contracts.js'
+export * from './host/settings.js'
 
 export const inject = ['webServer'] as const
 
 export function apply(ctx: Context, config: VaultConfig): void {
-  const stateDirectory = config.stateDir ?? join(process.env.DSH_HOME ?? process.cwd(), 'vault-lock')
+  const stateDirectory = resolveStateDirectory(config.stateDir)
   const service = new VaultService({
     repository: new VaultStateRepository(stateDirectory),
-    policy: VaultPolicySchema({}),
+    policy: DEFAULT_VAULT_POLICY,
   })
+  installVaultPolicySettings(ctx, service)
   ctx.provide('vault', service)
   ctx.effect(() => {
     const disposeRoute = ctx.webServer.register({

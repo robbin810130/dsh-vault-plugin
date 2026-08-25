@@ -43,7 +43,7 @@ function deepFreeze<T>(value: T): T {
 
 export class VaultService {
   readonly repository: VaultRepository
-  readonly policy: VaultPolicy
+  #policy: VaultPolicy
   readonly grants: GrantStore
   readonly attempts: FailedAttemptStore
   readonly #now: () => string
@@ -53,11 +53,20 @@ export class VaultService {
 
   constructor(dependencies: VaultServiceDependencies) {
     this.repository = dependencies.repository
-    this.policy = dependencies.policy
+    this.#policy = deepFreeze(dependencies.policy)
     this.grants = dependencies.grants ?? new InMemoryGrantStore()
     this.attempts = dependencies.attempts ?? new FailedAttemptStore()
     this.#now = dependencies.now ?? (() => new Date().toISOString())
     this.#wallNow = dependencies.wallNow ?? (() => Date.now())
+  }
+
+  get policy(): VaultPolicy {
+    return this.#policy
+  }
+
+  setPolicy(policy: VaultPolicy): void {
+    this.#policy = deepFreeze(policy)
+    this.attempts.setPolicy(policy.failedAttemptProtection)
   }
 
   async snapshot(): Promise<VaultSnapshot> { return this.redacted(await this.state()) }

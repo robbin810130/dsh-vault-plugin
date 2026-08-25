@@ -1,4 +1,4 @@
-import { isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 
 export interface Config {
@@ -37,6 +37,18 @@ export const ConfigSchema: z<Config> = z.object({
 })
 
 export const Config = ConfigSchema
+
+export function resolveStateDirectory(
+  stateDir?: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  workingDirectory = process.cwd(),
+): string {
+  if (stateDir !== undefined) {
+    if (!isAbsolute(stateDir)) throw new TypeError('Vault state directory must be absolute')
+    return stateDir
+  }
+  return join(environment.DSH_HOME ?? workingDirectory, 'vault-lock')
+}
 
 export const VaultPolicySchema: z<VaultPolicyInput, VaultPolicy> = z.object({
   autoLockMinutes: z.union([0, 15, 30, 60]).default(15),
