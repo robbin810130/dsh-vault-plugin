@@ -37,7 +37,7 @@ describe('password and recovery verifier', () => {
     })
     expect(first.salt).not.toBe(second.salt)
     expect(first.verifier).not.toBe(second.verifier)
-    expect(Buffer.from(first.salt, 'base64')).toHaveLength(32)
+    expect(Buffer.from(first.salt, 'base64')).toHaveLength(16)
     expect(Buffer.from(first.verifier, 'base64')).toHaveLength(32)
   })
 
@@ -48,8 +48,12 @@ describe('password and recovery verifier', () => {
     await expect(verifySecret('  eight chars  ', record)).resolves.toBe(true)
   })
 
-  it('enforces the secret limit by UTF-8 byte length', async () => {
-    await expect(createVerifier('界'.repeat(342))).rejects.toThrow(RangeError)
+  it('accepts 512 UTF-8 bytes and rejects 513 UTF-8 bytes including multibyte input', async () => {
+    const exactly512Bytes = `${'界'.repeat(170)}ab`
+    const exactly513Bytes = `${'界'.repeat(170)}abc`
+
+    await expect(createVerifier(exactly512Bytes)).resolves.toMatchObject({ kdf: 'scrypt' })
+    await expect(createVerifier(exactly513Bytes)).rejects.toThrow(RangeError)
   })
 
   it('generates 32-byte uppercase base32 recovery keys in four-character groups', () => {
