@@ -126,3 +126,13 @@
 - typecheck：passed。
 - build：passed，tsdown complete。
 - diff-check：待提交前执行。
+
+## Review fix round 3
+
+本轮只处理唯一开放 Important：bindings-update 对 mutation 前或后没有显式 session binding 的隐式 workspace 继承撤销；未派 subagent/reviewer，未触碰其他内容。
+
+### Important — 隐式 workspace 继承 grant 撤销
+
+- RED：新增四个真实 service 回归，覆盖 workspace→A 后新增 no-inherit、implicit A→direct B、direct B→remove 恢复 implicit A，以及 no-inherit→remove 恢复 implicit A；focused service suite 为 22 tests，其中 18 passed、4 failed，失败均为旧/新隐式 grant 仍 valid。
+- 修复：针对 mutation 的 session target，从 mutation 前 state 与 mutation 后 candidate 分别取得旧/新显式 session binding；以旧 binding 优先、无旧行时回退新 binding 的 workspaceId，remove 时新解析回退旧 workspaceId；调用 \`resolveSessionProtection\` 收集前后有效 group。workspace mutation 的既有收集逻辑保持不变，且仅在 commit 成功后 revoke。
+- GREEN：\`pnpm vitest run tests/host/service.spec.ts\`，22/22 passed。

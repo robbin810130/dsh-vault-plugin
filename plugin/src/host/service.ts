@@ -265,11 +265,18 @@ export class VaultService {
         return
       }
 
-      for (const binding of candidate.bindings) {
-        if (binding.targetType !== 'session' || binding.targetId !== targetId) continue
-        const protection = resolveSessionProtection(binding.targetId, binding.workspaceId, candidate.bindings)
-        if (protection.protected) affected.add(protection.groupId)
-      }
+      const oldBinding = state.bindings.find((binding) => (
+        binding.targetType === 'session' && binding.targetId === targetId
+      ))
+      const newBinding = mutation.kind === 'replace' && mutation.binding.targetType === 'session'
+        ? mutation.binding
+        : undefined
+      const oldWorkspaceId = oldBinding?.workspaceId ?? newBinding?.workspaceId
+      const newWorkspaceId = newBinding?.workspaceId ?? oldBinding?.workspaceId
+      const oldProtection = resolveSessionProtection(targetId, oldWorkspaceId, state.bindings)
+      const newProtection = resolveSessionProtection(targetId, newWorkspaceId, next.bindings)
+      if (oldProtection.protected) affected.add(oldProtection.groupId)
+      if (newProtection.protected) affected.add(newProtection.groupId)
     }
 
     collect(state)

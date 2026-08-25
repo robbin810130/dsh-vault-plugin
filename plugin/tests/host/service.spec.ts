@@ -222,6 +222,76 @@ describe('VaultService', () => {
     expect(service.validateGrants('client-1', [newGrant.value.grant])).toEqual({ valid: false })
   })
 
+  it('revokes implicit workspace grants when adding a session no-inherit binding', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Workspace', password: 'workspace horse', bindings: [] } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 1, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: groupId, createdAt: timestamp, updatedAt: timestamp } } })
+    const unlocked = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'workspace horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'no-inherit', createdAt: timestamp, updatedAt: timestamp } } })
+
+    expect(service.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
+  it('revokes implicit old and direct new grants when adding a direct session binding', async () => {
+    const first = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Implicit', password: 'implicit horse', bindings: [] } })
+    const second = await service.handle({ action: 'group-create', expectedRevision: 1, input: { name: 'Direct', password: 'direct horse', bindings: [] } })
+    if (!first.ok || !second.ok) throw new Error('create failed')
+    const implicitId = first.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Implicit')!.id
+    const directId = second.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Direct')!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: implicitId, createdAt: timestamp, updatedAt: timestamp } } })
+    const implicitGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: implicitId, password: 'implicit horse' })
+    const directGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: directId, password: 'direct horse' })
+    if (!implicitGrant.ok || !directGrant.ok) throw new Error('unlock failed')
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 3, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'direct', passwordGroupId: directId, createdAt: timestamp, updatedAt: timestamp } } })
+
+    expect(service.validateGrants('client-1', [implicitGrant.value.grant])).toEqual({ valid: false })
+    expect(service.validateGrants('client-1', [directGrant.value.grant])).toEqual({ valid: false })
+  })
+
+  it('revokes direct old and implicit new grants when removing a direct session binding', async () => {
+    const first = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Implicit', password: 'implicit horse', bindings: [] } })
+    const second = await service.handle({ action: 'group-create', expectedRevision: 1, input: { name: 'Direct', password: 'direct horse', bindings: [] } })
+    if (!first.ok || !second.ok) throw new Error('create failed')
+    const implicitId = first.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Implicit')!.id
+    const directId = second.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Direct')!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: implicitId, createdAt: timestamp, updatedAt: timestamp } } })
+    await service.handle({ action: 'bindings-update', expectedRevision: 3, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'direct', passwordGroupId: directId, createdAt: timestamp, updatedAt: timestamp } } })
+    const implicitGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: implicitId, password: 'implicit horse' })
+    const directGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: directId, password: 'direct horse' })
+    if (!implicitGrant.ok || !directGrant.ok) throw new Error('unlock failed')
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 4, input: { kind: 'remove', targetType: 'session', targetId: 'session-1' } })
+
+    expect(service.validateGrants('client-1', [implicitGrant.value.grant])).toEqual({ valid: false })
+    expect(service.validateGrants('client-1', [directGrant.value.grant])).toEqual({ valid: false })
+  })
+
+  it('revokes the implicit workspace grant restored by removing no-inherit', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Workspace', password: 'workspace horse', bindings: [] } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 1, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: groupId, createdAt: timestamp, updatedAt: timestamp } } })
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'no-inherit', createdAt: timestamp, updatedAt: timestamp } } })
+    const unlocked = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'workspace horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 3, input: { kind: 'remove', targetType: 'session', targetId: 'session-1' } })
+
+    expect(service.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
   it('keeps durable create/change/recover results successful when audit append fails', async () => {
     let auditCalls = 0
     const repository = new VaultStateRepository(join(root, 'audit-fault-vault'))
