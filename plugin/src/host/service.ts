@@ -5,6 +5,7 @@ import { createVerifier, generateRecoveryKey, verifySecret } from './crypto/veri
 import { FailedAttemptStore } from './auth/attempts.js'
 import { InMemoryGrantStore, type GrantStore } from './auth/grants.js'
 import { applyBindingMutation } from './bindings/mutations.js'
+import { resolveSessionProtection } from './bindings/resolver.js'
 import type { PasswordGroup, VaultState } from './state/model.js'
 import type { AuditEvent } from './state/model.js'
 import { VaultStateRepository } from './state/repository.js'
@@ -224,9 +225,9 @@ export class VaultService {
   private async updateBindings(expectedRevision: number, mutation: BindingMutation): Promise<ServiceResult> {
     const state = await this.state()
     if (state.revision !== expectedRevision) return failed('revision-conflict')
-    const affectedGroups = this.bindingAffectedGroups(state, mutation)
     const next = applyBindingMutation(state, mutation, this.#now)
     const committed = { ...next, revision: expectedRevision + 1 }
+    const affectedGroups = this.bindingAffectedGroups(state, committed, mutation)
     const commitResult = await this.commit(expectedRevision, committed)
     if (commitResult === 'conflict') return failed('revision-conflict')
     if (commitResult === 'failed') return failed('persistence-failed')
@@ -240,7 +241,7 @@ export class VaultService {
     return { ok: true, value: this.redacted(committed) }
   }
 
-  private bindingAffectedGroups(state: VaultState, mutation: BindingMutation): Set<string> {
+  private bindingAffectedGroups(state: VaultState, next: VaultState, mutation: BindingMutation): Set<string> {
     const affected = new Set<string>()
     if (mutation.kind === 'delete-group') {
       affected.add(mutation.groupId)
@@ -250,13 +251,29 @@ export class VaultService {
 
     const targetType = mutation.kind === 'replace' ? mutation.binding.targetType : mutation.targetType
     const targetId = mutation.kind === 'replace' ? mutation.binding.targetId : mutation.targetId
-    for (const binding of state.bindings) {
-      const matches = binding.targetType === targetType && binding.targetId === targetId
-      if (matches && binding.passwordGroupId !== undefined) affected.add(binding.passwordGroupId)
+
+    const collect = (candidate: VaultState): void => {
+      if (targetType === 'workspace') {
+        for (const binding of candidate.bindings) {
+          if (binding.targetType === 'workspace' && binding.targetId === targetId && binding.mode === 'direct' && binding.passwordGroupId !== undefined) {
+            affected.add(binding.passwordGroupId)
+          }
+          if (binding.targetType !== 'session' || binding.workspaceId !== targetId) continue
+          const protection = resolveSessionProtection(binding.targetId, binding.workspaceId, candidate.bindings)
+          if (protection.protected && protection.source === 'workspace') affected.add(protection.groupId)
+        }
+        return
+      }
+
+      for (const binding of candidate.bindings) {
+        if (binding.targetType !== 'session' || binding.targetId !== targetId) continue
+        const protection = resolveSessionProtection(binding.targetId, binding.workspaceId, candidate.bindings)
+        if (protection.protected) affected.add(protection.groupId)
+      }
     }
-    if (mutation.kind === 'replace' && mutation.binding.passwordGroupId !== undefined) {
-      affected.add(mutation.binding.passwordGroupId)
-    }
+
+    collect(state)
+    collect(next)
     return affected
   }
 

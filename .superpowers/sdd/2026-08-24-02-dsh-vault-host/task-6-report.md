@@ -95,3 +95,34 @@
 - pnpm --dir=plugin build：passed，tsdown complete。
 - git diff --check：passed。
 - git diff --cached --check：passed。
+
+## Review fix round 2
+
+本轮只处理 3 项仍开放 Important；未派 subagent/reviewer，未触碰 rtk-token-keeper，未加入客户端 UI。
+
+### Important 1 — 隐式成员关系变化撤销旧 grant
+
+- RED：新增 service 回归测试覆盖 session inherit→no-inherit、remove、direct→inherit，以及 workspace binding replacement；旧 affectedGroups 只读取显式 passwordGroupId，继承 workspace grant 仍为 valid。
+- 修复：按 mutation 前后状态调用 `resolveSessionProtection`，收集受影响 target 的有效旧/新保护 group；workspace mutation 仅纳入 workspace 来源的继承 session；提交成功后统一撤销这些 group grants。
+- GREEN：focused service suite 18/18；变更 focused suite 全部通过。
+
+### Important 2 — rollback 文件 durability
+
+- RED：fault test 在 backup publish 后第二次 directory fsync 失败时，旧 state 内容虽恢复但恢复后的 state.json 未发生 file sync。
+- 修复：`copyFile(backup, state)` 后以 `r+` 打开恢复的 state 文件并 fsync，再 fsync directory；file/directory rollback 失败继续聚合为 persistence error，不返回成功。
+- GREEN：repository rollback fault test 通过，旧 revision、password/recovery verifier 内容保持。
+
+### Important 3 — Cordis 顶层 inject
+
+- RED：将测试改为真实 module namespace 传入 `ctx.plugin(namespace, config)` 后，namespace 的 `inject` 为 undefined，依赖未声明。
+- 修复：模块顶层导出 `inject = ['webServer'] as const`，并保留 `apply.inject = inject` 兼容行为；测试验证依赖缺失时 pending、提供 webServer 后激活并注册 route。
+- GREEN：真实 namespace/Cordis integration 1/1。
+
+## Round 2 verification
+
+- focused：3 files / 45 tests passed。
+- Host suite：8 files / 98 tests passed。
+- Full suite：10 files / 105 tests passed。
+- typecheck：passed。
+- build：passed，tsdown complete。
+- diff-check：待提交前执行。

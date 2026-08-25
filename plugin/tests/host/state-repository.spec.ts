@@ -335,14 +335,17 @@ describe('VaultStateRepository', () => {
     const repo = new VaultStateRepository(dir)
     await repo.load()
     let directorySyncs = 0
+    let restoredStateFileSyncs = 0
     const faultingFs: RepositoryFileSystem = {
       ...fs,
       open: async (path, flags, fileMode) => {
         const handle = await fs.open(path, flags, fileMode)
         const isDirectory = String(path) === dir
+        const isRestoredState = String(path) === join(dir, STATE_FILE) && flags === 'r+'
         return {
           writeFile: (data) => handle.writeFile(data).then(() => undefined),
           sync: async () => {
+            if (isRestoredState) restoredStateFileSyncs += 1
             if (isDirectory) {
               directorySyncs += 1
               if (directorySyncs === 2) throw new Error('post-backup directory fsync failed')
@@ -357,6 +360,7 @@ describe('VaultStateRepository', () => {
     await faultingRepo.load()
 
     await expect(faultingRepo.commit(0, stateAt(1))).rejects.toThrow('post-backup directory fsync failed')
+    expect(restoredStateFileSyncs).toBe(1)
     expect(await readJson(join(dir, STATE_FILE))).toEqual(stateAt(0))
     expect(await new VaultStateRepository(dir).load()).toEqual(stateAt(0))
   })

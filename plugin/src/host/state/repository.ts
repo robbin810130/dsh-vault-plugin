@@ -282,6 +282,7 @@ export class VaultStateRepository {
         try {
           await this.fileSystem.copyFile(this.#backupPath, this.#statePath)
           await this.fileSystem.chmod(this.#statePath, FILE_MODE)
+          await this.#syncFile(this.#statePath)
           stateReplaced = false
           backupPublished = false
           await this.#syncDirectory()
@@ -325,6 +326,11 @@ export class VaultStateRepository {
   async #syncDirectory(): Promise<void> {
     const directory = await this.fileSystem.open(this.stateDirectory, 'r')
     await closeAfter(directory, () => directory.sync())
+  }
+
+  async #syncFile(path: string): Promise<void> {
+    const file = await this.fileSystem.open(path, 'r+')
+    await closeAfter(file, () => file.sync())
   }
 
   async #cleanupStaleTemps(): Promise<void> {

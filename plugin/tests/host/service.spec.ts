@@ -145,6 +145,83 @@ describe('VaultService', () => {
     expect(service.validateGrants('client-1', [migrationSecond.value.grant])).toEqual({ valid: false })
   })
 
+  it('revokes an inherited workspace grant when a session opts out of inheritance', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Workspace', password: 'workspace horse', bindings: [] } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const workspaceBinding = { targetType: 'workspace' as const, targetId: 'workspace-1', mode: 'direct' as const, passwordGroupId: groupId, createdAt: '2026-08-25T00:00:00.000Z', updatedAt: '2026-08-25T00:00:00.000Z' }
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 1, input: { kind: 'replace', binding: workspaceBinding } })
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'inherit', createdAt: workspaceBinding.createdAt, updatedAt: workspaceBinding.updatedAt } } })
+    const unlocked = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'workspace horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+
+    const optedOut = await service.handle({
+      action: 'bindings-update',
+      expectedRevision: 3,
+      input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'no-inherit', createdAt: workspaceBinding.createdAt, updatedAt: workspaceBinding.updatedAt } },
+    })
+
+    expect(optedOut).toMatchObject({ ok: true })
+    expect(service.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
+  it('revokes an inherited workspace grant when the session binding is removed', async () => {
+    const created = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Workspace', password: 'workspace horse', bindings: [] } })
+    if (!created.ok) throw new Error('create failed')
+    const groupId = created.value.snapshot.groups[0]!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 1, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: groupId, createdAt: timestamp, updatedAt: timestamp } } })
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'inherit', createdAt: timestamp, updatedAt: timestamp } } })
+    const unlocked = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'workspace horse' })
+    if (!unlocked.ok) throw new Error('unlock failed')
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 3, input: { kind: 'remove', targetType: 'session', targetId: 'session-1' } })
+
+    expect(service.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
+  it('revokes both direct and inherited grants when a session protection source changes', async () => {
+    const first = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Direct', password: 'direct horse', bindings: [] } })
+    const second = await service.handle({ action: 'group-create', expectedRevision: 1, input: { name: 'Workspace', password: 'workspace horse', bindings: [] } })
+    if (!first.ok || !second.ok) throw new Error('create failed')
+    const directId = first.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Direct')!.id
+    const workspaceId = second.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Workspace')!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: workspaceId, createdAt: timestamp, updatedAt: timestamp } } })
+    await service.handle({ action: 'bindings-update', expectedRevision: 3, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'direct', passwordGroupId: directId, createdAt: timestamp, updatedAt: timestamp } } })
+    const directGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: directId, password: 'direct horse' })
+    const inheritedGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: workspaceId, password: 'workspace horse' })
+    if (!directGrant.ok || !inheritedGrant.ok) throw new Error('unlock failed')
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 4, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'inherit', createdAt: timestamp, updatedAt: timestamp } } })
+
+    expect(service.validateGrants('client-1', [directGrant.value.grant])).toEqual({ valid: false })
+    expect(service.validateGrants('client-1', [inheritedGrant.value.grant])).toEqual({ valid: false })
+  })
+
+  it('revokes grants for both sides of a workspace binding replacement', async () => {
+    const first = await service.handle({ action: 'group-create', expectedRevision: 0, input: { name: 'Old', password: 'old horse', bindings: [] } })
+    const second = await service.handle({ action: 'group-create', expectedRevision: 1, input: { name: 'New', password: 'new horse', bindings: [] } })
+    if (!first.ok || !second.ok) throw new Error('create failed')
+    const oldId = first.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'Old')!.id
+    const newId = second.value.snapshot.groups.find((group: { readonly name: string }) => group.name === 'New')!.id
+    const timestamp = '2026-08-25T00:00:00.000Z'
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 2, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: oldId, createdAt: timestamp, updatedAt: timestamp } } })
+    await service.handle({ action: 'bindings-update', expectedRevision: 3, input: { kind: 'replace', binding: { targetType: 'session', targetId: 'session-1', workspaceId: 'workspace-1', mode: 'inherit', createdAt: timestamp, updatedAt: timestamp } } })
+    const oldGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: oldId, password: 'old horse' })
+    const newGrant = await service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: newId, password: 'new horse' })
+    if (!oldGrant.ok || !newGrant.ok) throw new Error('unlock failed')
+
+    await service.handle({ action: 'bindings-update', expectedRevision: 4, input: { kind: 'replace', binding: { targetType: 'workspace', targetId: 'workspace-1', mode: 'direct', passwordGroupId: newId, createdAt: timestamp, updatedAt: timestamp } } })
+
+    expect(service.validateGrants('client-1', [oldGrant.value.grant])).toEqual({ valid: false })
+    expect(service.validateGrants('client-1', [newGrant.value.grant])).toEqual({ valid: false })
+  })
+
   it('keeps durable create/change/recover results successful when audit append fails', async () => {
     let auditCalls = 0
     const repository = new VaultStateRepository(join(root, 'audit-fault-vault'))

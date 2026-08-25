@@ -17,6 +17,8 @@ declare module '@deepseek-ai/cordis' {
 export * from './config.js'
 export * from './shared/contracts.js'
 
+export const inject = ['webServer'] as const
+
 export function apply(ctx: Context, config: VaultConfig): void {
   const stateDirectory = config.stateDir ?? join(process.env.DSH_HOME ?? process.cwd(), 'vault-lock')
   const service = new VaultService({
@@ -37,4 +39,4 @@ export function apply(ctx: Context, config: VaultConfig): void {
   }, 'dsh-vault/api')
 }
 
-apply.inject = ['webServer'] as const
+apply.inject = inject
