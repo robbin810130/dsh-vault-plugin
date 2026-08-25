@@ -39,6 +39,25 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings-plugins",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "external": [
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-runtime/client",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "react",
+        "react/jsx-runtime"
+      ],
+      "immediately": true
     }
   },
   "dependencies": {
@@ -52,6 +71,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@types/node": "^22.20.0",
+    "lightningcss": "^1.32.0",
     "tsdown": "^0.22.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

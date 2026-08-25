@@ -15,5 +15,6 @@
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "tsdown.config.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "tsdown.config.ts"],
+  "exclude": ["src/client/**", "tests/client/**"]
 }
