@@ -1,6 +1,13 @@
-import type { VaultPolicy } from '../config.js'
-
-export type { VaultPolicy } from '../config.js'
+export interface VaultPolicy {
+  readonly autoLockMinutes: 15 | 30 | 60 | 0
+  readonly lockOnSystemSleep: boolean
+  readonly lockedNameVisibility: 'workspace-visible-session-hidden' | 'all-visible' | 'all-hidden'
+  readonly failedAttemptProtection: {
+    readonly enabled: boolean
+    readonly maxAttempts: number
+    readonly cooldownSeconds: number
+  }
+}
 
 export type VaultTarget =
   | { readonly type: 'workspace'; readonly id: string }

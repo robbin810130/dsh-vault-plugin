@@ -1,20 +1,12 @@
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import z from '@deepseek-ai/schemastery'
+import type { VaultPolicy } from './shared/contracts.js'
+
+export type { VaultPolicy } from './shared/contracts.js'
 
 export interface Config {
   readonly stateDir?: string
-}
-
-export interface VaultPolicy {
-  readonly autoLockMinutes: 15 | 30 | 60 | 0
-  readonly lockOnSystemSleep: boolean
-  readonly lockedNameVisibility: 'workspace-visible-session-hidden' | 'all-visible' | 'all-hidden'
-  readonly failedAttemptProtection: {
-    readonly enabled: boolean
-    readonly maxAttempts: number
-    readonly cooldownSeconds: number
-  }
 }
 
 interface VaultPolicyInput {
