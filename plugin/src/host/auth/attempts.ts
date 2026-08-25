@@ -30,6 +30,7 @@ const defaults: FailedAttemptStoreDependencies = {
 export class FailedAttemptStore {
   private readonly dependencies: FailedAttemptStoreDependencies
   private readonly groups = new Map<string, Map<string, AttemptState>>()
+  private lastMonotonicNow?: number
 
   constructor(dependencies: Partial<FailedAttemptStoreDependencies> = {}) {
     this.dependencies = { ...defaults, ...dependencies }
@@ -40,16 +41,17 @@ export class FailedAttemptStore {
     clientInstanceId: string,
     policy: FailedAttemptPolicy,
   ): AttemptAvailability {
-    if (!policy.enabled) {
-      this.delete(groupId, clientInstanceId)
-      return { kind: 'allowed' }
-    }
+    this.setPolicy(policy)
 
     const state = this.get(groupId, clientInstanceId)
+    const now = this.readMonotonicNow()
+    if (now === undefined) {
+      return { kind: 'cooldown', retryAt: state?.retryAt ?? this.failClosedRetryAt() }
+    }
     if (state?.cooldownDeadline === undefined || state.retryAt === undefined) {
       return { kind: 'allowed' }
     }
-    if (this.dependencies.monotonicNow() >= state.cooldownDeadline) {
+    if (now >= state.cooldownDeadline) {
       this.delete(groupId, clientInstanceId)
       return { kind: 'allowed' }
     }
@@ -61,13 +63,28 @@ export class FailedAttemptStore {
     clientInstanceId: string,
     policy: FailedAttemptPolicy,
   ): FailedAttemptDecision {
+    this.setPolicy(policy)
+
+    const current = this.get(groupId, clientInstanceId)
     if (!policy.enabled) {
+      if (current?.cooldownDeadline === undefined || current.retryAt === undefined) {
+        return { kind: 'rejected' }
+      }
+      const now = this.readMonotonicNow()
+      if (now === undefined || now < current.cooldownDeadline) {
+        return { kind: 'cooldown', retryAt: current.retryAt }
+      }
       this.delete(groupId, clientInstanceId)
       return { kind: 'rejected' }
     }
 
-    const current = this.get(groupId, clientInstanceId)
-    const now = this.dependencies.monotonicNow()
+    const now = this.readMonotonicNow()
+    if (now === undefined) {
+      if (current?.cooldownDeadline !== undefined && current.retryAt !== undefined) {
+        return { kind: 'cooldown', retryAt: current.retryAt }
+      }
+      return { kind: 'rejected' }
+    }
     if (current?.cooldownDeadline !== undefined && current.retryAt !== undefined) {
       if (now < current.cooldownDeadline) {
         return { kind: 'cooldown', retryAt: current.retryAt }
@@ -92,6 +109,19 @@ export class FailedAttemptStore {
     return {
       kind: 'rejected',
       remainingAttempts: policy.maxAttempts - nextFailures,
+    }
+  }
+
+  setPolicy(policy: FailedAttemptPolicy): void {
+    if (policy.enabled) return
+
+    for (const [groupId, clients] of this.groups) {
+      for (const [clientInstanceId, state] of clients) {
+        if (state.cooldownDeadline === undefined || state.retryAt === undefined) {
+          clients.delete(clientInstanceId)
+        }
+      }
+      if (clients.size === 0) this.groups.delete(groupId)
     }
   }
 
@@ -129,5 +159,19 @@ export class FailedAttemptStore {
     if (!clients) return
     clients.delete(clientInstanceId)
     if (clients.size === 0) this.groups.delete(groupId)
+  }
+
+  private readMonotonicNow(): number | undefined {
+    const now = this.dependencies.monotonicNow()
+    if (!Number.isFinite(now) || (this.lastMonotonicNow !== undefined && now < this.lastMonotonicNow)) {
+      return undefined
+    }
+    this.lastMonotonicNow = now
+    return now
+  }
+
+  private failClosedRetryAt(): number {
+    const retryAt = this.dependencies.wallNow()
+    return Number.isFinite(retryAt) ? retryAt : 0
   }
 }

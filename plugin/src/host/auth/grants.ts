@@ -7,12 +7,26 @@ export interface UnlockGrant {
   readonly credentialVersion: number
   readonly clientInstanceId: string
   readonly issuedAt: number
+  /** Display-only wall-clock timestamp; NO_IDLE_EXPIRY means no idle deadline. */
   readonly expiresAt: number
 }
+
+export const NO_IDLE_EXPIRY = 0
+
+export type GrantTouchResult =
+  | { readonly authorized: true; /** Display-only; never used for authorization. */ readonly expiresAt: number }
+  | { readonly authorized: false }
 
 export interface GrantStore {
   issue(groupId: string, credentialVersion: number, clientInstanceId: string, ttlMs: number): UnlockGrant
   authorize(token: string, groupId: string, credentialVersion: number, clientInstanceId: string): boolean
+  touch(
+    token: string,
+    groupId: string,
+    credentialVersion: number,
+    clientInstanceId: string,
+    ttlMs: number,
+  ): GrantTouchResult
   revokeGroup(groupId: string): void
   revokeClient(clientInstanceId: string): void
   clear(): void
@@ -22,7 +36,7 @@ interface StoredGrant {
   readonly groupId: string
   readonly credentialVersion: number
   readonly clientInstanceId: string
-  readonly deadline: number
+  readonly deadline: number | undefined
 }
 
 export interface GrantStoreDependencies {
@@ -40,6 +54,7 @@ const defaults: GrantStoreDependencies = {
 export class InMemoryGrantStore implements GrantStore {
   private readonly dependencies: GrantStoreDependencies
   private readonly grants = new Map<string, StoredGrant>()
+  private lastMonotonicNow?: number
 
   constructor(dependencies: Partial<GrantStoreDependencies> = {}) {
     this.dependencies = { ...defaults, ...dependencies }
@@ -51,8 +66,16 @@ export class InMemoryGrantStore implements GrantStore {
     clientInstanceId: string,
     ttlMs: number,
   ): UnlockGrant {
-    if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
-      throw new RangeError('Grant TTL must be a positive finite number')
+    if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+      throw new RangeError('Grant TTL must be a non-negative finite number')
+    }
+
+    const monotonicNow = this.readMonotonicNow()
+    if (monotonicNow === undefined) throw new RangeError('Grant monotonic clock is invalid')
+    const deadline = this.deadlineFrom(monotonicNow, ttlMs)
+    if (ttlMs > 0 && deadline === undefined) {
+      this.grants.clear()
+      throw new RangeError('Grant deadline is invalid')
     }
 
     const entropy = this.dependencies.randomBytes(32)
@@ -66,7 +89,7 @@ export class InMemoryGrantStore implements GrantStore {
       groupId,
       credentialVersion,
       clientInstanceId,
-      deadline: this.dependencies.monotonicNow() + ttlMs,
+      deadline,
     })
 
     return {
@@ -75,7 +98,7 @@ export class InMemoryGrantStore implements GrantStore {
       credentialVersion,
       clientInstanceId,
       issuedAt,
-      expiresAt: issuedAt + ttlMs,
+      expiresAt: this.displayExpiresAt(issuedAt, ttlMs),
     }
   }
 
@@ -85,11 +108,14 @@ export class InMemoryGrantStore implements GrantStore {
     credentialVersion: number,
     clientInstanceId: string,
   ): boolean {
+    const monotonicNow = this.readMonotonicNow()
+    if (monotonicNow === undefined) return false
+
     const digest = this.digestKey(token)
     const grant = this.grants.get(digest)
     if (!grant) return false
 
-    if (this.dependencies.monotonicNow() >= grant.deadline) {
+    if (grant.deadline !== undefined && monotonicNow >= grant.deadline) {
       this.grants.delete(digest)
       return false
     }
@@ -97,6 +123,47 @@ export class InMemoryGrantStore implements GrantStore {
     return grant.groupId === groupId
       && grant.credentialVersion === credentialVersion
       && grant.clientInstanceId === clientInstanceId
+  }
+
+  touch(
+    token: string,
+    groupId: string,
+    credentialVersion: number,
+    clientInstanceId: string,
+    ttlMs: number,
+  ): GrantTouchResult {
+    if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+      throw new RangeError('Grant TTL must be a non-negative finite number')
+    }
+
+    const monotonicNow = this.readMonotonicNow()
+    if (monotonicNow === undefined) return { authorized: false }
+
+    const digest = this.digestKey(token)
+    const grant = this.grants.get(digest)
+    if (!grant) return { authorized: false }
+    if (grant.deadline !== undefined && monotonicNow >= grant.deadline) {
+      this.grants.delete(digest)
+      return { authorized: false }
+    }
+    if (grant.groupId !== groupId
+      || grant.credentialVersion !== credentialVersion
+      || grant.clientInstanceId !== clientInstanceId) {
+      return { authorized: false }
+    }
+
+    const deadline = this.deadlineFrom(monotonicNow, ttlMs)
+    if (ttlMs > 0 && deadline === undefined) {
+      this.grants.delete(digest)
+      return { authorized: false }
+    }
+
+    this.grants.set(digest, { ...grant, deadline })
+    const wallNow = this.dependencies.wallNow()
+    return {
+      authorized: true,
+      expiresAt: this.displayExpiresAt(wallNow, ttlMs),
+    }
   }
 
   revokeGroup(groupId: string): void {
@@ -117,5 +184,25 @@ export class InMemoryGrantStore implements GrantStore {
 
   private digestKey(token: string): string {
     return createHash('sha256').update(token, 'utf8').digest('hex')
+  }
+
+  private readMonotonicNow(): number | undefined {
+    const now = this.dependencies.monotonicNow()
+    if (!Number.isFinite(now) || (this.lastMonotonicNow !== undefined && now < this.lastMonotonicNow)) {
+      this.grants.clear()
+      return undefined
+    }
+    this.lastMonotonicNow = now
+    return now
+  }
+
+  private deadlineFrom(now: number, ttlMs: number): number | undefined {
+    if (ttlMs === 0) return undefined
+    const deadline = now + ttlMs
+    return Number.isFinite(deadline) && deadline > now ? deadline : undefined
+  }
+
+  private displayExpiresAt(wallNow: number, ttlMs: number): number {
+    return ttlMs === 0 ? NO_IDLE_EXPIRY : wallNow + ttlMs
   }
 }

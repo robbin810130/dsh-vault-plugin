@@ -11,15 +11,64 @@ function enabled(maxAttempts: number, cooldownSeconds: number): AttemptPolicy {
 }
 
 describe('FailedAttemptStore', () => {
-  it('treats disabled protection as an ordinary rejection without retaining state', () => {
-    const store = new FailedAttemptStore()
-
-    expect(store.recordFailure('group-a', 'client-a', enabled(1, 60))).toEqual({
-      kind: 'cooldown',
-      retryAt: expect.any(Number),
+  it('globally clears counters when disabled while preserving existing cooldowns', () => {
+    let monotonicNow = 1_000
+    const store = new FailedAttemptStore({
+      monotonicNow: () => monotonicNow,
+      wallNow: () => 50_000,
     })
-    expect(store.recordFailure('group-a', 'client-a', disabled)).toEqual({ kind: 'rejected' })
-    expect(store.check('group-a', 'client-a', enabled(3, 60))).toEqual({ kind: 'allowed' })
+    const policy = enabled(2, 10)
+
+    expect(store.recordFailure('group-a', 'client-a', policy).kind).toBe('rejected')
+    expect(store.recordFailure('group-b', 'client-b', policy).kind).toBe('rejected')
+    expect(store.recordFailure('group-b', 'client-b', policy)).toEqual({
+      kind: 'cooldown',
+      retryAt: 60_000,
+    })
+    expect(store.recordFailure('group-c', 'client-c', policy).kind).toBe('rejected')
+
+    store.setPolicy(disabled)
+
+    expect(store.recordFailure('group-c', 'client-c', disabled)).toEqual({ kind: 'rejected' })
+    expect(store.check('group-a', 'client-a', disabled)).toEqual({ kind: 'allowed' })
+    expect(store.recordFailure('group-b', 'client-b', disabled)).toEqual({
+      kind: 'cooldown',
+      retryAt: 60_000,
+    })
+
+    store.setPolicy(enabled(3, 10))
+    expect(store.recordFailure('group-a', 'client-a', enabled(3, 10))).toEqual({
+      kind: 'rejected',
+      remainingAttempts: 2,
+    })
+    expect(store.recordFailure('group-c', 'client-c', enabled(3, 10))).toEqual({
+      kind: 'rejected',
+      remainingAttempts: 2,
+    })
+    expect(store.check('group-b', 'client-b', enabled(3, 10))).toEqual({
+      kind: 'cooldown',
+      retryAt: 60_000,
+    })
+
+    monotonicNow = 11_000
+    expect(store.check('group-b', 'client-b', disabled)).toEqual({ kind: 'allowed' })
+    expect(store.recordFailure('group-b', 'client-b', disabled)).toEqual({ kind: 'rejected' })
+
+    store.setPolicy(enabled(3, 10))
+    expect(store.recordFailure('group-b', 'client-b', enabled(3, 10))).toEqual({
+      kind: 'rejected',
+      remainingAttempts: 2,
+    })
+  })
+
+  it('applies disabled transitions globally on first policy observation regardless of access order', () => {
+    const store = new FailedAttemptStore()
+    const policy = enabled(3, 60)
+
+    store.recordFailure('group-a', 'client-a', policy)
+    store.recordFailure('group-b', 'client-b', policy)
+
+    expect(store.recordFailure('group-b', 'client-b', disabled)).toEqual({ kind: 'rejected' })
     expect(store.recordFailure('group-a', 'client-a', enabled(3, 60))).toEqual({
       kind: 'rejected',
       remainingAttempts: 2,
@@ -116,5 +165,49 @@ describe('FailedAttemptStore', () => {
 
     const afterRestart = new FailedAttemptStore()
     expect(afterRestart.check('group-b', 'client-b', policy)).toEqual({ kind: 'allowed' })
+  })
+
+  it('does not allow a monotonic clock anomaly to bypass a cooldown', () => {
+    let monotonicNow = 1_000
+    const store = new FailedAttemptStore({
+      monotonicNow: () => monotonicNow,
+      wallNow: () => 50_000,
+    })
+    const policy = enabled(1, 10)
+
+    expect(store.recordFailure('group-a', 'client-a', policy)).toEqual({
+      kind: 'cooldown',
+      retryAt: 60_000,
+    })
+
+    monotonicNow = Number.NaN
+    expect(store.check('group-a', 'client-a', policy).kind).toBe('cooldown')
+    monotonicNow = Number.POSITIVE_INFINITY
+    expect(store.recordFailure('group-a', 'client-a', policy).kind).toBe('cooldown')
+    monotonicNow = 999
+    expect(store.check('group-a', 'client-a', policy).kind).toBe('cooldown')
+
+    monotonicNow = 11_000
+    expect(store.check('group-a', 'client-a', policy)).toEqual({ kind: 'allowed' })
+  })
+
+  it('fails closed instead of reporting allowed when its monotonic clock is invalid', () => {
+    let monotonicNow = Number.NaN
+    const store = new FailedAttemptStore({
+      monotonicNow: () => monotonicNow,
+      wallNow: () => 50_000,
+    })
+
+    expect(store.check('group-a', 'client-a', enabled(3, 60))).toEqual({
+      kind: 'cooldown',
+      retryAt: 50_000,
+    })
+
+    monotonicNow = Number.POSITIVE_INFINITY
+    expect(store.check('group-b', 'client-b', disabled)).toEqual({
+      kind: 'cooldown',
+      retryAt: 50_000,
+    })
+    expect(store.recordFailure('group-b', 'client-b', disabled)).toEqual({ kind: 'rejected' })
   })
 })
