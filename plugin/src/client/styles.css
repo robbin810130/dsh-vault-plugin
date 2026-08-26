@@ -1,3 +1,87 @@
 .dsh-vault {
   color: inherit;
 }
+
+.dsh-vault-row-accessory,
+.dsh-vault-row-action,
+.dsh-vault-row-menu,
+.dsh-vault-dialog,
+.dsh-vault-locked-conversation {
+  color: inherit;
+  font: inherit;
+}
+
+.dsh-vault-row-accessory {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+}
+
+.dsh-vault-lock-icon,
+.dsh-vault-dialog-icon,
+.dsh-vault-locked-conversation-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.dsh-vault-row-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dsh-vault-row-action-button,
+.dsh-vault-button,
+.dsh-vault-row-menu-item {
+  min-height: 44px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+}
+
+.dsh-vault-row-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  display: grid;
+  gap: 0.25rem;
+  z-index: 10;
+}
+
+.dsh-vault-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.dsh-vault-dialog {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  max-width: min(24rem, calc(100vw - 2rem));
+}
+
+.dsh-vault-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dsh-vault-field input {
+  min-height: 44px;
+}
+
+.dsh-vault-dialog-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.dsh-vault-locked-conversation {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+  padding: 1rem;
+}
