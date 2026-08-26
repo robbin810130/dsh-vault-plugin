@@ -110,6 +110,20 @@ describe('Vault navigation access provider', () => {
     expect(provider.sessionState('s-moved', 'w-new')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
   })
 
+  it('inherits current workspace protection when the session has no explicit binding', async () => {
+    const store = makeStore(makeSnapshot([
+      binding('workspace', 'w-locked', 'direct', 'group-a'),
+      binding('workspace', 'w-open', 'direct', 'group-b'),
+    ]))
+    await store.refresh()
+    await store.unlock('group-b', 'password')
+    const provider = createVaultAccessProvider(store)
+
+    expect(provider.sessionState('s-implicit', 'w-locked')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
+    expect(provider.sessionState('s-implicit', 'w-open')).toEqual({ kind: 'allow' })
+    expect(provider.sessionState('s-implicit').kind).toBe('blocked')
+  })
+
   it('bypasses plain targets and blocks workspace, inherited, direct override, expired, and offline targets', async () => {
     const store = makeStore(makeSnapshot([
       binding('workspace', 'w-locked', 'direct', 'group-a'),

@@ -20,6 +20,7 @@ function store(policy: 'workspace-visible-session-hidden' | 'all-visible' | 'all
       bindings: [
         { targetType: 'workspace', targetId: 'w-locked', mode: 'direct', passwordGroupId: 'group-a', createdAt: 'now', updatedAt: 'now' },
         { targetType: 'session', targetId: 's-locked', workspaceId: 'w-locked', mode: 'inherit', createdAt: 'now', updatedAt: 'now' },
+        { targetType: 'session', targetId: 's-plain', mode: 'no-inherit', createdAt: 'now', updatedAt: 'now' },
       ],
     }),
     hasUnlockedGroup: groupId => unlocked.includes(groupId),
@@ -78,6 +79,21 @@ describe('Vault locked-name presentation', () => {
   it('conceals a moved inherited session using the current workspace', () => {
     const decorator = createVaultRowDecorator(movedStore(), key => key)
     expect(decorator.session?.('s-moved', session, 'w-new')).toEqual({
+      label: 'session', ariaLabel: 'session', concealed: true,
+    })
+  })
+
+  it('conceals an implicitly inherited session in a locked current workspace', () => {
+    const implicitStore = movedStore()
+    const snapshot = implicitStore.getSnapshot()
+    const withoutSessionBinding = snapshot.bindings.filter(binding => binding.targetType !== 'session')
+    const store = {
+      ...implicitStore,
+      getSnapshot: () => ({ ...snapshot, bindings: withoutSessionBinding }),
+    } as VaultClientStore
+    const decorator = createVaultRowDecorator(store, key => key)
+
+    expect(decorator.session?.('s-implicit', session, 'w-new')).toEqual({
       label: 'session', ariaLabel: 'session', concealed: true,
     })
   })
