@@ -15,10 +15,11 @@ export interface NavigationAccessProvider {
   matchesWorkspace(id: string): boolean
   matchesSession(id: string): boolean
   workspaceState(id: string): NavigationAccessState
-  sessionState(id: string): NavigationAccessState
+  sessionState(id: string, workspaceId?: string): NavigationAccessState
   requestWorkspace(id: string): Promise<NavigationDecision>
-  requestSession(id: string): Promise<NavigationDecision>
+  requestSession(id: string, workspaceId?: string): Promise<NavigationDecision>
   subscribe(listener: () => void): () => void
+  dispose(): void
 }
 
 function targetState(store: VaultClientStore, target: VaultTarget): NavigationAccessState {
@@ -26,7 +27,7 @@ function targetState(store: VaultClientStore, target: VaultTarget): NavigationAc
   const resolution = resolveVaultTarget(snapshot, target)
   if (resolution.kind === 'plain') return { kind: 'allow' }
   if (resolution.kind === 'blocked') return { kind: 'blocked', reason: resolution.reason }
-  if (snapshot.host !== 'ready' || !snapshot.unlockedGroupIds.has(resolution.groupId)) {
+  if (snapshot.host !== 'ready' || !store.hasUnlockedGroup(resolution.groupId)) {
     return { kind: 'blocked', reason: snapshot.host === 'offline' ? 'Vault host unavailable' : 'Vault group locked' }
   }
   return { kind: 'allow' }
@@ -59,14 +60,14 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
     matchesSession: id => protectedResolution(store, { type: 'session', id }).kind !== 'plain',
     workspaceState: id => targetState(store, { type: 'workspace', id }),
-    sessionState: id => targetState(store, { type: 'session', id }),
+    sessionState: (id, workspaceId) => targetState(store, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) }),
     requestWorkspace: id => decisionFor(store, { type: 'workspace', id }),
-    requestSession: id => decisionFor(store, { type: 'session', id }),
+    requestSession: (id, workspaceId) => decisionFor(store, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) }),
     subscribe: listener => {
       listeners.add(listener)
       let active = true
       return () => { if (active) { active = false; listeners.delete(listener) } }
     },
     dispose: unsubscribe,
-  } as NavigationAccessProvider & { dispose: () => void }
+  }
 }

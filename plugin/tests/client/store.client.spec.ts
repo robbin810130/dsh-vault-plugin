@@ -147,7 +147,7 @@ describe('Vault client store', () => {
     const source = makeSnapshot()
     const api = new RecordingApi((request) => {
       if (request.action === 'snapshot') return ok(source)
-      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 10_000 })
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: Date.now() + 10_000 })
       throw new Error('unexpected action')
     })
     const store = createVaultClientStore(api)
@@ -178,7 +178,7 @@ describe('Vault client store', () => {
   it('refreshes redacted state first, validates only this tab proofs, and removes only invalid grants', async () => {
     const api = new RecordingApi((request) => {
       if (request.action === 'snapshot') return ok(makeSnapshot(2))
-      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 10_000 })
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: Date.now() + 10_000 })
       if (request.action === 'grants-validate') {
         return ok({ valid: request.grants[0]?.groupId === 'group-a' })
       }
@@ -238,7 +238,7 @@ describe('Vault client store', () => {
     let validationCalls = 0
     const api = new RecordingApi((request) => {
       if (request.action === 'snapshot') return ok(makeSnapshot(++snapshotCalls))
-      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 10_000 })
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: Date.now() + 10_000 })
       if (request.action === 'grants-validate') {
         validationCalls += 1
         return validationCalls === 1 ? staleValidation.promise : ok({ valid: true })
@@ -269,7 +269,7 @@ describe('Vault client store', () => {
     const api = new RecordingApi((request) => {
       if (!online) return failed()
       if (request.action === 'snapshot') return ok(makeSnapshot(4))
-      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 10_000 })
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: Date.now() + 10_000 })
       if (request.action === 'grants-validate') return ok({ valid: true })
       throw new Error('unexpected action')
     })
@@ -303,7 +303,7 @@ describe('Vault client store', () => {
     let current = makeSnapshot(7)
     const api = new RecordingApi((request) => {
       if (request.action === 'snapshot') return ok(current)
-      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 10_000 })
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: Date.now() + 10_000 })
       if (request.action === 'group-create') {
         current = makeSnapshot(8)
         return ok({ snapshot: current, recoveryKey: 'CREATE-RECOVERY-KEY' })
@@ -403,7 +403,7 @@ describe('Vault client store', () => {
   it('locks locally on invalid activity, group lock, and lock-all without retaining stale proofs', async () => {
     const api = new RecordingApi((request) => {
       if (request.action === 'snapshot') return ok(makeSnapshot())
-      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 10_000 })
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: Date.now() + 10_000 })
       if (request.action === 'activity-touch') return ok({ valid: false, touched: false })
       if (request.action === 'lock-group' || request.action === 'lock-all') return ok(null)
       if (request.action === 'grants-validate') return ok({ valid: true })
@@ -427,6 +427,31 @@ describe('Vault client store', () => {
     api.calls.length = 0
     await store.refresh()
     expect(api.calls.map(call => call.action)).toEqual(['snapshot'])
+  })
+
+  it('drops a late unlock response after cancellation without reviving the grant or prompt', async () => {
+    const lateUnlock = deferred<VaultApiResult<unknown>>()
+    const api = new RecordingApi((request) => {
+      if (request.action === 'snapshot') return ok(makeSnapshot())
+      if (request.action === 'unlock' && request.groupId === 'group-a') return lateUnlock.promise
+      throw new Error('unexpected action')
+    })
+    const store = createVaultClientStore(api)
+    await store.refresh()
+
+    const first = store.requestUnlock('group-a', { type: 'workspace', id: 'workspace-a' })
+    const unlock = store.unlock('group-a', 'alpha password')
+    store.cancelUnlock('group-a')
+    const second = store.requestUnlock('group-b', { type: 'workspace', id: 'workspace-b' })
+
+    lateUnlock.resolve(ok({ grant: grant('group-a'), expiresAt: Date.now() + 10_000 }))
+    await unlock
+    await expect(first).resolves.toBe(false)
+    expect(store.getSnapshot().prompt).toEqual({ groupId: 'group-b', target: { type: 'workspace', id: 'workspace-b' } })
+    expect([...store.getSnapshot().unlockedGroupIds]).toEqual([])
+
+    store.cancelUnlock('group-b')
+    await expect(second).resolves.toBe(false)
   })
 
   it('sanitizes thrown errors, logs nothing, and leaves no password or recovery value in observable state', async () => {

@@ -22,6 +22,29 @@ function store(policy: 'workspace-visible-session-hidden' | 'all-visible' | 'all
         { targetType: 'session', targetId: 's-locked', workspaceId: 'w-locked', mode: 'inherit', createdAt: 'now', updatedAt: 'now' },
       ],
     }),
+    hasUnlockedGroup: groupId => unlocked.includes(groupId),
+    subscribe: () => () => {},
+  } as unknown as VaultClientStore
+}
+
+function movedStore(): VaultClientStore {
+  return {
+    clientInstanceId: 'client',
+    getSnapshot: () => ({
+      host: 'ready', revision: 1,
+      groups: [
+        { id: 'group-a', name: 'old', credentialVersion: 1, recoveryConfigured: true, recoveryGeneratedAt: 'now', memberCount: 1 },
+        { id: 'group-b', name: 'new', credentialVersion: 1, recoveryConfigured: true, recoveryGeneratedAt: 'now', memberCount: 1 },
+      ],
+      unlockedGroupIds: new Set(['group-a']), prompt: null,
+      policy: { lockedNameVisibility: 'workspace-visible-session-hidden' },
+      bindings: [
+        { targetType: 'workspace', targetId: 'w-old', mode: 'direct', passwordGroupId: 'group-a', createdAt: 'now', updatedAt: 'now' },
+        { targetType: 'workspace', targetId: 'w-new', mode: 'direct', passwordGroupId: 'group-b', createdAt: 'now', updatedAt: 'now' },
+        { targetType: 'session', targetId: 's-moved', workspaceId: 'w-old', mode: 'inherit', createdAt: 'now', updatedAt: 'now' },
+      ],
+    }),
+    hasUnlockedGroup: groupId => groupId === 'group-a',
     subscribe: () => () => {},
   } as unknown as VaultClientStore
 }
@@ -49,6 +72,13 @@ describe('Vault locked-name presentation', () => {
     expect(decorator.workspace?.('w-locked', workspace)).toEqual(workspace)
     expect(decorator.session?.('s-plain', { ...session, label: 'Plain', workspaceLabel: undefined })).toEqual({
       ...session, label: 'Plain', workspaceLabel: undefined,
+    })
+  })
+
+  it('conceals a moved inherited session using the current workspace', () => {
+    const decorator = createVaultRowDecorator(movedStore(), key => key)
+    expect(decorator.session?.('s-moved', session, 'w-new')).toEqual({
+      label: 'session', ariaLabel: 'session', concealed: true,
     })
   })
 })

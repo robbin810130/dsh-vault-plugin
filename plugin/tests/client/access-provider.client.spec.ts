@@ -46,7 +46,7 @@ function makeStore(snapshot: VaultSnapshot): VaultClientStore {
     async call<T>(request: VaultApiRequest): Promise<VaultApiResult<T>> {
       if (request.action === 'snapshot') return ok(snapshot) as VaultApiResult<T>
       if (request.action === 'unlock') {
-        return ok({ grant: { groupId: request.groupId, credentialVersion: 1, token }, expiresAt: 10_000 }) as VaultApiResult<T>
+        return ok({ grant: { groupId: request.groupId, credentialVersion: 1, token }, expiresAt: Date.now() + 10_000 }) as VaultApiResult<T>
       }
       if (request.action === 'grants-validate') return ok({ valid: true }) as VaultApiResult<T>
       throw new Error('unexpected request')
@@ -60,6 +60,56 @@ const target = (type: 'workspace' | 'session', id: string, workspaceId?: string)
 })
 
 describe('Vault navigation access provider', () => {
+  it('blocks a grant immediately when Host expiry is reached', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const api: VaultApiClient = {
+      async call<T>(request: VaultApiRequest): Promise<VaultApiResult<T>> {
+        if (request.action === 'snapshot') return ok(makeSnapshot([binding('workspace', 'w-locked', 'direct', 'group-a')])) as VaultApiResult<T>
+        if (request.action === 'unlock') return ok({ grant: { groupId: 'group-a', credentialVersion: 1, token }, expiresAt: 1_000 }) as VaultApiResult<T>
+        throw new Error('unexpected request')
+      },
+    }
+    const store = createVaultClientStore(api)
+    await store.refresh()
+    await store.unlock('group-a', 'password')
+    const provider = createVaultAccessProvider(store)
+
+    expect(provider.workspaceState('w-locked')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
+  })
+
+  it('blocks a grant after the clock advances beyond its expiry', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const api: VaultApiClient = {
+      async call<T>(request: VaultApiRequest): Promise<VaultApiResult<T>> {
+        if (request.action === 'snapshot') return ok(makeSnapshot([binding('workspace', 'w-locked', 'direct', 'group-a')])) as VaultApiResult<T>
+        if (request.action === 'unlock') return ok({ grant: { groupId: 'group-a', credentialVersion: 1, token }, expiresAt: 2_000 }) as VaultApiResult<T>
+        throw new Error('unexpected request')
+      },
+    }
+    const store = createVaultClientStore(api)
+    await store.refresh()
+    await store.unlock('group-a', 'password')
+    const provider = createVaultAccessProvider(store)
+    expect(provider.workspaceState('w-locked')).toEqual({ kind: 'allow' })
+
+    clock.mockReturnValue(2_000)
+    expect(provider.workspaceState('w-locked')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
+  })
+
+  it('uses the current workspace for inherited sessions and fails closed without it', async () => {
+    const store = makeStore(makeSnapshot([
+      binding('workspace', 'w-old', 'direct', 'group-a'),
+      binding('workspace', 'w-new', 'direct', 'group-b'),
+      binding('session', 's-moved', 'inherit', undefined, 'w-old'),
+    ]))
+    await store.refresh()
+    await store.unlock('group-a', 'password')
+    const provider = createVaultAccessProvider(store)
+
+    expect(provider.sessionState('s-moved').kind).toBe('blocked')
+    expect(provider.sessionState('s-moved', 'w-new')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
+  })
+
   it('bypasses plain targets and blocks workspace, inherited, direct override, expired, and offline targets', async () => {
     const store = makeStore(makeSnapshot([
       binding('workspace', 'w-locked', 'direct', 'group-a'),

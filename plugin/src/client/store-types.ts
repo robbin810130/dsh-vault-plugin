@@ -38,6 +38,7 @@ export interface ChangePasswordResult {
 export interface VaultClientStore {
   readonly clientInstanceId: string
   getSnapshot(): VaultClientSnapshot
+  hasUnlockedGroup(groupId: string): boolean
   subscribe(listener: () => void): () => void
   refresh(signal?: AbortSignal): Promise<VaultApiResult<VaultClientSnapshot>>
   validateGrants(signal?: AbortSignal): Promise<VaultApiResult<GrantValidationResult>>

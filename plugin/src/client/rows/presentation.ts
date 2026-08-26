@@ -19,7 +19,7 @@ export type VaultTranslate = (key: 'workspace' | 'session') => string
 
 export interface WorkspaceRowDecorator {
   workspace?(id: string, base: WorkspaceRowPresentation): WorkspaceRowPresentation
-  session?(id: string, base: SessionRowPresentation): SessionRowPresentation
+  session?(id: string, base: SessionRowPresentation, workspaceId?: string): SessionRowPresentation
 }
 
 function conceal(kind: 'workspace' | 'session', t: VaultTranslate): WorkspaceRowPresentation | SessionRowPresentation {
@@ -32,7 +32,7 @@ function visible(store: VaultClientStore, type: 'workspace' | 'session', id: str
     ? { type, id }
     : { type, id, ...(workspaceId === undefined ? {} : { workspaceId }) })
   return resolution.kind === 'plain'
-    || (resolution.kind === 'protected' && store.getSnapshot().host === 'ready' && store.getSnapshot().unlockedGroupIds.has(resolution.groupId))
+    || (resolution.kind === 'protected' && store.getSnapshot().host === 'ready' && store.hasUnlockedGroup(resolution.groupId))
 }
 
 export function createVaultRowDecorator(store: VaultClientStore, t: VaultTranslate): WorkspaceRowDecorator {
@@ -42,10 +42,10 @@ export function createVaultRowDecorator(store: VaultClientStore, t: VaultTransla
       if (visible(store, 'workspace', id) || policy.lockedNameVisibility !== 'all-hidden') return base
       return conceal('workspace', t) as WorkspaceRowPresentation
     },
-    session: (id, base) => {
+    session: (id, base, workspaceId) => {
       const snapshot = store.getSnapshot()
-      const resolution = resolveVaultTarget(snapshot, { type: 'session', id })
-      if (resolution.kind === 'plain' || (resolution.kind === 'protected' && snapshot.host === 'ready' && snapshot.unlockedGroupIds.has(resolution.groupId))) return base
+      const resolution = resolveVaultTarget(snapshot, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) })
+      if (resolution.kind === 'plain' || (resolution.kind === 'protected' && snapshot.host === 'ready' && store.hasUnlockedGroup(resolution.groupId))) return base
       if (snapshot.policy.lockedNameVisibility === 'all-visible') return base
       return conceal('session', t) as SessionRowPresentation
     },

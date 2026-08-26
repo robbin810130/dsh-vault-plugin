@@ -129,18 +129,18 @@ index 0000000000..b6af74f44f
 +  matchesWorkspace(id: WorkspaceId): boolean
 +  matchesSession(id: SessionId): boolean
 +  workspaceState(id: WorkspaceId): NavigationAccessState
-+  sessionState(id: SessionId): NavigationAccessState
++  sessionState(id: SessionId, workspaceId?: WorkspaceId): NavigationAccessState
 +  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
-+  requestSession(id: SessionId): Promise<NavigationDecision>
++  requestSession(id: SessionId, workspaceId?: WorkspaceId): Promise<NavigationDecision>
 +  subscribe(listener: () => void): () => void
 +}
 +
 +export interface NavigationAccess {
 +  register(provider: NavigationAccessProvider): () => void
 +  workspaceState(id: WorkspaceId): NavigationAccessState
-+  sessionState(id: SessionId): NavigationAccessState
++  sessionState(id: SessionId, workspaceId?: WorkspaceId): NavigationAccessState
 +  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
-+  requestSession(id: SessionId): Promise<NavigationDecision>
++  requestSession(id: SessionId, workspaceId?: WorkspaceId): Promise<NavigationDecision>
 +  subscribe(listener: () => void): () => void
 +}
 +
@@ -224,11 +224,11 @@ index 0000000000..b6af74f44f
 +    return ALLOW_STATE
 +  }
 +
-+  sessionState(id: SessionId): NavigationAccessState {
++  sessionState(id: SessionId, workspaceId?: WorkspaceId): NavigationAccessState {
 +    for (const entry of this.providers) {
 +      try {
 +        if (!entry.provider.matchesSession(id)) continue
-+        const state = entry.provider.sessionState(id)
++        const state = entry.provider.sessionState(id, workspaceId)
 +        if (state.kind === 'blocked') return state
 +      } catch {
 +        return FAILED_STATE
@@ -250,11 +250,11 @@ index 0000000000..b6af74f44f
 +    return ALLOW_DECISION
 +  }
 +
-+  async requestSession(id: SessionId): Promise<NavigationDecision> {
++  async requestSession(id: SessionId, workspaceId?: WorkspaceId): Promise<NavigationDecision> {
 +    for (const entry of this.providers) {
 +      try {
 +        if (!entry.provider.matchesSession(id)) continue
-+        const decision = await entry.provider.requestSession(id)
++        const decision = await entry.provider.requestSession(id, workspaceId)
 +        if (!decision.allow) return decision
 +      } catch {
 +        return DENY_DECISION
@@ -423,7 +423,7 @@ index c66da4e0d3..2d30fbb0d0 100644
 +      return Promise.resolve(true)
 +    }
 +    try {
-+      return access.requestSession(id).then(
++      return access.requestSession(id, this.list.getSnapshot().byId[id]?.workspaceId).then(
 +        (decision) => {
 +          if (ticket !== this.openTicket || !decision.allow || !this.manager.canSelect(id)) return false
 +          this.manager.select(id)
@@ -452,7 +452,7 @@ index c66da4e0d3..2d30fbb0d0 100644
 +      return
 +    }
 +    try {
-+      void access.requestSession(address.childSessionId).then(
++      void access.requestSession(address.childSessionId, this.list.getSnapshot().byId[address.childSessionId]?.workspaceId).then(
 +        (decision) => {
 +          if (ticket === this.openTicket && decision.allow && this.manager.canSelectSubagent(address)) {
 +            this.manager.selectSubagent(address)
@@ -566,7 +566,7 @@ index c66da4e0d3..2d30fbb0d0 100644
 +      this.manager.select(id)
 +    }
 +    try {
-+      void access.requestSession(id).then(
++      void access.requestSession(id, byId[id]?.workspaceId).then(
 +        (decision) => { settle(decision.allow) },
 +        () => { settle(false) },
 +      )
@@ -2967,7 +2967,7 @@ index 08f22ed400..a0cc4b0e3c 100644
                      onFork={forkSession}
                      onArchive={onSessionArchive}
 +                    workspaceId={group.workspaceId}
-+                    presentation={workspaceRows.session(node.id, sessionPresentation(node, t))}
++                    presentation={workspaceRows.session(node.id, sessionPresentation(node, t), group.workspaceId)}
 +                    renderSlot={renderSlot}
                      drag={dragProps}
                      t={t}

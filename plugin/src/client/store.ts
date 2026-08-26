@@ -122,7 +122,9 @@ class VaultClientStoreImplementation implements VaultClientStore {
   readonly #clientInstanceId: string
   readonly #api: VaultApiClient
   readonly #grants = new Map<string, GrantProof>()
+  readonly #grantExpiries = new Map<string, number>()
   readonly #listeners = new Set<() => void>()
+  #unlockGeneration = 0
   #pendingUnlock: {
     readonly groupId: string
     readonly resolve: (allow: boolean) => void
@@ -151,7 +153,13 @@ class VaultClientStoreImplementation implements VaultClientStore {
     return this.#snapshot
   }
 
+  hasUnlockedGroup(groupId: string): boolean {
+    this.#syncSnapshotUnlockState()
+    return this.#snapshot.unlockedGroupIds.has(groupId)
+  }
+
   requestUnlock(groupId: string, target: VaultTarget): Promise<boolean> {
+    this.#syncSnapshotUnlockState()
     const snapshot = this.#snapshot
     if (snapshot.host !== 'ready' || !snapshot.groups.some(group => group.id === groupId)) return Promise.resolve(false)
     if (snapshot.unlockedGroupIds.has(groupId)) return Promise.resolve(true)
@@ -161,6 +169,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
         : Promise.resolve(false)
     }
 
+    this.#invalidateUnlocks()
     let resolve!: (allow: boolean) => void
     const promise = new Promise<boolean>(res => { resolve = res })
     this.#pendingUnlock = { groupId, resolve, promise }
@@ -175,6 +184,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
 
   cancelUnlock(groupId: string): void {
     if (this.#pendingUnlock?.groupId !== groupId) return
+    this.#invalidateUnlocks()
     this.#finishUnlock(false)
   }
 
@@ -189,6 +199,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
   }
 
   async refresh(signal?: AbortSignal): Promise<VaultApiResult<VaultClientSnapshot>> {
+    this.#invalidateUnlocks()
     const generation = ++this.#refreshGeneration
     const response = await this.#call<VaultSnapshot>({
       action: 'snapshot',
@@ -273,6 +284,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
   }
 
   async unlock(groupId: string, password: string, signal?: AbortSignal): Promise<VaultApiResult<UnlockResult>> {
+    const generation = this.#unlockGeneration
     const response = await this.#call<UnlockResult>({
       action: 'unlock',
       clientInstanceId: this.clientInstanceId,
@@ -283,6 +295,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
       if (isUnavailable(response)) this.#markOffline()
       return response
     }
+    if (generation !== this.#unlockGeneration) return response
 
     const group = this.#snapshot.groups.find(candidate => candidate.id === groupId)
     const proof = response.value.grant
@@ -290,12 +303,15 @@ class VaultClientStoreImplementation implements VaultClientStore {
       return this.#invalidResponse()
     }
     this.#grants.set(groupId, Object.freeze({ ...proof }))
+    this.#grantExpiries.set(groupId, response.value.expiresAt)
     this.#publish('ready', this.#validLocalGroupIds())
     return response
   }
 
   async lockGroup(groupId: string, signal?: AbortSignal): Promise<VaultApiResult<null>> {
+    this.#invalidateUnlocks()
     this.#grants.delete(groupId)
+    this.#grantExpiries.delete(groupId)
     if (this.#pendingUnlock?.groupId === groupId) this.#finishUnlock(false)
     this.#publish(this.#snapshot.host, this.#validLocalGroupIds())
     const response = await this.#call<null>({
@@ -308,7 +324,9 @@ class VaultClientStoreImplementation implements VaultClientStore {
   }
 
   async lockAll(signal?: AbortSignal): Promise<VaultApiResult<null>> {
+    this.#invalidateUnlocks()
     this.#grants.clear()
+    this.#grantExpiries.clear()
     if (this.#pendingUnlock !== undefined) this.#finishUnlock(false)
     this.#publish(this.#snapshot.host, [])
     const response = await this.#call<null>({
@@ -406,7 +424,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
   }
 
   #proofs(): readonly GrantProof[] {
-    return [...this.#grants.values()].map(proof => ({ ...proof }))
+    return this.#validLocalGroupIds().map(groupId => ({ ...this.#grants.get(groupId)! }))
   }
 
   #isCurrentRefresh(generation: number | undefined): boolean {
@@ -416,9 +434,15 @@ class VaultClientStoreImplementation implements VaultClientStore {
   #validLocalGroupIds(snapshot: Pick<VaultSnapshot, 'groups'> = this.#snapshot): readonly string[] {
     const groups = new Map(snapshot.groups.map(group => [group.id, group.credentialVersion] as const))
     const valid: string[] = []
+    const now = Date.now()
     for (const [groupId, proof] of this.#grants) {
-      if (groups.get(groupId) === proof.credentialVersion) valid.push(groupId)
-      else this.#grants.delete(groupId)
+      const expiresAt = this.#grantExpiries.get(groupId)
+      if (expiresAt === undefined || now >= expiresAt || groups.get(groupId) !== proof.credentialVersion) {
+        this.#grants.delete(groupId)
+        this.#grantExpiries.delete(groupId)
+        continue
+      }
+      valid.push(groupId)
     }
     return valid
   }
@@ -479,6 +503,29 @@ class VaultClientStoreImplementation implements VaultClientStore {
     )
     this.#notify()
     pending.resolve(allow)
+  }
+
+  #invalidateUnlocks(): void {
+    this.#unlockGeneration += 1
+  }
+
+  #syncSnapshotUnlockState(): void {
+    const unlockedGroupIds = this.#validLocalGroupIds()
+    const currentGroupIds = [...this.#snapshot.unlockedGroupIds]
+    if (currentGroupIds.length === unlockedGroupIds.length
+      && currentGroupIds.every((groupId, index) => groupId === unlockedGroupIds[index])) {
+      return
+    }
+    this.#snapshot = immutableSnapshot(
+      this.#snapshot.host,
+      this.#snapshot.revision,
+      this.#snapshot.groups,
+      this.#snapshot.bindings,
+      this.#snapshot.policy,
+      unlockedGroupIds,
+      this.#snapshot.prompt,
+    )
+    this.#notify()
   }
 
   #invalidResponse<T>(): VaultApiResult<T> {

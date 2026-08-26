@@ -33,6 +33,9 @@ export function resolveVaultTarget(snapshot: VaultClientSnapshot, target: VaultT
     return directGroupId === undefined ? { kind: 'blocked', reason: 'invalid session binding' } : groupState(snapshot, directGroupId)
   }
   if (sessionBindings.some(candidate => candidate.mode === 'no-inherit')) return { kind: 'plain' }
-  const inheritedWorkspaceId = target.workspaceId ?? sessionBindings.find(candidate => candidate.mode === 'inherit')?.workspaceId
-  return workspaceGroup(snapshot, inheritedWorkspaceId)
+  if (sessionBindings.some(candidate => candidate.mode === 'inherit')) {
+    if (target.workspaceId === undefined) return { kind: 'blocked', reason: 'invalid session binding' }
+    return workspaceGroup(snapshot, target.workspaceId)
+  }
+  return { kind: 'plain' }
 }
