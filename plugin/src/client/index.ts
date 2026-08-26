@@ -9,6 +9,7 @@ import { LockedConversation } from './unlock/LockedConversation.js'
 import { UnlockDialog } from './unlock/UnlockDialog.js'
 import { VaultRowAccessory } from './rows/VaultRowAccessory.js'
 import { VaultRowAction } from './rows/VaultRowAction.js'
+import { VaultSettingsCard } from './settings/VaultSettingsCard.js'
 
 export const inject = ['slots', 'locale', 'settingsScope', 'navigationAccess', 'workspaceRows'] as const
 
@@ -53,6 +54,10 @@ export function apply(ctx: ClientContext): void {
       { name: 'sidebar.workspaces.session.action' },
       VaultRowAction,
     ))
+    const disposeSettings = ctx.slots.inject('settings.plugin.item', () => ctx.slots.register(
+      { name: 'settings.plugin.item', key: 'dsh-vault', locale: 'settings.dshVault', inject: () => ({ store }) },
+      VaultSettingsCard,
+    ))
     return () => {
       ;(access as { dispose?: () => void }).dispose?.()
       disposeAccess()
@@ -63,6 +68,7 @@ export function apply(ctx: ClientContext): void {
       disposeWorkspaceAction()
       disposeSessionAccessory()
       disposeSessionAction()
+      disposeSettings()
       unlock.detach()
     }
   }, 'dsh-vault/client')
