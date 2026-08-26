@@ -1,4 +1,5 @@
-import { FormEvent, useState } from 'react'
+import { useState } from 'react'
+import type { FormEvent } from 'react'
 import type { VaultClientStore } from '../store-types.js'
 
 export interface GroupWizardProps {

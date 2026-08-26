@@ -15,6 +15,10 @@ import { createActivityMonitor } from './activity/monitor.js'
 export const inject = ['slots', 'locale', 'settingsScope', 'navigationAccess', 'workspaceRows'] as const
 
 interface ClientContext extends Context {
+  readonly slots: {
+    inject(name: string, factory: () => unknown): () => void
+    register(config: Record<string, unknown>, component: unknown): unknown
+  }
   readonly locale: { t?: (key: string) => string }
   readonly navigationAccess: { register(provider: unknown): () => void }
   readonly workspaceRows: { register(decorator: unknown): () => void }

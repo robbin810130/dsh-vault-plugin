@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import type { FormEvent } from 'react'
 import { LockIcon } from '../components/LockIcon.js'
 import type { VaultClientStore } from '../store-types.js'
 import { resolvePromptSnapshot, unlockMessage, useVaultStore } from './controller.js'
