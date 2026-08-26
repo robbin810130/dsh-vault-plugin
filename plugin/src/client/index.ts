@@ -10,6 +10,7 @@ import { UnlockDialog } from './unlock/UnlockDialog.js'
 import { VaultRowAccessory } from './rows/VaultRowAccessory.js'
 import { VaultRowAction } from './rows/VaultRowAction.js'
 import { VaultSettingsCard } from './settings/VaultSettingsCard.js'
+import { createActivityMonitor } from './activity/monitor.js'
 
 export const inject = ['slots', 'locale', 'settingsScope', 'navigationAccess', 'workspaceRows'] as const
 
@@ -22,7 +23,9 @@ interface ClientContext extends Context {
 export function apply(ctx: ClientContext): void {
   const store = createVaultClientStore(createVaultApiClient())
   const unlock = createVaultUnlockController(store)
+  const activity = createActivityMonitor(store)
   unlock.attach()
+  activity.start()
   void store.refresh()
   ctx.effect(() => {
     const translate = (key: 'workspace' | 'session'): string => ctx.locale.t?.(`dsh-vault.protected-${key}`) ?? `Protected ${key}`
@@ -70,6 +73,7 @@ export function apply(ctx: ClientContext): void {
       disposeSessionAction()
       disposeSettings()
       unlock.detach()
+      activity.stop()
     }
   }, 'dsh-vault/client')
 }
