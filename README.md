@@ -15,3 +15,11 @@ DSH 保险箱插件项目。一期实现项目与对话的前台隐私锁，支�
 ## 当前阶段
 
 产品与技术规格已经完成复核；针对 DSH `v0.1.1-rc.2` 的通用兼容层补丁也已实现、测试并完成复核。补丁覆盖导航访问边界、Workspace/Session 行级扩展、真实会话启动结果，以及异步授权与排序的 latest-gesture-wins 语义，可作为一期插件实现的稳定宿主基础。
+
+## 安装与边界
+
+- 安装、升级、回滚：[docs/install.md](docs/install.md)
+- 安全边界：[docs/security-boundary.md](docs/security-boundary.md)
+- 生成发布包：`node scripts/package-release.mjs`
+
+当前已具备可打包的 Host/Client 实现和包内容校验；真实 DSH `0.1.1-rc.2` 启动夹具、Playwright E2E 及完整设置工作流仍需单独验收，不能据此宣称整项发布验收完成。
