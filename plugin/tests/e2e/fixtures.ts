@@ -8,7 +8,10 @@ import { test as base } from 'playwright/test'
 const projectRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const dshRoot = join(projectRoot, '.cache', 'deepseek-harness-e2e')
 const cliPath = join(dshRoot, 'apps', 'cli', 'lib', 'bin.js')
-const artifactPath = join(projectRoot, 'artifacts', 'dsh-vault-plugin-0.1.0.tgz')
+// package-release.mjs emits the stable install asset name used by the
+// documented `dsh plugin ... add` flow; the npm pack filename is versioned
+// separately under the same artifacts directory.
+const artifactPath = join(projectRoot, 'artifacts', 'dsh-vault-plugin.tgz')
 
 export interface DshVaultFixture {
   readonly origin: string
