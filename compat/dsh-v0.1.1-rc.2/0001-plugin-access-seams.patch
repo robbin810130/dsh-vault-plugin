@@ -109,7 +109,7 @@ index 90a2b2f5f3..2db3f6df9b 100644
    ctx.typert.contexts.registerClient('agent', {
 diff --git a/packages/client/runtime/src/client/navigation/access.ts b/packages/client/runtime/src/client/navigation/access.ts
 new file mode 100644
-index 0000000000..b6af74f44f
+index 0000000000..f2dbaf183f
 --- /dev/null
 +++ b/packages/client/runtime/src/client/navigation/access.ts
 @@ -0,0 +1,167 @@
@@ -352,7 +352,7 @@ index 13aa20d1c8..6acfd26851 100644
      })
    }
 diff --git a/packages/client/runtime/src/client/sessions/service.ts b/packages/client/runtime/src/client/sessions/service.ts
-index c66da4e0d3..2d30fbb0d0 100644
+index c66da4e0d3..8d4ef66060 100644
 --- a/packages/client/runtime/src/client/sessions/service.ts
 +++ b/packages/client/runtime/src/client/sessions/service.ts
 @@ -27,6 +27,8 @@ import type {
@@ -364,7 +364,16 @@ index c66da4e0d3..2d30fbb0d0 100644
  import type { SessionFace } from '../contract/session.ts'
  import type { AgentContext, ISessions } from '../contract/sessions.ts'
  import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
-@@ -268,6 +270,12 @@ export class SessionRuntime implements ISessions {
+@@ -46,6 +48,8 @@ export interface SessionSummary {
+   /** Human-facing label: durable title, project basename, then session id. */
+   displayTitle: string
+   cwd?: string
++  /** Workspace selected by the host for navigation access decisions. */
++  workspaceId?: WorkspaceId
+   /**
+    * Agent preset this session's agent was composed from; absent when the
+    * deployment composes no presets. The session header labels what the
+@@ -268,6 +272,12 @@ export class SessionRuntime implements ISessions {
    private watched: SessionId | undefined
    /** Removed-while-staged sessions whose teardown waits for the stage to move away. */
    private readonly deferredRemovals = new Set<SessionId>()
@@ -377,7 +386,7 @@ index c66da4e0d3..2d30fbb0d0 100644
  
    /**
     * @param ctx - client root context (scope fibers mount under it).
-@@ -285,6 +293,9 @@ export class SessionRuntime implements ISessions {
+@@ -285,6 +295,9 @@ export class SessionRuntime implements ISessions {
        {},
        { persist: { name: 'dsh.sessions.current' } })
      const restored = this.selection.getSnapshot()
@@ -387,7 +396,7 @@ index c66da4e0d3..2d30fbb0d0 100644
      const conversationEvents = rootCtx.get('conversationEvents')
      const conversationViews = rootCtx.get('conversationViews')
      const conversation = conversationRuntime ?? (
-@@ -295,9 +306,10 @@ export class SessionRuntime implements ISessions {
+@@ -295,9 +308,10 @@ export class SessionRuntime implements ISessions {
      this.manager = new SessionManager(
        api,
        remote,
@@ -399,7 +408,7 @@ index c66da4e0d3..2d30fbb0d0 100644
      )
      this.list = createSnapshotStore<SessionListState>({
        ids: [], byId: {}, current: undefined, phase: 'pending',
-@@ -370,7 +382,36 @@ export class SessionRuntime implements ISessions {
+@@ -370,7 +384,36 @@ export class SessionRuntime implements ISessions {
     * @param id - listed or addressed session id.
     */
    open(id: SessionId): void {
@@ -437,7 +446,7 @@ index c66da4e0d3..2d30fbb0d0 100644
    }
  
    /**
-@@ -378,7 +419,27 @@ export class SessionRuntime implements ISessions {
+@@ -378,7 +421,27 @@ export class SessionRuntime implements ISessions {
     * @param address - catalog-derived parent and child ids.
     */
    openSubagent(address: SubagentAddress): void {
@@ -466,7 +475,7 @@ index c66da4e0d3..2d30fbb0d0 100644
    }
  
    /**
-@@ -420,6 +481,10 @@ export class SessionRuntime implements ISessions {
+@@ -420,6 +483,10 @@ export class SessionRuntime implements ISessions {
     * per the masked-gap contract until the next open() moves the stage.
     */
    clear(): void {
@@ -477,7 +486,7 @@ index c66da4e0d3..2d30fbb0d0 100644
      this.manager.clearSelection()
    }
  
-@@ -483,6 +548,7 @@ export class SessionRuntime implements ISessions {
+@@ -483,6 +550,7 @@ export class SessionRuntime implements ISessions {
     * @throws {SessionCreateError} with the requested id.
     */
    async create(opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {}): Promise<SessionId> {
@@ -485,7 +494,7 @@ index c66da4e0d3..2d30fbb0d0 100644
      const result = await this.manager.create(opts)
      if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
      this.projectList()
-@@ -509,6 +575,7 @@ export class SessionRuntime implements ISessions {
+@@ -509,6 +577,7 @@ export class SessionRuntime implements ISessions {
      atSeq?: number
      increaseTitle?: boolean
    }): Promise<SessionId> {
@@ -493,7 +502,7 @@ index c66da4e0d3..2d30fbb0d0 100644
      const sourceTitle = opts.increaseTitle
        ? this.list.getSnapshot().byId[opts.sessionId]?.title
        : undefined
-@@ -531,6 +598,24 @@ export class SessionRuntime implements ISessions {
+@@ -531,6 +600,24 @@ export class SessionRuntime implements ISessions {
      return childId
    }
  
@@ -518,7 +527,7 @@ index c66da4e0d3..2d30fbb0d0 100644
    /**
     * Resolve an Agent-scoped context view (use-and-discard).
     * @param id - session id (the agent identity — 1:1 same axis).
-@@ -714,11 +799,12 @@ export class SessionRuntime implements ISessions {
+@@ -714,11 +801,12 @@ export class SessionRuntime implements ISessions {
          address = this.manager.navigationAddress(address.parentSessionId)
        }
      }
@@ -532,7 +541,7 @@ index c66da4e0d3..2d30fbb0d0 100644
      } else if (byId[current] !== undefined
        && (persisted !== current
          || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
-@@ -733,6 +819,45 @@ export class SessionRuntime implements ISessions {
+@@ -733,6 +821,45 @@ export class SessionRuntime implements ISessions {
      this.pruneScopes()
    }
  
@@ -1142,7 +1151,7 @@ index 19e80dfd5b..ac975d3a8c 100644
      const { api, session } = makeSession()
      api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
 diff --git a/packages/client/runtime/tests/sessions-service.client.spec.ts b/packages/client/runtime/tests/sessions-service.client.spec.ts
-index b135b56ebe..8887436913 100644
+index b135b56ebe..bff5e49176 100644
 --- a/packages/client/runtime/tests/sessions-service.client.spec.ts
 +++ b/packages/client/runtime/tests/sessions-service.client.spec.ts
 @@ -8,11 +8,13 @@
@@ -1713,7 +1722,7 @@ index b135b56ebe..8887436913 100644
 +    await flushAsyncAccess()
 +
 +    expect(probe.requestSession).toHaveBeenCalledTimes(1)
-+    expect(probe.requestSession).toHaveBeenCalledWith(sid('child'))
++    expect(probe.requestSession).toHaveBeenCalledWith(sid('child'), undefined)
 +    expect(b.svc.list.getSnapshot().current).toBe('child')
 +    expect(b.api.callsOf('subagent.history')).toHaveLength(1)
 +  })
@@ -1799,7 +1808,7 @@ index b135b56ebe..8887436913 100644
      ['Roadmap', 'Roadmap (1)'],
      ['Roadmap (1)', 'Roadmap (2)'],
 diff --git a/packages/client/runtime/tests/workspaces-service.client.spec.ts b/packages/client/runtime/tests/workspaces-service.client.spec.ts
-index cfdfa98e9b..5042837d81 100644
+index cfdfa98e9b..b5b5cc0291 100644
 --- a/packages/client/runtime/tests/workspaces-service.client.spec.ts
 +++ b/packages/client/runtime/tests/workspaces-service.client.spec.ts
 @@ -1,6 +1,7 @@
@@ -1993,7 +2002,7 @@ index cfdfa98e9b..5042837d81 100644
 +      .rejects.toThrow(/navigation access denied/)
 +
 +    expect(access.requestSession).toHaveBeenCalledOnce()
-+    expect(access.requestSession).toHaveBeenCalledWith(sid('three'))
++    expect(access.requestSession).toHaveBeenCalledWith(sid('three'), undefined)
 +    expect(api.callsOf('workspace.insertSessionBefore')).toEqual([])
 +    expect(workspaces.list.getSnapshot().items[0]?.sessionIds).toEqual(['one', 'two', 'three'])
 +  })
@@ -2014,7 +2023,7 @@ index cfdfa98e9b..5042837d81 100644
 +      .rejects.toThrow(/navigation access denied/)
 +
 +    expect(access.requestSession).toHaveBeenCalledOnce()
-+    expect(access.requestSession).toHaveBeenCalledWith(sid('three'))
++    expect(access.requestSession).toHaveBeenCalledWith(sid('three'), undefined)
 +    expect(api.callsOf('workspace.insertSessionBefore')).toEqual([])
 +    expect(workspaces.list.getSnapshot().items[0]?.sessionIds).toEqual(['one', 'two', 'three'])
 +  })
@@ -2036,7 +2045,7 @@ index cfdfa98e9b..5042837d81 100644
 +      .resolves.toMatchObject({ workspaceId: 'alpha', sessionIds: ['three', 'one', 'two'] })
 +
 +    expect(access.requestSession).toHaveBeenCalledOnce()
-+    expect(access.requestSession).toHaveBeenCalledWith(sid('three'))
++    expect(access.requestSession).toHaveBeenCalledWith(sid('three'), undefined)
 +    expect(api.callsOf('workspace.insertSessionBefore')).toEqual([{
 +      workspaceId: 'alpha', sessionId: 'three', beforeSessionId: 'one',
 +    }])
@@ -2756,6 +2765,80 @@ index 2a2b67b128..783b5d69a6 100644
  })
  
  describe('prompt rejection through the assembled composer', () => {
+diff --git a/packages/client/ui-renderer/src/client/app.tsx b/packages/client/ui-renderer/src/client/app.tsx
+index 446d184c5b..cd95383b17 100644
+--- a/packages/client/ui-renderer/src/client/app.tsx
++++ b/packages/client/ui-renderer/src/client/app.tsx
+@@ -3,6 +3,7 @@
+  * `root` slot, which is the only ctx-level slot render in the application.
+  */
+ import type { ReactNode } from 'react'
++import { useSyncExternalStore } from 'react'
+ import type { Context } from '@deepseek-ai/cordis'
+ import { bindSnapshotSelector } from './bind.ts'
+ import { DocumentTitle } from './DocumentTitle.tsx'
+@@ -23,12 +24,24 @@ export function buildRenderApp(deps: AssemblyDeps): () => ReactNode {
+   const { ctx } = deps
+   const sessions = ctx.get('sessions')
+   if (sessions === undefined) throw new Error('ui renderer: sessions service unavailable')
++  const navigationAccess = ctx.get('navigationAccess')
++  const subscribeNavigationAccess = navigationAccess === undefined
++    ? (_listener: () => void) => () => {}
++    : navigationAccess.subscribe.bind(navigationAccess)
+   const useSessions = bindSnapshotSelector(sessions.list)
+   const SessionDocumentTitle = (): ReactNode => {
+-    const title = useSessions((state) => {
++    const selected = useSessions((state) => {
+       const id = state.current
+-      return id === undefined ? undefined : state.byId[id]?.title
++      return { id, title: id === undefined ? undefined : state.byId[id]?.title }
+     })
++    const accessKind = useSyncExternalStore(
++      subscribeNavigationAccess,
++      () => selected.id === undefined || navigationAccess === undefined
++        ? 'allow'
++        : navigationAccess.sessionState(selected.id).kind,
++      () => 'allow',
++    )
++    const title = accessKind === 'blocked' ? undefined : selected.title
+     return <DocumentTitle {...title === undefined ? {} : { title }} />
+   }
+   return () => (
+diff --git a/packages/client/ui-renderer/tests/app.client.spec.tsx b/packages/client/ui-renderer/tests/app.client.spec.tsx
+index 0184198b77..b70c71a24a 100644
+--- a/packages/client/ui-renderer/tests/app.client.spec.tsx
++++ b/packages/client/ui-renderer/tests/app.client.spec.tsx
+@@ -58,4 +58,30 @@ describe('buildRenderApp', () => {
+     await b.runtime.flush()
+     expect(document.title).toBe('Product')
+   })
++
++  it('subscribes to navigation access without losing the service receiver', async () => {
++    vi.stubEnv('DSH_CLIENT_TITLE', 'Product')
++    const b = await bench()
++    await b.runtime.sessions.add({ id: 'locked', summary: { title: 'Secret' } })
++    const listeners = new Set<() => void>()
++    const access = {
++      listeners,
++      register: () => () => {},
++      workspaceState: () => ({ kind: 'allow' as const }),
++      sessionState: (id: SessionId) => id === 'locked'
++        ? { kind: 'blocked' as const, reason: 'locked' }
++        : { kind: 'allow' as const },
++      requestWorkspace: async () => ({ allow: true }),
++      requestSession: async () => ({ allow: true }),
++      subscribe(listener: () => void) {
++        this.listeners.add(listener)
++        return () => this.listeners.delete(listener)
++      },
++    }
++    b.runtime.provide('navigationAccess', access)
++    const renderApp = buildRenderApp({ ctx: b.runtime.ctx })
++    render(<>{renderApp()}</>)
++    expect(document.title).toBe('Product')
++    for (const listener of listeners) listener()
++  })
+ })
 diff --git a/packages/client/ui-sidebar/src/client/SidebarRoot.tsx b/packages/client/ui-sidebar/src/client/SidebarRoot.tsx
 index a7ef74eaa6..4456638f2a 100644
 --- a/packages/client/ui-sidebar/src/client/SidebarRoot.tsx
@@ -2967,7 +3050,7 @@ index 08f22ed400..a0cc4b0e3c 100644
                      onFork={forkSession}
                      onArchive={onSessionArchive}
 +                    workspaceId={group.workspaceId}
-+                    presentation={workspaceRows.session(node.id, sessionPresentation(node, t), group.workspaceId)}
++                    presentation={workspaceRows.session(node.id, sessionPresentation(node, t))}
 +                    renderSlot={renderSlot}
                      drag={dragProps}
                      t={t}

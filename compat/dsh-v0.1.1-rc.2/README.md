@@ -7,9 +7,9 @@ This directory contains the reviewed compatibility patch for DeepSeek Harness pl
 - Repository: `https://github.com/deepseek-ai/deepseek-harness.git`
 - Tag: `dsh-v0.1.1-rc.2`
 - Pinned commit: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
-- Reviewed head: `3466357c663c9c00168c273b939e82ac9d7a42be`
+- Reviewed head: `98d3343b517ec56ccf0261860604dfc7953b6cc8`
 
-The reviewed DSH branch contains fourteen source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
+The reviewed DSH branch contains five source commits, grouped into three logical compatibility layers plus final review fixes: runtime navigation access, workspace row access, conversation session gating, and compatibility seam hardening. The final commits keep the required typecheck and contracts-ready lint gates clean.
 
 ## Changed Packages
 
@@ -18,6 +18,7 @@ The reviewed DSH branch contains fourteen source commits, grouped into three log
 - `packages/client/ui-sidebar`
 - `packages/client/ui-workspace`
 - `packages/client/ui-conversation`
+- `packages/client/ui-renderer`
 - `packages/extensions/cordis-client-runner`
 - `packages/test-support/client-runtime`
 
@@ -70,7 +71,7 @@ git apply /path/to/0001-plugin-access-seams.patch
 Run these focused DSH gates after applying the patch:
 
 ```bash
-pnpm vitest run packages/client/runtime/tests packages/client/ui-workspace/tests packages/client/ui-conversation/tests
+pnpm vitest run packages/client/runtime/tests packages/client/ui-workspace/tests packages/client/ui-conversation/tests packages/client/ui-renderer/tests
 pnpm run typecheck
 pnpm run lint:contracts-ready
 ```

@@ -15,6 +15,7 @@ const diffPackages = [
   'packages/client/ui-sidebar',
   'packages/client/ui-workspace',
   'packages/client/ui-conversation',
+  'packages/client/ui-renderer',
   'packages/extensions/cordis-client-runner',
   'packages/test-support/client-runtime',
 ]

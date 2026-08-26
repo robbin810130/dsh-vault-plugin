@@ -6,15 +6,18 @@
 
     node scripts/package-release.mjs
     node --test tests/scripts/package-release.test.mjs
-    shasum -a 256 artifacts/dsh-vault-plugin-0.1.0.tgz
+    shasum -a 256 artifacts/dsh-vault-plugin.tgz
 
-脚本会先构建 plugin，再生成 artifacts/dsh-vault-plugin-0.1.0.tgz。
+脚本会先构建 plugin，再生成以下固定资产：
+
+- `artifacts/dsh-vault-plugin.tgz`
+- `artifacts/dsh-vault-plugin.tgz.sha256`
 
 ## 2. 安装到 DSH Web profile
 
 在已安装 DSH 0.1.1-rc.2 的机器上执行：
 
-    dsh plugin --profile web add ./artifacts/dsh-vault-plugin-0.1.0.tgz
+    dsh plugin --profile web add ./artifacts/dsh-vault-plugin.tgz
     dsh web --dump-config
 
 确认配置中包含插件及 cordis.patch.yml 对应的兼容层，然后重启 DSH Web。

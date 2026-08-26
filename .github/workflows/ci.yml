@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: plugin/pnpm-lock.yaml
+      - run: pnpm --dir plugin install --frozen-lockfile
+      - run: pnpm --dir plugin run build
+      - run: pnpm --dir plugin exec vitest run
+      - run: pnpm --dir plugin exec tsc -p tsconfig.host.json --noEmit
+      - run: pnpm --dir plugin exec tsc -p tsconfig.client.json --noEmit
+      - run: node --test tests/install-script.test.mjs
+      - run: node scripts/package-release.mjs
+      - run: node --test tests/scripts/package-release.test.mjs
+      - run: git diff --check

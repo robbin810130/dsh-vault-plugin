@@ -22,12 +22,14 @@ interface ClientContext extends Context {
   readonly locale: { t?: (key: string) => string }
   readonly navigationAccess: { register(provider: unknown): () => void }
   readonly workspaceRows: { register(decorator: unknown): () => void }
+  readonly settingsScope: { bind(spec: { namespace: string }): { set(field: string, value: unknown): Promise<void> } }
 }
 
 export function apply(ctx: ClientContext): void {
   const store = createVaultClientStore(createVaultApiClient())
   const unlock = createVaultUnlockController(store)
   const activity = createActivityMonitor(store)
+  const policyScope = ctx.settingsScope.bind({ namespace: 'dsh-vault' })
   unlock.attach()
   activity.start()
   void store.refresh()
@@ -46,23 +48,23 @@ export function apply(ctx: ClientContext): void {
       LockedConversation,
     ))
     const disposeWorkspaceAccessory = ctx.slots.inject('sidebar.workspaces.workspace.accessory', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.workspace.accessory' },
+      { name: 'sidebar.workspaces.workspace.accessory', id: 'dsh-vault-workspace-accessory' },
       VaultRowAccessory,
     ))
     const disposeWorkspaceAction = ctx.slots.inject('sidebar.workspaces.workspace.action', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.workspace.action' },
+      { name: 'sidebar.workspaces.workspace.action', id: 'dsh-vault-workspace-action' },
       VaultRowAction,
     ))
     const disposeSessionAccessory = ctx.slots.inject('sidebar.workspaces.session.accessory', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.session.accessory' },
+      { name: 'sidebar.workspaces.session.accessory', id: 'dsh-vault-session-accessory' },
       VaultRowAccessory,
     ))
     const disposeSessionAction = ctx.slots.inject('sidebar.workspaces.session.action', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.session.action' },
+      { name: 'sidebar.workspaces.session.action', id: 'dsh-vault-session-action' },
       VaultRowAction,
     ))
     const disposeSettings = ctx.slots.inject('settings.plugin.item', () => ctx.slots.register(
-      { name: 'settings.plugin.item', key: 'dsh-vault', locale: 'settings.dshVault', inject: () => ({ store }) },
+      { name: 'settings.plugin.item', key: 'dsh-vault', locale: 'settings.dshVault', inject: () => ({ store, policyScope }) },
       VaultSettingsCard,
     ))
     return () => {

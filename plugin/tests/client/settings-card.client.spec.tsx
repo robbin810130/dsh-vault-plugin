@@ -50,6 +50,19 @@ describe('Vault settings card', () => {
     expect(screen.queryByLabelText('最大尝试次数')).toBeNull()
   })
 
+  it('persists policy edits through the DSH settings scope and refreshes Host policy', async () => {
+    const current = store()
+    const policyScope = { set: vi.fn(async () => undefined) }
+    render(<VaultSettingsCard store={current} policyScope={policyScope} />)
+
+    fireEvent.change(screen.getByLabelText('自动锁定'), { target: { value: '30' } })
+
+    await vi.waitFor(() => {
+      expect(policyScope.set).toHaveBeenCalledWith('autoLockMinutes', 30)
+      expect(current.refresh).toHaveBeenCalled()
+    })
+  })
+
   it('locks all groups from the recovery tab', async () => {
     const current = store()
     render(<VaultSettingsCard store={current} />)

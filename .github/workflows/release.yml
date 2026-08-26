@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: plugin/pnpm-lock.yaml
+      - run: pnpm --dir plugin install --frozen-lockfile
+      - run: node scripts/package-release.mjs
+      - name: Add DSH compatibility patch asset
+        run: cp compat/dsh-v0.1.1-rc.2/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.1-rc.2.patch
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          artifacts/dsh-vault-plugin.tgz
+          artifacts/dsh-vault-plugin.tgz.sha256
+          artifacts/dsh-vault-plugin-dsh-v0.1.1-rc.2.patch
+          --generate-notes
