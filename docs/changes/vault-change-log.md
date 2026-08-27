@@ -41,3 +41,9 @@
 - 新增 bundle 回归断言，确保共享模块不被重复打包。
 - 修复提交：`6ea0a97`。
 - 修复后 `vitest`、客户端类型检查、构建和发布包生成均通过；当前 DSH 页面 HTTP 200，Vault snapshot API 返回正常。
+
+### 二次排查
+
+- 首次重新安装仍显示旧错误，核对发现 DSH profile 的 `package.json` 与 lockfile 仍指向旧的 `/tmp/dsh-vault-plugin.tgz`，同路径同版本没有触发内容替换。
+- 使用带唯一文件名的新 tarball 重新执行原生 `dsh plugin --profile web add`，安装目录已更新；安装后的 `lib/client.js` 不再包含打包的 `react-dom` 或 `process.env`。
+- 最终验证：DSH 根页面 HTTP `200`，不再返回 `Failed to load plugins`；服务继续监听 `127.0.0.1:3080`。
