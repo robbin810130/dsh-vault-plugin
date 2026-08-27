@@ -1,4 +1,5 @@
 import { LockIcon } from '../components/LockIcon.js'
+import { useEffect, useRef } from 'react'
 import type { VaultClientStore } from '../store-types.js'
 import { resolveRowLockState, useVaultStore } from '../unlock/controller.js'
 
@@ -25,11 +26,25 @@ export function VaultRowAccessory({
   const state = resolveRowLockState(store, kind, workspaceId, sessionId)
   const locked = lockedProp ?? state.locked
   const inherited = inheritedProp ?? state.inherited
+  const accessoryRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!locked || kind !== 'workspace' || typeof document === 'undefined') return
+    const row = accessoryRef.current?.closest<HTMLElement>('[role="treeitem"]')
+    if (row === null || row === undefined) return
+    const collapse = () => {
+      if (row.getAttribute('aria-expanded') === 'true') row.click()
+    }
+    collapse()
+    const observer = new MutationObserver(collapse)
+    observer.observe(row, { attributes: true, attributeFilter: ['aria-expanded'] })
+    return () => observer.disconnect()
+  }, [kind, locked])
 
   if (!locked) return null
 
   return (
-    <span className={`dsh-vault-row-accessory ${inherited ? 'dsh-vault-row-accessory-inherited' : 'dsh-vault-row-accessory-locked'}`} role="status" aria-live="polite" aria-label={inherited ? '继承项目保护' : '已上锁，受保护'}>
+    <span ref={accessoryRef} className={`dsh-vault-row-accessory ${inherited ? 'dsh-vault-row-accessory-inherited' : 'dsh-vault-row-accessory-locked'}`} role="status" aria-live="polite" aria-label={inherited ? '继承项目保护' : '已上锁，受保护'}>
       <LockIcon className="dsh-vault-lock-icon" />
       <span className="dsh-vault-row-accessory-text">
         {inherited ? '继承项目保护' : '已上锁'}
