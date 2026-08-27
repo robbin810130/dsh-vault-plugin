@@ -56,14 +56,16 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
   })
   const matchesSession = (id: string): boolean => {
     const snapshot = store.getSnapshot()
-    // DSH may probe this method before it knows the session's workspace.
-    // An implicit workspace binding cannot be resolved safely at that point;
-    // let requestSession(id, workspaceId) make the authoritative decision.
+    const workspaceId = workspaceIdForSession(id)
     const explicit = snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)
-    // Implicit workspace protection is enforced by ConversationRoot after
-    // selection. Do not claim the session in the runtime's pre-selection
-    // probe, otherwise DSH can reject the click before changing selection.
-    if (!explicit) return false
+    // The workspace browser remembers the owning workspace before this probe.
+    // Claim inherited sessions too, so ConversationRoot can render its locked
+    // placeholder after selection instead of opening protected content.
+    if (!explicit && workspaceId === undefined) {
+      const workspaceBindings = snapshot.bindings.filter(binding => binding.targetType === 'workspace')
+      if (workspaceBindings.length !== 1) return false
+      return protectedResolution(store, { type: 'session', id, workspaceId: workspaceBindings[0].targetId }).kind !== 'plain'
+    }
     return protectedResolution(store, sessionTarget(id)).kind !== 'plain'
   }
   const unsubscribe = store.subscribe(() => {
