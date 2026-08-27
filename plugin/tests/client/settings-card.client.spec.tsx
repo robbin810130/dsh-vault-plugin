@@ -47,13 +47,13 @@ describe('Vault settings card', () => {
     expect(screen.queryByLabelText('自动锁定')).toBeNull()
   })
 
-  it('shows policy defaults and the fixed一期 disclosure', () => {
+  it('shows policy defaults without the removed implementation disclosure', () => {
     render(<VaultSettingsCard store={store()} />)
     fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
 
     expect(screen.getByRole('tab', { name: '锁定策略' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByLabelText('自动锁定')).toHaveValue('15')
-    expect(screen.getByText('一期仅控制 DSH 前台访问，原始会话文件未加密')).toBeVisible()
+    expect(screen.queryByText('一期仅控制 DSH 前台访问，原始会话文件未加密')).toBeNull()
   })
 
   it('shows conditional failed-attempt fields and warning when disabled', () => {

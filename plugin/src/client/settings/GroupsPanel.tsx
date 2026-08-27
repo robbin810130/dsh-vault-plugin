@@ -90,8 +90,8 @@ export function GroupsPanel({ store }: { readonly store: VaultClientStore }) {
                 <button type="button" className="dsh-vault-button" aria-label={`锁定 ${group.name}`} onClick={() => { void store.lockGroup(group.id) }}>锁定</button>
                 <button type="button" className="dsh-vault-button" aria-label={`修改密码 ${group.name}`} onClick={() => setCredentialAction({ mode: 'change', groupId: group.id, groupName: group.name })}>修改密码</button>
                 <button type="button" className="dsh-vault-button" aria-label={`恢复 ${group.name}`} onClick={() => setCredentialAction({ mode: 'recover', groupId: group.id, groupName: group.name })}>恢复</button>
-              </div>
                 <button type="button" className="dsh-vault-button" aria-label={'删除 ' + group.name} onClick={() => setDeleteAction({ groupId: group.id, groupName: group.name })}>删除</button>
+              </div>
             </li>
           ))}
         </ul>

@@ -92,7 +92,7 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
       <section className="dsh-vault-dialog dsh-vault-quick-lock-dialog" role="dialog" aria-label="设置密码并上锁" aria-modal="true">
         {recoveryKey === null ? <>
           <h2>设置密码并上锁</h2><p>保存后将立即锁定当前对话。</p>
-          <label className="dsh-vault-field" htmlFor="dsh-vault-quick-password"><span>密码</span><input id="dsh-vault-quick-password" type="password" minLength={8} value={password} onChange={event => setPassword(event.currentTarget.value)} /></label>
+          <label className="dsh-vault-field" htmlFor="dsh-vault-quick-password"><span>密码</span><input id="dsh-vault-quick-password" type="password" minLength={passwordPolicy.minLength} value={password} onChange={event => setPassword(event.currentTarget.value)} /></label>
           {password.length > 0 && passwordPolicyError(password, passwordPolicy) !== undefined && <p className="dsh-vault-settings-warning" role="note">{passwordPolicyError(password, passwordPolicy)}</p>}
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-confirm"><span>确认密码</span><input id="dsh-vault-quick-confirm" type="password" value={confirmation} onChange={event => { setConfirmation(event.currentTarget.value); if (error === '两次密码不一致') setError(null) }} /></label>
           {error !== null && <p className="dsh-vault-settings-warning" role="alert">{error}</p>}

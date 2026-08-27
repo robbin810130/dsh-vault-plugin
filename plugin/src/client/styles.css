@@ -208,6 +208,11 @@
   min-height: 44px;
 }
 
+.dsh-vault-row-accessory-text,
+.dsh-vault-row-accessory-muted {
+  display: none;
+}
+
 .dsh-vault-lock-icon,
 .dsh-vault-dialog-icon,
 .dsh-vault-locked-conversation-icon {
@@ -342,6 +347,41 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.dsh-vault-group-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dsh-vault-group-list > li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.dsh-vault-group-list > li > strong {
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.dsh-vault-group-list > li > span {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.dsh-vault-group-list > li > .dsh-vault-dialog-actions {
+  margin-left: auto;
 }
 
 .dsh-vault-dialog-actions {

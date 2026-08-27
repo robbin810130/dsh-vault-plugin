@@ -57,7 +57,6 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
           {tab === 'policy' && <PolicyPanel policy={snapshot.policy} onChange={persistPolicy} />}
           {tab === 'groups' && <GroupsPanel store={store} />}
           {tab === 'recovery' && <RecoveryPanel store={store} />}
-          <p className="dsh-vault-settings-disclosure">一期仅控制 DSH 前台访问，原始会话文件未加密</p>
         </div> : null}
     </section>
   )
