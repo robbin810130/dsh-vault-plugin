@@ -159,9 +159,7 @@ describe('Vault navigation access provider', () => {
     expect(provider.sessionState('s-inherited').kind).toBe('blocked')
     expect(provider.sessionState('s-direct').kind).toBe('blocked')
 
-    const pending = provider.requestWorkspace('w-locked')
-    store.cancelUnlock('group-a')
-    await expect(pending).resolves.toEqual({ allow: false, handled: true })
+    await expect(provider.requestWorkspace('w-locked')).resolves.toEqual({ allow: true })
 
     const offline = makeStore(makeSnapshot([binding('workspace', 'w-locked', 'direct', 'group-a')]))
     await offline.refresh()
@@ -177,8 +175,8 @@ describe('Vault navigation access provider', () => {
     ]))
     await store.refresh()
     const provider = createVaultAccessProvider(store)
-    await expect(provider.requestWorkspace('w-a')).resolves.toEqual({ allow: false, handled: true })
-    await expect(provider.requestWorkspace('w-b')).resolves.toEqual({ allow: false, handled: true })
+    await expect(provider.requestWorkspace('w-a')).resolves.toEqual({ allow: true })
+    await expect(provider.requestWorkspace('w-b')).resolves.toEqual({ allow: true })
     expect(store.getSnapshot().prompt).toBeNull()
   })
 

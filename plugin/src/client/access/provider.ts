@@ -42,9 +42,9 @@ function decisionWithoutPrompt(store: VaultClientStore, target: VaultTarget): Pr
   const resolution = protectedResolution(store, target)
   if (resolution.kind === 'plain') return Promise.resolve({ allow: true })
   if (resolution.kind === 'blocked') return Promise.resolve({ allow: false, handled: true })
-  return Promise.resolve(store.hasUnlockedGroup(resolution.groupId)
-    ? { allow: true }
-    : { allow: false, handled: true })
+  // Selection is allowed so DSH can render the protected placeholder. The
+  // content view remains blocked until its central unlock action succeeds.
+  return Promise.resolve({ allow: true })
 }
 
 export function createVaultAccessProvider(store: VaultClientStore): NavigationAccessProvider {
@@ -69,9 +69,7 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
   })
   const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => {
     const resolution = protectedResolution(store, sessionTarget(id, workspaceId))
-    if (resolution.kind === 'blocked') return Promise.resolve({ allow: false, handled: true })
-    // Let DSH select the row so ConversationRoot can render its locked page.
-    // Unlock is deliberately available only from that page's central button.
+    if (resolution.kind === 'blocked') return Promise.resolve({ allow: true })
     return Promise.resolve({ allow: true })
   }
   return {
