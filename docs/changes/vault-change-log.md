@@ -20,9 +20,9 @@
 
 ### 实施状态
 
-- 状态：已实施，待提交审计。
+- 状态：已实施并完成审计。
 - 实现范围：共享 `PasswordPolicy` 契约与校验器；Host 创建/修改/恢复密码统一校验；设置页可配置最小长度、大小写、数字和符号要求；快速上锁确认密码错误即时提示；快速上锁弹层通过 portal 挂到 `document.body`，脱离列表行 hover 生命周期；失败时保留输入内容。
 - 测试证据：`pnpm -C plugin exec vitest run`，25 个测试文件、238 个测试通过；客户端类型检查通过；`node scripts/package-release.mjs` 和发布包测试通过。
 - 实装验证：已安装到当前 DSH `web` profile；`GET/POST /dsh-vault/api` snapshot 返回 `passwordPolicy` 默认值；使用 `123` 创建密码组返回 `weak-password`，未写入状态。
-- 关联提交：待生成。
+- 关联提交：`375aee5`。
 - 部署状态：当前 DSH 服务已由 supervisor 重启并监听 `127.0.0.1:3080`。
