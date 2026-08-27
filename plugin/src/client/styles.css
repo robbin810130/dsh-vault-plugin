@@ -208,6 +208,14 @@
   min-height: 44px;
 }
 
+.dsh-vault-row-accessory-locked {
+  color: var(--dsw-alias-brand-primary);
+}
+
+.dsh-vault-row-accessory-inherited {
+  color: var(--dsw-alias-label-secondary);
+}
+
 .dsh-vault-row-accessory-text,
 .dsh-vault-row-accessory-muted {
   display: none;
@@ -393,6 +401,30 @@
 .dsh-vault-locked-conversation {
   display: grid;
   gap: 0.75rem;
-  justify-items: start;
-  padding: 1rem;
+  justify-items: center;
+  align-content: center;
+  min-height: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+  text-align: center;
+}
+
+.dsh-vault-locked-conversation-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--dsw-alias-brand-primary);
+  opacity: 0.9;
+  margin-bottom: 0.5rem;
+}
+
+.dsh-vault-locked-conversation-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.dsh-vault-locked-conversation-copy {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
 }

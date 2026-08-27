@@ -29,7 +29,7 @@ export function VaultRowAccessory({
   if (!locked) return null
 
   return (
-    <span className="dsh-vault-row-accessory" role="status" aria-live="polite" aria-label={inherited ? '继承项目保护' : '已上锁，受保护'}>
+    <span className={`dsh-vault-row-accessory ${inherited ? 'dsh-vault-row-accessory-inherited' : 'dsh-vault-row-accessory-locked'}`} role="status" aria-live="polite" aria-label={inherited ? '继承项目保护' : '已上锁，受保护'}>
       <LockIcon className="dsh-vault-lock-icon" />
       <span className="dsh-vault-row-accessory-text">
         {inherited ? '继承项目保护' : '已上锁'}

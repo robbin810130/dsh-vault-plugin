@@ -72,13 +72,23 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
   const unsubscribe = store.subscribe(() => {
     for (const listener of [...listeners]) listener()
   })
+  const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => {
+    const target = sessionTarget(id, workspaceId)
+    const resolution = protectedResolution(store, target)
+    if (resolution.kind === 'plain') return Promise.resolve({ allow: true })
+    if (resolution.kind === 'blocked') return Promise.resolve({ allow: false, handled: true })
+    if (store.hasUnlockedGroup(resolution.groupId)) return Promise.resolve({ allow: true })
+    // Selecting a locked row must not open a password dialog. The conversation
+    // pane renders the explicit unlock action instead.
+    return Promise.resolve({ allow: false, handled: true })
+  }
   return {
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
     matchesSession,
     workspaceState: id => targetState(store, { type: 'workspace', id }),
     sessionState: (id, workspaceId) => targetState(store, sessionTarget(id, workspaceId)),
     requestWorkspace: id => decisionFor(store, { type: 'workspace', id }),
-    requestSession: (id, workspaceId) => decisionFor(store, sessionTarget(id, workspaceId)),
+    requestSession,
     subscribe: listener => {
       listeners.add(listener)
       let active = true
