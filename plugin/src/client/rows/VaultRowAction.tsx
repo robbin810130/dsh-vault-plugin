@@ -35,7 +35,16 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   const binding = snapshot?.bindings.find(candidate => candidate.targetType === kind && candidate.targetId === target?.id)
   if (!locked && target === undefined && onLock === undefined) return null
 
-  const groupName = (presentation?.label?.trim() || `${target?.type === 'workspace' ? '工作区' : '对话'}保护`).slice(0, 128)
+  const groupNameBase = (presentation?.label?.trim() || `${target?.type === 'workspace' ? '工作区' : '对话'}保护`).slice(0, 128)
+  const groupName = (() => {
+    const names = new Set(snapshot?.groups.map(group => group.name) ?? [])
+    if (!names.has(groupNameBase)) return groupNameBase
+    for (let suffix = 2; suffix < 1000; suffix += 1) {
+      const candidate = `${groupNameBase} (${suffix})`.slice(0, 128)
+      if (!names.has(candidate)) return candidate
+    }
+    return `${groupNameBase.slice(0, 120)} (new)`
+  })()
   const save = () => {
     if (store === undefined || target === undefined || pending) return
     if (password.length < 8) { setError('密码至少需要 8 个字符'); return }
