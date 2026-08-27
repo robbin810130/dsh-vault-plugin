@@ -32,8 +32,14 @@ export function VaultRowAccessory({
     if (!locked || kind !== 'workspace' || typeof document === 'undefined') return
     const row = accessoryRef.current?.closest<HTMLElement>('[role="treeitem"]')
     if (row === null || row === undefined) return
+    let redirected = false
     const collapse = () => {
-      if (row.getAttribute('aria-expanded') === 'true') row.click()
+      if (row.getAttribute('aria-expanded') !== 'true' || redirected) return
+      redirected = true
+      const siblings = row.parentElement?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []
+      const firstSession = [...siblings].find(candidate => candidate !== row)
+      firstSession?.click()
+      row.click()
     }
     collapse()
     const observer = new MutationObserver(collapse)
