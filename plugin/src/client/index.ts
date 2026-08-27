@@ -34,7 +34,9 @@ export function apply(ctx: ClientContext): void {
   activity.start()
   void store.refresh()
   ctx.effect(() => {
-    const translate = (key: 'workspace' | 'session'): string => ctx.locale.t?.(`dsh-vault.protected-${key}`) ?? `Protected ${key}`
+    const translate = (key: 'workspace' | 'session'): string => key === 'session'
+      ? '已加密对话'
+      : ctx.locale.t?.('dsh-vault.protected-workspace') ?? '已加密工作区'
     const access = createVaultAccessProvider(store)
     const rows = createVaultRowDecorator(store, translate)
     const disposeAccess = ctx.navigationAccess.register(access)
