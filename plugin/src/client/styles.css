@@ -4,14 +4,21 @@
 
 .dsh-vault-settings-card {
   max-width: 760px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-layer-3);
   color: var(--dsw-alias-label-primary);
+  list-style: none;
+  transition: border-color .16s, background .16s;
+}
+
+.dsh-vault-settings-card:hover {
+  border-color: var(--dsw-alias-label-dimmed);
+}
+
+.dsh-vault-settings-card-open {
+  border-color: var(--dsw-alias-label-dimmed);
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .dsh-vault-settings-card-heading {
@@ -43,35 +50,45 @@
 }
 
 .dsh-vault-settings-card-header {
+  appearance: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
-  min-height: 60px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 14px 16px;
   border: 0;
+  border-radius: 12px;
   background: transparent;
   color: var(--dsw-alias-label-primary);
   font: inherit;
-  font-size: 15px;
-  font-weight: 600;
   text-align: left;
   cursor: pointer;
 }
 
-.dsh-vault-settings-card-chevron {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 16px;
-  line-height: 1;
+.dsh-vault-settings-card-header:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
 }
 
-.dsh-vault-settings-card-header:hover {
-  color: var(--dsw-alias-label-primary);
+.dsh-vault-settings-card-heading {
+  flex: 1;
+}
+
+.dsh-vault-settings-card-chevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform .16s;
+}
+
+.dsh-vault-settings-card-chevron-open {
+  transform: rotate(180deg);
 }
 
 .dsh-vault-settings-card-body {
   min-width: 0;
-  padding: 0 14px 14px;
+  margin: 0 16px;
+  padding-bottom: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
 .dsh-vault-settings-tabs {

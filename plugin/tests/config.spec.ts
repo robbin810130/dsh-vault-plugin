@@ -23,6 +23,10 @@ describe('VaultPolicySchema', () => {
 })
 
 describe('ConfigSchema', () => {
+  it('accepts omitted state directory so the resolver can use DSH defaults', () => {
+    expect(ConfigSchema({})).toEqual({})
+  })
+
   it('accepts an absolute explicit state directory', () => {
     expect(ConfigSchema({ stateDir: '/var/lib/dsh/vault-lock' })).toEqual({
       stateDir: '/var/lib/dsh/vault-lock',

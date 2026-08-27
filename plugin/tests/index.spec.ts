@@ -13,6 +13,7 @@ describe('Vault plugin Cordis integration', () => {
   })
 
   it('declares webServer injection and activates only after the dependency is available', async () => {
+    expect(vaultPlugin.name).toBe('dsh-vault')
     expect(vaultPlugin.inject).toEqual(['webServer'])
     root = await mkdtemp(join(tmpdir(), 'dsh-vault-plugin-'))
     const registrations: unknown[] = []

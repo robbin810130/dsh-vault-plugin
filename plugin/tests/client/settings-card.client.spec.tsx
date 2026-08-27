@@ -37,15 +37,18 @@ describe('Vault settings card', () => {
   it('can collapse independently from the surrounding plugin settings', () => {
     render(<VaultSettingsCard store={store()} />)
 
-    const toggle = screen.getByRole('button', { name: /保险箱/ })
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    fireEvent.click(toggle)
+    const toggle = screen.getByRole('button', { name: '展开设置: 保险箱' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByLabelText('自动锁定')).toBeVisible()
+    fireEvent.click(toggle)
     expect(screen.queryByLabelText('自动锁定')).toBeNull()
   })
 
   it('shows policy defaults and the fixed一期 disclosure', () => {
     render(<VaultSettingsCard store={store()} />)
+    fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
 
     expect(screen.getByRole('tab', { name: '锁定策略' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByLabelText('自动锁定')).toHaveValue('15')
@@ -54,6 +57,7 @@ describe('Vault settings card', () => {
 
   it('shows conditional failed-attempt fields and warning when disabled', () => {
     render(<VaultSettingsCard store={store()} />)
+    fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
 
     fireEvent.click(screen.getByRole('checkbox', { name: '失败尝试保护' }))
     expect(screen.getByText('关闭后不会累计失败次数或进入暂停期')).toBeVisible()
@@ -64,6 +68,7 @@ describe('Vault settings card', () => {
     const current = store()
     const policyScope = { set: vi.fn(async () => undefined) }
     render(<VaultSettingsCard store={current} policyScope={policyScope} />)
+    fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
 
     fireEvent.change(screen.getByLabelText('自动锁定'), { target: { value: '30' } })
 
@@ -76,6 +81,7 @@ describe('Vault settings card', () => {
   it('locks all groups from the recovery tab', async () => {
     const current = store()
     render(<VaultSettingsCard store={current} />)
+    fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
     fireEvent.click(screen.getByRole('tab', { name: '恢复能力' }))
     fireEvent.click(screen.getByRole('button', { name: '立即全部上锁' }))
     expect(current.lockAll).toHaveBeenCalledOnce()

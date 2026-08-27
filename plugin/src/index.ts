@@ -19,6 +19,7 @@ export * from './shared/contracts.js'
 export * from './host/settings.js'
 
 export const inject = ['webServer'] as const
+export const name = 'dsh-vault'
 
 export function apply(ctx: Context, config: VaultConfig): void {
   const stateDirectory = resolveStateDirectory(config.stateDir)

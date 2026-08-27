@@ -25,12 +25,7 @@ export function VaultRowAction({
   const kind = kindProp ?? (sessionId !== undefined ? 'session' : workspaceId !== undefined ? 'workspace' : undefined)
   const state = resolveRowLockState(store, kind, workspaceId, sessionId)
   const locked = lockedProp ?? state.locked
-  const snapshot = store?.getSnapshot()
-  const targetId = kind === 'workspace' ? workspaceId : sessionId
-  const hasBinding = snapshot !== undefined && kind !== undefined && targetId !== undefined
-    && snapshot.bindings.some(binding => binding.targetType === kind && binding.targetId === targetId)
-  const hasPasswordGroup = (snapshot?.groups.length ?? 0) > 0
-  if (!locked && onLock === undefined && (store === undefined || kind === undefined || (!hasBinding && !hasPasswordGroup))) return null
+  if ((locked ? onUnlock : onLock) === undefined) return null
 
   return (
     <span className="dsh-vault-row-action">

@@ -43,4 +43,14 @@ describe('Vault row affordances', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
+  it('does not render an inert lock button when groups exist but no toggle callback is available', () => {
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
+
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
 })
