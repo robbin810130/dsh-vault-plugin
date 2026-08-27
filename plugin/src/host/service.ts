@@ -149,7 +149,7 @@ export class VaultService {
     const availability = this.attempts.check(groupId, clientInstanceId, this.policy.failedAttemptProtection)
     if (availability.kind === 'cooldown') return failed('cooldown', availability.retryAt)
     let valid = false
-    try { valid = await verifySecret(password, group.password) } catch { valid = false }
+    try { valid = await verifySecret(password, group.password, this.policy.passwordPolicy) } catch { valid = false }
     if (!valid) {
       const decision = this.attempts.recordFailure(groupId, clientInstanceId, this.policy.failedAttemptProtection)
       return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
@@ -170,7 +170,7 @@ export class VaultService {
     const now = this.#now()
     const id = 'group-' + randomUUID()
     const recoveryKey = generateRecoveryKey()
-    const group: PasswordGroup = { id, name: input.name, password: await createVerifier(input.password), recovery: { ...(await createVerifier(recoveryKey)), generatedAt: now }, credentialVersion: 1, createdAt: now, updatedAt: now }
+    const group: PasswordGroup = { id, name: input.name, password: await createVerifier(input.password, this.policy.passwordPolicy), recovery: { ...(await createVerifier(recoveryKey)), generatedAt: now }, credentialVersion: 1, createdAt: now, updatedAt: now }
     let next: VaultState = { ...state, revision: expectedRevision, groups: { ...state.groups, [id]: group }, bindings: state.bindings }
     const affectedGroups = new Set<string>()
     for (const candidate of input.bindings) {
@@ -212,7 +212,7 @@ export class VaultService {
     }
     const now = this.#now()
     const recoveryKey = input.rotateRecovery ? generateRecoveryKey() : undefined
-    const nextGroup: PasswordGroup = { ...group, password: await createVerifier(input.newPassword), recovery: input.rotateRecovery ? { ...(await createVerifier(recoveryKey as string)), generatedAt: now } : group.recovery, credentialVersion: group.credentialVersion + 1, updatedAt: now }
+    const nextGroup: PasswordGroup = { ...group, password: await createVerifier(input.newPassword, this.policy.passwordPolicy), recovery: input.rotateRecovery ? { ...(await createVerifier(recoveryKey as string)), generatedAt: now } : group.recovery, credentialVersion: group.credentialVersion + 1, updatedAt: now }
     const next = { ...state, revision: expectedRevision + 1, groups: { ...state.groups, [group.id]: nextGroup } }
     const committed = await this.commit(expectedRevision, next)
     if (committed === 'conflict') return failed('revision-conflict')
@@ -239,7 +239,7 @@ export class VaultService {
     }
     const now = this.#now()
     const recoveryKey = generateRecoveryKey()
-    const nextGroup: PasswordGroup = { ...group, password: await createVerifier(input.newPassword), recovery: { ...(await createVerifier(recoveryKey)), generatedAt: now, lastVerifiedAt: now }, credentialVersion: group.credentialVersion + 1, updatedAt: now }
+    const nextGroup: PasswordGroup = { ...group, password: await createVerifier(input.newPassword, this.policy.passwordPolicy), recovery: { ...(await createVerifier(recoveryKey)), generatedAt: now, lastVerifiedAt: now }, credentialVersion: group.credentialVersion + 1, updatedAt: now }
     const next = { ...state, revision: expectedRevision + 1, groups: { ...state.groups, [group.id]: nextGroup } }
     const committed = await this.commit(expectedRevision, next)
     if (committed === 'conflict') return failed('revision-conflict')
@@ -344,7 +344,7 @@ export class VaultService {
   }
 
   private async authorizeCredential(group: PasswordGroup, input: ChangePasswordInput): Promise<boolean> {
-    if (input.currentPassword !== undefined) return verifySecret(input.currentPassword, group.password)
+    if (input.currentPassword !== undefined) return verifySecret(input.currentPassword, group.password, this.policy.passwordPolicy)
     if (input.recoveryKey !== undefined) return verifySecret(input.recoveryKey, group.recovery)
     return false
   }

@@ -47,3 +47,24 @@
 - 首次重新安装仍显示旧错误，核对发现 DSH profile 的 `package.json` 与 lockfile 仍指向旧的 `/tmp/dsh-vault-plugin.tgz`，同路径同版本没有触发内容替换。
 - 使用带唯一文件名的新 tarball 重新执行原生 `dsh plugin --profile web add`，安装目录已更新；安装后的 `lib/client.js` 不再包含打包的 `react-dom` 或 `process.env`。
 - 最终验证：DSH 根页面 HTTP `200`，不再返回 `Failed to load plugins`；服务继续监听 `127.0.0.1:3080`。
+
+## 2026-08-27：配置最小长度与原生输入控件一致性
+
+### 原始需求
+
+1. 密码输入框必须遵循 DSH 原生输入控件的边框、背景、尺寸和主题变量。
+2. 密码策略允许最小长度为 4，并启用大写、小写、数字、符号要求时，`Aa-1` 应可保存并立即上锁。
+
+### 根因与设计决策
+
+- Host 加密校验器仍固定拒绝少于 8 个 Unicode code point；客户端策略虽已允许 4，但创建后在 `createVerifier` 阶段失败。
+- 将用户密码校验器改为接收当前 `passwordPolicy.minLength`；恢复密钥继续使用独立的默认安全下限，避免策略放宽影响恢复凭据。
+- 密码、文本、数字和选择控件统一复用 DSH alias token；密码控件补齐与原生控件相同的 `height/border/background/radius`，主按钮复用原生 primary fill/hover/foreground token。
+- 展开箭头改用 DSH 其他插件采用的无 SVG 边框 chevron 方案，保持浅色/深色主题由 alias token 自动切换。
+
+### 验证证据
+
+- `pnpm -C plugin exec vitest run`：25 个测试文件、240 个测试通过。
+- 新增 verifier 回归：4 位用户密码可创建并验证；新增 VaultService 端到端回归：策略允许时 `Aa-1` 创建与解锁成功。
+- `pnpm -C plugin run typecheck` 与 `pnpm -C plugin run build` 通过。
+- 待唯一文件名 tarball 重新安装后，浏览器检查设置卡片、快速上锁和解锁窗口的实际渲染；不得复用旧 tarball 路径。

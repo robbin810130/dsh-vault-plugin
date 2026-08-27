@@ -28,12 +28,17 @@ const COMPACT_RECOVERY_KEY = /^[A-Z2-7]{52}$/
 const GROUPED_RECOVERY_KEY = /^(?:[A-Z2-7]{4}-){12}[A-Z2-7]{4}$/
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
-function prepareSecret(secret: string): string {
+export interface SecretPolicy {
+  readonly minLength?: number
+}
+
+function prepareSecret(secret: string, policy: SecretPolicy = {}): string {
   if (Buffer.byteLength(secret, 'utf8') > MAX_SECRET_BYTES) {
     throw new RangeError(`Secret must not exceed ${MAX_SECRET_BYTES} UTF-8 bytes`)
   }
-  if (Array.from(secret).length < MIN_SECRET_CHARACTERS) {
-    throw new RangeError(`Secret must contain at least ${MIN_SECRET_CHARACTERS} Unicode code points`)
+  const minLength = policy.minLength ?? MIN_SECRET_CHARACTERS
+  if (!Number.isSafeInteger(minLength) || minLength < 1 || Array.from(secret).length < minLength) {
+    throw new RangeError(`Secret must contain at least ${minLength} Unicode code points`)
   }
 
   if (COMPACT_RECOVERY_KEY.test(secret)) return secret
@@ -41,9 +46,9 @@ function prepareSecret(secret: string): string {
   return secret
 }
 
-function derive(secret: string, salt: Buffer): Promise<Buffer> {
+function derive(secret: string, salt: Buffer, policy?: SecretPolicy): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    scrypt(prepareSecret(secret), salt, PARAMETERS.keyLength, {
+    scrypt(prepareSecret(secret, policy), salt, PARAMETERS.keyLength, {
       N: PARAMETERS.cost,
       r: PARAMETERS.blockSize,
       p: PARAMETERS.parallelization,
@@ -70,9 +75,9 @@ function hasExpectedParameters(record: SecretVerifier): boolean {
     && record.parameters.keyLength === PARAMETERS.keyLength
 }
 
-export async function createVerifier(secret: string): Promise<SecretVerifier> {
+export async function createVerifier(secret: string, policy?: SecretPolicy): Promise<SecretVerifier> {
   const salt = randomBytes(SALT_LENGTH)
-  const verifier = await derive(secret, salt)
+  const verifier = await derive(secret, salt, policy)
 
   return {
     salt: salt.toString('base64'),
@@ -82,7 +87,7 @@ export async function createVerifier(secret: string): Promise<SecretVerifier> {
   }
 }
 
-export async function verifySecret(secret: string, record: SecretVerifier): Promise<boolean> {
+export async function verifySecret(secret: string, record: SecretVerifier, policy?: SecretPolicy): Promise<boolean> {
   if (!hasExpectedParameters(record)) return false
 
   const salt = decodeBase64(record.salt)
@@ -91,7 +96,7 @@ export async function verifySecret(secret: string, record: SecretVerifier): Prom
 
   let actual: Buffer
   try {
-    actual = await derive(secret, salt)
+    actual = await derive(secret, salt, policy)
   } catch (error) {
     if (error instanceof RangeError) return false
     throw error

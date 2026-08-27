@@ -9,7 +9,7 @@ import type { VaultPolicy } from '../../shared/contracts.js'
 type Tab = 'policy' | 'groups' | 'recovery'
 
 function NativeChevron() {
-  return <svg className="dsh-vault-settings-card-chevron" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><path d="m3 5.5 4 4 4-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" /></svg>
+  return <span className="dsh-vault-settings-card-chevron" aria-hidden="true" />
 }
 
 export interface VaultPolicyScope {

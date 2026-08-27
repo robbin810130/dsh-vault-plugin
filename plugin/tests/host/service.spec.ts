@@ -82,6 +82,14 @@ describe('VaultService', () => {
     await expect(strict.handle(groupCreateRequest(0, { name: 'Strong', password: 'Correct horse 123!', bindings: [] }))).resolves.toMatchObject({ ok: true })
   })
 
+  it('accepts a four-character password when policy permits it', async () => {
+    const relaxed = new VaultService({ repository: new VaultStateRepository(join(root, 'relaxed-vault-lock')), policy: { ...policy, passwordPolicy: { minLength: 4, requireUppercase: true, requireLowercase: true, requireNumber: true, requireSymbol: true } } })
+    const created = await relaxed.handle(groupCreateRequest(0, { name: 'Short', password: 'Aa-1', bindings: [] }))
+    expect(created).toMatchObject({ ok: true })
+    if (!created.ok) return
+    await expect(relaxed.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId: created.value.snapshot.groups[0]!.id, password: 'Aa-1' })).resolves.toMatchObject({ ok: true })
+  })
+
   it('does not issue a grant or recovery key when durable create fails', async () => {
     const repository = new VaultStateRepository(join(root, 'vault-lock'))
     const failing = new VaultService({
