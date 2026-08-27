@@ -38,18 +38,13 @@ function protectedResolution(store: VaultClientStore, target: VaultTarget): Vaul
   return resolveVaultTarget(store.getSnapshot(), target)
 }
 
-function decisionFor(store: VaultClientStore, target: VaultTarget): Promise<NavigationDecision> {
+function decisionWithoutPrompt(store: VaultClientStore, target: VaultTarget): Promise<NavigationDecision> {
   const resolution = protectedResolution(store, target)
   if (resolution.kind === 'plain') return Promise.resolve({ allow: true })
   if (resolution.kind === 'blocked') return Promise.resolve({ allow: false, handled: true })
-  const snapshot = store.getSnapshot()
-  if (snapshot.host !== 'ready') return Promise.resolve({ allow: false, handled: true })
-  const otherPrompt = snapshot.prompt !== null && snapshot.prompt.groupId !== resolution.groupId
-  if (otherPrompt) return Promise.resolve({ allow: false })
-  return store.requestUnlock(resolution.groupId, target).then(allow => ({
-    allow,
-    ...(allow ? {} : { handled: true }),
-  }))
+  return Promise.resolve(store.hasUnlockedGroup(resolution.groupId)
+    ? { allow: true }
+    : { allow: false, handled: true })
 }
 
 export function createVaultAccessProvider(store: VaultClientStore): NavigationAccessProvider {
@@ -72,22 +67,13 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
   const unsubscribe = store.subscribe(() => {
     for (const listener of [...listeners]) listener()
   })
-  const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => {
-    const target = sessionTarget(id, workspaceId)
-    const resolution = protectedResolution(store, target)
-    if (resolution.kind === 'plain') return Promise.resolve({ allow: true })
-    if (resolution.kind === 'blocked') return Promise.resolve({ allow: false, handled: true })
-    if (store.hasUnlockedGroup(resolution.groupId)) return Promise.resolve({ allow: true })
-    // Selecting a locked row must not open a password dialog. The conversation
-    // pane renders the explicit unlock action instead.
-    return Promise.resolve({ allow: false, handled: true })
-  }
+  const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => decisionWithoutPrompt(store, sessionTarget(id, workspaceId))
   return {
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
     matchesSession,
     workspaceState: id => targetState(store, { type: 'workspace', id }),
     sessionState: (id, workspaceId) => targetState(store, sessionTarget(id, workspaceId)),
-    requestWorkspace: id => decisionFor(store, { type: 'workspace', id }),
+    requestWorkspace: id => decisionWithoutPrompt(store, { type: 'workspace', id }),
     requestSession,
     subscribe: listener => {
       listeners.add(listener)

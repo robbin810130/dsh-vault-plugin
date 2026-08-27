@@ -43,7 +43,7 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
     const row = document.activeElement?.closest<HTMLElement>('[role="treeitem"]')
     if (row?.getAttribute('aria-expanded') === 'true') row.click()
   }
-  if (locked && kind === 'workspace') return null
+  if (locked) return null
   if (!locked && target === undefined && onLock === undefined) return null
 
   const groupNameBase = (presentation?.label?.trim() || `${target?.type === 'workspace' ? '工作区' : '对话'}保护`).slice(0, 128)

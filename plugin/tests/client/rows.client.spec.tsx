@@ -24,26 +24,13 @@ describe('Vault row affordances', () => {
     expect(screen.getByRole('status')).toHaveTextContent('继承项目保护')
   })
 
-  it('toggles directly without opening a menu', () => {
-    const onUnlock = vi.fn()
-    render(<VaultRowAction locked onUnlock={onUnlock} onLock={() => undefined} />)
-
-    const button = screen.getByRole('button', { name: '解锁' })
-    fireEvent.click(button)
-    expect(onUnlock).toHaveBeenCalledOnce()
-    expect(screen.queryByRole('menu')).toBeNull()
-  })
-
-  it('requests unlock from the store when the native row does not provide a callback', () => {
-    const requestUnlock = vi.fn(async () => false)
+  it('does not expose an unlock action in a locked list row', () => {
     const store = {
       getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'session', targetId: 'session-a', mode: 'direct', passwordGroupId: 'group-a' }], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
-      requestUnlock,
     } as unknown as VaultClientStore
     render(<VaultRowAction locked kind="session" sessionId="session-a" workspaceId="workspace-a" store={store} />)
-    fireEvent.click(screen.getByRole('button', { name: '解锁' }))
-    expect(requestUnlock).toHaveBeenCalledWith('group-a', { type: 'session', id: 'session-a', workspaceId: 'workspace-a' })
+    expect(screen.queryByRole('button', { name: '解锁' })).toBeNull()
   })
 
   it('does not conceal an unbound session when workspace context is unavailable', () => {

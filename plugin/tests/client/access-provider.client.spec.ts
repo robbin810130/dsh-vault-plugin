@@ -170,31 +170,25 @@ describe('Vault navigation access provider', () => {
     expect(offlineProvider.workspaceState('w-locked').kind).toBe('blocked')
   })
 
-  it('shares one prompt per group, rejects another group, and cancellation returns handled deny', async () => {
+  it('does not open an unlock prompt when a locked workspace row is selected', async () => {
     const store = makeStore(makeSnapshot([
       binding('workspace', 'w-a', 'direct', 'group-a'),
       binding('workspace', 'w-b', 'direct', 'group-b'),
     ]))
     await store.refresh()
     const provider = createVaultAccessProvider(store)
-    const first = provider.requestWorkspace('w-a')
-    const second = provider.requestWorkspace('w-a')
-    const other = provider.requestWorkspace('w-b')
-    expect(store.getSnapshot().prompt).toEqual({ groupId: 'group-a', target: target('workspace', 'w-a') })
-    await expect(other).resolves.toEqual({ allow: false })
-    store.cancelUnlock('group-a')
-    await expect(first).resolves.toEqual({ allow: false, handled: true })
-    await expect(second).resolves.toEqual({ allow: false, handled: true })
+    await expect(provider.requestWorkspace('w-a')).resolves.toEqual({ allow: false, handled: true })
+    await expect(provider.requestWorkspace('w-b')).resolves.toEqual({ allow: false, handled: true })
+    expect(store.getSnapshot().prompt).toBeNull()
   })
 
-  it('allows an unlocked direct group and only settles true after the grant is recorded', async () => {
+  it('allows an already unlocked direct group without opening a prompt', async () => {
     const store = makeStore(makeSnapshot([binding('workspace', 'w-a', 'direct', 'group-a')]))
     await store.refresh()
-    const provider = createVaultAccessProvider(store)
-    const pending = provider.requestWorkspace('w-a')
     await store.unlock('group-a', 'password')
-    store.settleUnlock('group-a')
-    await expect(pending).resolves.toEqual({ allow: true })
+    const provider = createVaultAccessProvider(store)
+    await expect(provider.requestWorkspace('w-a')).resolves.toEqual({ allow: true })
+    expect(store.getSnapshot().prompt).toBeNull()
     expect(provider.workspaceState('w-a')).toEqual({ kind: 'allow' })
   })
 })
