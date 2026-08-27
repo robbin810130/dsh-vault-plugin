@@ -43,14 +43,27 @@ describe('Vault row affordances', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('does not render an inert lock button when groups exist but no toggle callback is available', () => {
+  it('renders a lock button when a password group exists and can be used for direct protection', () => {
     const store = {
       getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
 
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByRole('button', { name: '上锁' })).toBeVisible()
+  })
+
+  it('uses the first password group for a direct lock when DSH does not inject callbacks', () => {
+    const updateBindings = vi.fn(async () => ({ ok: true, value: {} }))
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+      updateBindings,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+    expect(updateBindings).toHaveBeenCalledWith(expect.objectContaining({ kind: 'replace', binding: expect.objectContaining({ passwordGroupId: 'group-a', targetId: 'workspace-a' }) }))
   })
 
 })
