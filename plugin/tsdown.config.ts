@@ -12,6 +12,7 @@ const CLIENT_EXTERNALS = new Set([
   '@deepseek-ai/dsh-client-ui-primitives',
   'react',
   'react/jsx-runtime',
+  'react-dom',
 ])
 
 export default defineConfig([

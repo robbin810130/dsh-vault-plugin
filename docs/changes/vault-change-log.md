@@ -26,3 +26,18 @@
 - 实装验证：已安装到当前 DSH `web` profile；`GET/POST /dsh-vault/api` snapshot 返回 `passwordPolicy` 默认值；使用 `123` 创建密码组返回 `weak-password`，未写入状态。
 - 关联提交：`375aee5`。
 - 部署状态：当前 DSH 服务已由 supervisor 重启并监听 `127.0.0.1:3080`。
+
+## 2026-08-27：升级后插件加载失败修复
+
+### 现象与证据
+
+- DSH 页面显示：`Failed to load plugins`。
+- Loader 错误：`failed to import loader entry ...: process is not defined`。
+- 根因：快速上锁改用 `react-dom` 的 `createPortal`，但客户端 bundle 没有把 `react-dom` 声明为 DSH 外部共享模块，导致 React DOM 被打进浏览器 bundle；其开发分支引用 `process.env`，在 DSH loader 环境中触发异常。
+
+### 修复与验证
+
+- 将 `react-dom` 加入 DSH client manifest 和 bundler external 列表，复用 DSH 原生运行时依赖。
+- 新增 bundle 回归断言，确保共享模块不被重复打包。
+- 修复提交：待生成。
+- 修复后 `vitest`、客户端类型检查、构建和发布包生成均通过；当前 DSH 页面 HTTP 200，Vault snapshot API 返回正常。

@@ -19,6 +19,7 @@ const CLIENT_MANIFEST = {
     '@deepseek-ai/dsh-client-ui-primitives',
     'react',
     'react/jsx-runtime',
+    'react-dom',
   ],
   immediately: true,
 } as const
@@ -32,6 +33,7 @@ const SHARED_IDENTITY_PACKAGES = [
   '@deepseek-ai/dsh-client-ui-settings-plugins',
   '@deepseek-ai/dsh-client-ui-primitives',
   'react',
+  'react-dom',
 ] as const
 
 interface ClientBundleRegistration {
