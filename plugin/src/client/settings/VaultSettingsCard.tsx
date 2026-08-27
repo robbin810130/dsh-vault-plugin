@@ -38,8 +38,11 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
         aria-expanded={expanded}
         onClick={() => setExpanded(value => !value)}
       >
-        <span>保险箱</span>
-        <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+        <span className="dsh-vault-settings-card-heading">
+          <strong>保险箱</strong>
+          <small>保护会话和工作区访问</small>
+        </span>
+        <span className="dsh-vault-settings-card-chevron" aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
       </button>
       {expanded && <div className="dsh-vault-settings-card-body">
         <div className="dsh-vault-settings-tabs" role="tablist">

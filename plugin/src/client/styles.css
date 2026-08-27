@@ -4,10 +4,34 @@
 
 .dsh-vault-settings-card {
   max-width: 760px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
+}
+
+.dsh-vault-settings-card-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dsh-vault-settings-card-heading strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.dsh-vault-settings-card-heading small {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
 }
 
 .dsh-vault-settings-card h2,
@@ -23,8 +47,8 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 44px;
-  padding: 0;
+  min-height: 60px;
+  padding: 12px 14px;
   border: 0;
   background: transparent;
   color: var(--dsw-alias-label-primary);
@@ -35,12 +59,19 @@
   cursor: pointer;
 }
 
+.dsh-vault-settings-card-chevron {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 16px;
+  line-height: 1;
+}
+
 .dsh-vault-settings-card-header:hover {
   color: var(--dsw-alias-label-primary);
 }
 
 .dsh-vault-settings-card-body {
   min-width: 0;
+  padding: 0 14px 14px;
 }
 
 .dsh-vault-settings-tabs {

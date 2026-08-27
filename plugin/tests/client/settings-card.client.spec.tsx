@@ -37,7 +37,7 @@ describe('Vault settings card', () => {
   it('can collapse independently from the surrounding plugin settings', () => {
     render(<VaultSettingsCard store={store()} />)
 
-    const toggle = screen.getByRole('button', { name: '保险箱' })
+    const toggle = screen.getByRole('button', { name: /保险箱/ })
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')

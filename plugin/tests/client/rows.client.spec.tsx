@@ -33,4 +33,14 @@ describe('Vault row affordances', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('does not render an inert lock button before a password group exists', () => {
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
+
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
 })
