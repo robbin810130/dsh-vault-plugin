@@ -67,7 +67,7 @@
 - `pnpm -C plugin exec vitest run`：25 个测试文件、240 个测试通过。
 - 新增 verifier 回归：4 位用户密码可创建并验证；新增 VaultService 端到端回归：策略允许时 `Aa-1` 创建与解锁成功。
 - `pnpm -C plugin run typecheck` 与 `pnpm -C plugin run build` 通过。
-- 待唯一文件名 tarball 重新安装后，浏览器检查设置卡片、快速上锁和解锁窗口的实际渲染；不得复用旧 tarball 路径。
+- 已使用唯一文件名 `/tmp/dsh-vault-plugin-20260827-final2.tgz` 重新安装并重启 DSH；根页面 HTTP `200`，安装包中的客户端 CSS 已确认包含密码控件样式、原生 primary hover token 与边框 chevron，且 bundle 不含 `process.env`。
 
 ### 兼容性边界补充
 
