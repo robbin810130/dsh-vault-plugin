@@ -2,7 +2,6 @@ import { useState } from 'react'
 import type { BindingMutation, VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
 import { GroupCredentials } from './GroupCredentials.js'
-import { GroupWizard } from './GroupWizard.js'
 
 interface CredentialAction {
   readonly mode: 'change' | 'recover'
@@ -17,11 +16,9 @@ interface DeleteAction {
 
 export function GroupsPanel({ store }: { readonly store: VaultClientStore }) {
   const snapshot = store.getSnapshot()
-  const [creating, setCreating] = useState(false)
   const [credentialAction, setCredentialAction] = useState<CredentialAction | null>(null)
   const [deleteAction, setDeleteAction] = useState<DeleteAction | null>(null)
   const [error, setError] = useState<string | null>(null)
-  if (creating) return <GroupWizard store={store} onClose={() => setCreating(false)} />
   if (credentialAction !== null) return (
     <GroupCredentials
       mode={credentialAction.mode}
@@ -75,11 +72,7 @@ export function GroupsPanel({ store }: { readonly store: VaultClientStore }) {
   }
 
   return (
-    <section className="dsh-vault-settings-panel" aria-labelledby="dsh-vault-groups-title">
-      <div className="dsh-vault-settings-heading">
-        <h3 id="dsh-vault-groups-title">密码组</h3>
-        <button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => setCreating(true)}>新建密码组</button>
-      </div>
+    <section className="dsh-vault-settings-panel" aria-label="密码组">
       {snapshot.groups.length === 0 ? <p>尚未创建密码组</p> : (
         <ul className="dsh-vault-group-list">
           {snapshot.groups.map(group => (
