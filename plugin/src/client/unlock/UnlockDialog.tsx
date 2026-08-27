@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { LockIcon } from '../components/LockIcon.js'
 import type { VaultClientStore } from '../store-types.js'
 import { resolvePromptSnapshot, unlockMessage, useVaultStore } from './controller.js'
@@ -80,7 +81,7 @@ export function UnlockDialog({ store: storeProp }: UnlockDialogProps) {
       })
   }
 
-  return (
+  const dialog = (
     <div className="dsh-vault-dialog-backdrop">
       <form
         className="dsh-vault-dialog"
@@ -137,4 +138,5 @@ export function UnlockDialog({ store: storeProp }: UnlockDialogProps) {
       </form>
     </div>
   )
+  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body)
 }

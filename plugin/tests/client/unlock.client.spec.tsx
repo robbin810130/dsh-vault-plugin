@@ -59,6 +59,7 @@ describe('Vault unlock surfaces', () => {
   it('keeps the dialog submit disabled for an empty password and cancels on Escape', () => {
     const current = store()
     render(<UnlockDialog store={current} />)
+    expect(screen.getByRole('dialog').parentElement?.parentElement).toBe(document.body)
 
     expect(screen.getByRole('button', { name: '解锁' })).toBeDisabled()
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
