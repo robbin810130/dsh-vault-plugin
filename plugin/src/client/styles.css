@@ -2,6 +2,115 @@
   color: inherit;
 }
 
+.dsh-vault-settings-card {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.dsh-vault-settings-card h2,
+.dsh-vault-settings-panel h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.dsh-vault-settings-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  margin-top: 2px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.dsh-vault-settings-tabs button {
+  position: relative;
+  padding: 7px 1px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.dsh-vault-settings-tabs button:hover,
+.dsh-vault-settings-tabs button[aria-selected="true"] {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dsh-vault-settings-tabs button[aria-selected="true"]::after,
+.dsh-vault-settings-tabs button:focus-visible::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--dsw-alias-label-primary);
+}
+
+.dsh-vault-settings-panel {
+  min-width: 0;
+}
+
+.dsh-vault-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+}
+
+.dsh-vault-field + .dsh-vault-field {
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.dsh-vault-field > span,
+.dsh-vault-checkbox {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.dsh-vault-field select,
+.dsh-vault-field input[type="number"],
+.dsh-vault-field input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dsh-vault-field select:focus-visible,
+.dsh-vault-field input:focus-visible {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: none;
+}
+
+.dsh-vault-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.dsh-vault-checkbox input {
+  accent-color: var(--dsw-alias-brand-primary);
+}
+
 .dsh-vault-row-accessory,
 .dsh-vault-row-action,
 .dsh-vault-row-menu,
@@ -35,10 +144,26 @@
 .dsh-vault-row-action-button,
 .dsh-vault-button,
 .dsh-vault-row-menu-item {
-  min-height: 44px;
-  border: 1px solid currentColor;
+  min-height: 34px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
   background: transparent;
-  color: inherit;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.dsh-vault-button:hover:not(:disabled),
+.dsh-vault-row-menu-item:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.dsh-vault-button-primary {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
 }
 
 .dsh-vault-row-menu {
@@ -70,7 +195,23 @@
 }
 
 .dsh-vault-field input {
-  min-height: 44px;
+  min-height: 34px;
+}
+
+.dsh-vault-settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.dsh-vault-settings-disclosure,
+.dsh-vault-settings-warning {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .dsh-vault-dialog-actions {

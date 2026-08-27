@@ -26,7 +26,12 @@ export function LockedConversation({ sessionId, store: storeProp, children }: Lo
   const target = snapshot?.prompt?.target.type === 'session' && snapshot.prompt.target.id === sessionId
     ? snapshot.prompt.target
     : { type: 'session' as const, id: sessionId }
-  const resolution = snapshot === undefined ? { kind: 'blocked' as const, reason: 'Vault group locked' } : resolveVaultTarget(snapshot, target)
+  const hasProtectionConfig = snapshot !== undefined && (snapshot.groups.length > 0 || snapshot.bindings.length > 0)
+  const resolution = snapshot === undefined
+    ? { kind: 'blocked' as const, reason: 'Vault group locked' }
+    : !hasProtectionConfig && snapshot.prompt === null
+      ? { kind: 'plain' as const }
+      : resolveVaultTarget(snapshot, target)
   const locked = resolution.kind !== 'plain'
     && (snapshot?.host !== 'ready' || resolution.kind !== 'protected' || !store?.hasUnlockedGroup(resolution.groupId))
 

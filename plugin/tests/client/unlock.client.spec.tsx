@@ -29,6 +29,24 @@ function store(overrides: Partial<VaultClientStore> = {}): VaultClientStore {
 }
 
 describe('Vault unlock surfaces', () => {
+  it('renders an unbound conversation normally before any protection is configured', () => {
+    const snapshot = {
+      ...store().getSnapshot(),
+      groups: [],
+      bindings: [],
+      prompt: null,
+    }
+    const current = store({
+      getSnapshot: () => snapshot,
+    })
+    render(<LockedConversation sessionId="s-plain" store={current}>
+      <p>ordinary assistant message</p>
+    </LockedConversation>)
+
+    expect(screen.getByText('ordinary assistant message')).toBeTruthy()
+    expect(screen.queryByText('需要解锁才能查看内容')).toBeNull()
+  })
+
   it('does not mount real conversation copy while locked', () => {
     render(<LockedConversation sessionId="s-locked" store={store()}>
       <p>secret assistant message</p>
