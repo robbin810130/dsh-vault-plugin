@@ -189,6 +189,14 @@ describe('Vault navigation access provider', () => {
     expect(store.getSnapshot().prompt).toBeNull()
   })
 
+  it('records workspace context before allowing a locked session selection', async () => {
+    const store = makeStore(makeSnapshot([binding('workspace', 'w-locked', 'direct', 'group-a')]))
+    await store.refresh()
+    const provider = createVaultAccessProvider(store)
+    await provider.requestSession('s-context', 'w-locked')
+    expect(provider.sessionState('s-context')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
+  })
+
   it('allows an already unlocked direct group without opening a prompt', async () => {
     const store = makeStore(makeSnapshot([binding('workspace', 'w-a', 'direct', 'group-a')]))
     await store.refresh()

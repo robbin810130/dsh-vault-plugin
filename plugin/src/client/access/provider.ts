@@ -1,7 +1,7 @@
 import type { VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
 import { resolveVaultTarget, type VaultProtectionResolution } from './resolution.js'
-import { workspaceIdForSession } from '../rows/presentation.js'
+import { rememberWorkspaceIdForSession, workspaceIdForSession } from '../rows/presentation.js'
 
 export type NavigationAccessState =
   | { readonly kind: 'allow' }
@@ -70,6 +70,7 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
     for (const listener of [...listeners]) listener()
   })
   const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => {
+    rememberWorkspaceIdForSession(id, workspaceId)
     const resolution = protectedResolution(store, sessionTarget(id, workspaceId))
     if (resolution.kind === 'blocked') return Promise.resolve({ allow: true })
     return Promise.resolve({ allow: true })
