@@ -15,6 +15,8 @@ describe('Vault row affordances', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('已上锁')
     expect(screen.getByRole('status')).toHaveTextContent('受保护')
+    expect(document.querySelector('.dsh-vault-protected-lock-icon')).toBeInTheDocument()
+    expect(document.querySelector('.dsh-vault-lock-icon')).toBeNull()
     expect(screen.queryByText('Secret session')).toBeNull()
   })
 

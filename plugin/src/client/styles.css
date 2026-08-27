@@ -222,11 +222,24 @@
 }
 
 .dsh-vault-lock-icon,
+.dsh-vault-protected-lock-icon,
 .dsh-vault-dialog-icon,
 .dsh-vault-locked-conversation-icon {
   width: 16px;
   height: 16px;
   flex: none;
+}
+
+.dsh-vault-protected-lock-icon {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dsh-vault-row-accessory-locked .dsh-vault-protected-lock-icon {
+  color: var(--dsw-alias-brand-primary);
+}
+
+.dsh-vault-row-accessory-inherited .dsh-vault-protected-lock-icon {
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .dsh-vault-row-action {

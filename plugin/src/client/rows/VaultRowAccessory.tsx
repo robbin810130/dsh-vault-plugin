@@ -1,4 +1,4 @@
-import { LockIcon } from '../components/LockIcon.js'
+import { ProtectedLockIcon } from '../components/ProtectedLockIcon.js'
 import type { VaultClientStore } from '../store-types.js'
 import { resolveRowLockState, useVaultStore } from '../unlock/controller.js'
 
@@ -29,7 +29,7 @@ export function VaultRowAccessory({
 
   return (
     <span className={`dsh-vault-row-accessory ${inherited ? 'dsh-vault-row-accessory-inherited' : 'dsh-vault-row-accessory-locked'}`} role="status" aria-live="polite" aria-label={inherited ? '继承项目保护' : '已上锁，受保护'}>
-      <LockIcon className="dsh-vault-lock-icon" />
+      <ProtectedLockIcon className="dsh-vault-protected-lock-icon" />
       <span className="dsh-vault-row-accessory-text">
         {inherited ? '继承项目保护' : '已上锁'}
       </span>
