@@ -53,12 +53,20 @@ function decisionFor(store: VaultClientStore, target: VaultTarget): Promise<Navi
 
 export function createVaultAccessProvider(store: VaultClientStore): NavigationAccessProvider {
   const listeners = new Set<() => void>()
+  const matchesSession = (id: string): boolean => {
+    const snapshot = store.getSnapshot()
+    // DSH may probe this method before it knows the session's workspace.
+    // An implicit workspace binding cannot be resolved safely at that point;
+    // let requestSession(id, workspaceId) make the authoritative decision.
+    const explicit = snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)
+    return explicit && protectedResolution(store, { type: 'session', id }).kind !== 'plain'
+  }
   const unsubscribe = store.subscribe(() => {
     for (const listener of [...listeners]) listener()
   })
   return {
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
-    matchesSession: id => protectedResolution(store, { type: 'session', id }).kind !== 'plain',
+    matchesSession,
     workspaceState: id => targetState(store, { type: 'workspace', id }),
     sessionState: (id, workspaceId) => targetState(store, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) }),
     requestWorkspace: id => decisionFor(store, { type: 'workspace', id }),

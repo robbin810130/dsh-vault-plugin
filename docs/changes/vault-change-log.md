@@ -101,6 +101,7 @@
 - DSH 的 `workspaceRows.session` 回调实际只传入 `(sessionId, presentation)`，不会传 `workspaceId`；之前对缺少 workspaceId 的会话调用 `resolveVaultTarget` 会把“存在任意工作区保护”误判为当前会话受保护。
 - 现在仅在存在明确会话绑定时进行行名称隐藏；无 workspaceId 的隐式工作区保护交由导航访问层在拥有真实 workspaceId 时判定，避免未加锁会话被显示为 `Protected session`。
 - 行操作组件收到工作区 ID 时记录会话归属，供被拒绝内容视图恢复正确的解锁目标。
+- 导航访问层的 `matchesSession` 在 DSH 尚未提供工作区上下文时不再拦截隐式会话；最终是否允许访问仍由 `requestSession(id, workspaceId)` 判定。
 
 ### 兼容性边界补充
 
