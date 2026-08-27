@@ -60,8 +60,10 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
     // An implicit workspace binding cannot be resolved safely at that point;
     // let requestSession(id, workspaceId) make the authoritative decision.
     const explicit = snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)
-    const knownWorkspace = workspaceIdForSession(id)
-    if (!explicit && knownWorkspace === undefined) return false
+    // Implicit workspace protection is enforced by ConversationRoot after
+    // selection. Do not claim the session in the runtime's pre-selection
+    // probe, otherwise DSH can reject the click before changing selection.
+    if (!explicit) return false
     return protectedResolution(store, sessionTarget(id)).kind !== 'plain'
   }
   const unsubscribe = store.subscribe(() => {
