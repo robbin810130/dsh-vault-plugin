@@ -18,8 +18,7 @@ export function PolicyPanel({ policy, onChange }: PolicyPanelProps) {
   const updatePasswordPolicy = (next: VaultPolicy['passwordPolicy']) => update({ ...value, passwordPolicy: next })
 
   return (
-    <section className="dsh-vault-settings-panel" aria-labelledby="dsh-vault-policy-title">
-      <h3 id="dsh-vault-policy-title">锁定策略</h3>
+    <section className="dsh-vault-settings-panel" aria-label="锁定策略">
       <label className="dsh-vault-field" htmlFor="dsh-vault-auto-lock">
         <span>自动锁定</span>
         <select
@@ -64,7 +63,6 @@ export function PolicyPanel({ policy, onChange }: PolicyPanelProps) {
       ) : (
         <p className="dsh-vault-settings-warning" role="note">关闭后不会累计失败次数或进入暂停期</p>
       )}
-      <h3>密码强度</h3>
       <label className="dsh-vault-field" htmlFor="dsh-vault-password-min-length"><span>密码最小长度</span><input id="dsh-vault-password-min-length" type="number" min="4" max="128" value={passwordPolicy.minLength} onChange={event => updatePasswordPolicy({ ...passwordPolicy, minLength: Math.min(128, Math.max(4, Number(event.currentTarget.value))) })} /></label>
       <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求大写字母" checked={passwordPolicy.requireUppercase} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireUppercase: event.currentTarget.checked })} />要求大写字母</label>
       <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求小写字母" checked={passwordPolicy.requireLowercase} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireLowercase: event.currentTarget.checked })} />要求小写字母</label>

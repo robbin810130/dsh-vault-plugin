@@ -362,6 +362,10 @@
   padding: 12px 0;
 }
 
+.dsh-vault-settings-heading-actions-only {
+  justify-content: flex-end;
+}
+
 .dsh-vault-settings-disclosure,
 .dsh-vault-settings-warning {
   margin: 0;
