@@ -8,6 +8,10 @@ import type { VaultPolicy } from '../../shared/contracts.js'
 
 type Tab = 'policy' | 'groups' | 'recovery'
 
+function NativeChevron() {
+  return <svg className="dsh-vault-settings-card-chevron" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><path d="m3 5.5 4 4 4-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" /></svg>
+}
+
 export interface VaultPolicyScope {
   set(field: string, value: unknown): Promise<void>
 }
@@ -43,7 +47,7 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
           <strong>保险箱</strong>
           <small>保护会话和工作区访问</small>
         </span>
-        <span className={`dsh-vault-settings-card-chevron${expanded ? ' dsh-vault-settings-card-chevron-open' : ''}`} aria-hidden="true" />
+        <NativeChevron />
       </button>
       {expanded ? <div className="dsh-vault-settings-card-body">
           <div className="dsh-vault-settings-tabs" role="tablist">
