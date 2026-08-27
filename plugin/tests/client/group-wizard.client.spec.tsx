@@ -35,6 +35,16 @@ describe('Vault group wizard', () => {
     expect(current.createGroup).not.toHaveBeenCalled()
   })
 
+  it('rejects passwords shorter than the Host minimum', () => {
+    const current = wizardStore()
+    render(<GroupWizard store={current} />)
+    fireEvent.change(screen.getByLabelText('密码组名称'), { target: { value: '研发组' } })
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'short' } })
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'short' } })
+    expect(screen.getByRole('button', { name: '创建密码组' })).toBeDisabled()
+    expect(current.createGroup).not.toHaveBeenCalled()
+  })
+
   it('shows a one-time recovery key only after successful creation', async () => {
     const current = wizardStore()
     render(<GroupWizard store={current} />)
