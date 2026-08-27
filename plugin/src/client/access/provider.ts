@@ -67,7 +67,13 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
   const unsubscribe = store.subscribe(() => {
     for (const listener of [...listeners]) listener()
   })
-  const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => decisionWithoutPrompt(store, sessionTarget(id, workspaceId))
+  const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => {
+    const resolution = protectedResolution(store, sessionTarget(id, workspaceId))
+    if (resolution.kind === 'blocked') return Promise.resolve({ allow: false, handled: true })
+    // Let DSH select the row so ConversationRoot can render its locked page.
+    // Unlock is deliberately available only from that page's central button.
+    return Promise.resolve({ allow: true })
+  }
   return {
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
     matchesSession,

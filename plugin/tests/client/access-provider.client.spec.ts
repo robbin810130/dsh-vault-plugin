@@ -182,6 +182,15 @@ describe('Vault navigation access provider', () => {
     expect(store.getSnapshot().prompt).toBeNull()
   })
 
+  it('allows selecting a locked session so the main pane can show its unlock page', async () => {
+    const store = makeStore(makeSnapshot([binding('workspace', 'w-locked', 'direct', 'group-a')]))
+    await store.refresh()
+    rememberWorkspaceIdForSession('s-locked', 'w-locked')
+    const provider = createVaultAccessProvider(store)
+    await expect(provider.requestSession('s-locked')).resolves.toEqual({ allow: true })
+    expect(store.getSnapshot().prompt).toBeNull()
+  })
+
   it('allows an already unlocked direct group without opening a prompt', async () => {
     const store = makeStore(makeSnapshot([binding('workspace', 'w-a', 'direct', 'group-a')]))
     await store.refresh()
