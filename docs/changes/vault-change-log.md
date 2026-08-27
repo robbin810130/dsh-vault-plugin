@@ -96,6 +96,12 @@
 - `conversation.access.denied` slot 只传入 `sessionId`，没有传 `workspaceId`；当会话继承工作区保护时，无法解析密码组，解锁按钮被错误禁用。
 - 行装饰器记录 DSH 已提供的 `sessionId → workspaceId` 映射；受保护内容组件复用该映射解析目标。锁定操作在缺少宿主回调时直接向 Vault store 请求对应密码组解锁。
 
+### 误判修正
+
+- DSH 的 `workspaceRows.session` 回调实际只传入 `(sessionId, presentation)`，不会传 `workspaceId`；之前对缺少 workspaceId 的会话调用 `resolveVaultTarget` 会把“存在任意工作区保护”误判为当前会话受保护。
+- 现在仅在存在明确会话绑定时进行行名称隐藏；无 workspaceId 的隐式工作区保护交由导航访问层在拥有真实 workspaceId 时判定，避免未加锁会话被显示为 `Protected session`。
+- 行操作组件收到工作区 ID 时记录会话归属，供被拒绝内容视图恢复正确的解锁目标。
+
 ### 兼容性边界补充
 
 - 密码策略只约束新建、修改和恢复密码；解锁验证不再套用当前最小长度，避免用户提高策略后历史密码突然全部失效。

@@ -5,6 +5,7 @@ import type { ProtectionBinding, VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
 import { resolveRowLockState, useVaultStore } from '../unlock/controller.js'
 import { passwordPolicyError } from '../../shared/password-policy.js'
+import { rememberWorkspaceIdForSession } from './presentation.js'
 
 export interface VaultRowActionProps {
   readonly locked?: boolean
@@ -26,6 +27,7 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   const [pending, setPending] = useState(false)
   const store = useVaultStore(storeProp)
   const kind = kindProp ?? (sessionId !== undefined ? 'session' : workspaceId !== undefined ? 'workspace' : undefined)
+  if (kind === 'session' && sessionId !== undefined) rememberWorkspaceIdForSession(sessionId, workspaceId)
   const state = resolveRowLockState(store, kind, workspaceId, sessionId)
   const locked = lockedProp ?? state.locked
   const snapshot = store?.getSnapshot()

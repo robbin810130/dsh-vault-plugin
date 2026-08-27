@@ -19,6 +19,10 @@ export type VaultTranslate = (key: 'workspace' | 'session') => string
 
 const sessionWorkspaceIds = new Map<string, string>()
 
+export function rememberWorkspaceIdForSession(sessionId: string, workspaceId: string | undefined): void {
+  if (workspaceId !== undefined) sessionWorkspaceIds.set(sessionId, workspaceId)
+}
+
 export function workspaceIdForSession(sessionId: string): string | undefined {
   return sessionWorkspaceIds.get(sessionId)
 }
@@ -49,8 +53,12 @@ export function createVaultRowDecorator(store: VaultClientStore, t: VaultTransla
       return conceal('workspace', t) as WorkspaceRowPresentation
     },
     session: (id, base, workspaceId) => {
-      if (workspaceId !== undefined) sessionWorkspaceIds.set(id, workspaceId)
+      rememberWorkspaceIdForSession(id, workspaceId)
       const snapshot = store.getSnapshot()
+      // DSH's row decorator API does not provide workspaceId. Without it we
+      // cannot safely resolve implicit workspace protection, so leave the
+      // native title untouched and let navigation access enforce the lock.
+      if (workspaceId === undefined && !snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)) return base
       const resolution = resolveVaultTarget(snapshot, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) })
       if (resolution.kind === 'plain' || (resolution.kind === 'protected' && snapshot.host === 'ready' && store.hasUnlockedGroup(resolution.groupId))) return base
       if (snapshot.policy.lockedNameVisibility === 'all-visible') return base

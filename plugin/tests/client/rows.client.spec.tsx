@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VaultRowAccessory } from '../../src/client/rows/VaultRowAccessory.js'
 import { VaultRowAction } from '../../src/client/rows/VaultRowAction.js'
+import { createVaultRowDecorator } from '../../src/client/rows/presentation.js'
 import type { VaultClientStore } from '../../src/client/store.js'
 
 afterEach(() => cleanup())
@@ -43,6 +44,16 @@ describe('Vault row affordances', () => {
     render(<VaultRowAction locked kind="session" sessionId="session-a" workspaceId="workspace-a" store={store} />)
     fireEvent.click(screen.getByRole('button', { name: '解锁' }))
     expect(requestUnlock).toHaveBeenCalledWith('group-a', { type: 'session', id: 'session-a', workspaceId: 'workspace-a' })
+  })
+
+  it('does not conceal an unbound session when workspace context is unavailable', () => {
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'workspace', targetId: 'locked-workspace', mode: 'direct', passwordGroupId: 'group-a' }], policy: { lockedNameVisibility: 'workspace-visible-session-hidden' } }),
+      hasUnlockedGroup: () => false,
+    } as unknown as VaultClientStore
+    const decorator = createVaultRowDecorator(store, () => 'Protected session')
+    const base = { label: 'My unprotected session', ariaLabel: 'My unprotected session', concealed: false }
+    expect(decorator.session?.('session-a', base)).toEqual(base)
   })
 
   it('opens the password dialog even before a password group exists', () => {
