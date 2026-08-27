@@ -271,13 +271,46 @@
   inset: 0;
   display: grid;
   place-items: center;
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 16px;
+  background: rgb(0 0 0 / 56%);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 64%, transparent);
 }
 
 .dsh-vault-dialog {
+  box-sizing: border-box;
   display: grid;
   gap: 0.75rem;
-  padding: 1rem;
-  max-width: min(24rem, calc(100vw - 2rem));
+  width: min(420px, 100%);
+  max-width: 100%;
+  padding: 20px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 18px 52px rgb(0 0 0 / 42%);
+  box-shadow: 0 18px 52px color-mix(in srgb, var(--dsw-alias-bg-base) 42%, transparent);
+}
+
+.dsh-vault-dialog h2 {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.dsh-vault-dialog > p {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dsh-vault-quick-lock-dialog .dsh-vault-field input {
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .dsh-vault-field {
