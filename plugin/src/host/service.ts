@@ -149,7 +149,7 @@ export class VaultService {
     const availability = this.attempts.check(groupId, clientInstanceId, this.policy.failedAttemptProtection)
     if (availability.kind === 'cooldown') return failed('cooldown', availability.retryAt)
     let valid = false
-    try { valid = await verifySecret(password, group.password, this.policy.passwordPolicy) } catch { valid = false }
+    try { valid = await verifySecret(password, group.password) } catch { valid = false }
     if (!valid) {
       const decision = this.attempts.recordFailure(groupId, clientInstanceId, this.policy.failedAttemptProtection)
       return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
@@ -344,7 +344,7 @@ export class VaultService {
   }
 
   private async authorizeCredential(group: PasswordGroup, input: ChangePasswordInput): Promise<boolean> {
-    if (input.currentPassword !== undefined) return verifySecret(input.currentPassword, group.password, this.policy.passwordPolicy)
+    if (input.currentPassword !== undefined) return verifySecret(input.currentPassword, group.password)
     if (input.recoveryKey !== undefined) return verifySecret(input.recoveryKey, group.recovery)
     return false
   }

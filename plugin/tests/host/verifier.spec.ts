@@ -58,7 +58,7 @@ describe('password and recovery verifier', () => {
 
   it('supports the configured minimum length for user passwords', async () => {
     const record = await createVerifier('Aa-1', { minLength: 4 })
-    await expect(verifySecret('Aa-1', record, { minLength: 4 })).resolves.toBe(true)
+    await expect(verifySecret('Aa-1', record)).resolves.toBe(true)
   })
 
   it('accepts 512 UTF-8 bytes and rejects 513 UTF-8 bytes including multibyte input', async () => {
