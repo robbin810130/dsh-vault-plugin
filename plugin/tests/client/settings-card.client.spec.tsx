@@ -18,6 +18,7 @@ function store(overrides: Partial<VaultClientStore> = {}): VaultClientStore {
       lockOnSystemSleep: true,
       lockedNameVisibility: 'workspace-visible-session-hidden' as const,
       failedAttemptProtection: { enabled: true, maxAttempts: 3, cooldownSeconds: 300 },
+      passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false },
     },
     unlockedGroupIds: new Set<string>(),
     prompt: null,
@@ -76,6 +77,14 @@ describe('Vault settings card', () => {
       expect(policyScope.set).toHaveBeenCalledWith('autoLockMinutes', 30)
       expect(current.refresh).toHaveBeenCalled()
     })
+  })
+
+  it('exposes configurable password strength controls', () => {
+    render(<VaultSettingsCard store={store()} />)
+    fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
+    expect(screen.getByLabelText('密码最小长度')).toBeVisible()
+    expect(screen.getByLabelText('要求大写字母')).toBeVisible()
+    expect(screen.getByLabelText('要求数字')).toBeVisible()
   })
 
   it('locks all groups from the recovery tab', async () => {

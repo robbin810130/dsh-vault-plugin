@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { VaultPolicy } from '../../shared/contracts.js'
+import { passwordPolicyError } from '../../shared/password-policy.js'
 
 export interface PolicyPanelProps {
   readonly policy: VaultPolicy
@@ -13,6 +14,8 @@ export function PolicyPanel({ policy, onChange }: PolicyPanelProps) {
     onChange?.(next)
   }
   const protection = value.failedAttemptProtection
+  const passwordPolicy = value.passwordPolicy
+  const updatePasswordPolicy = (next: VaultPolicy['passwordPolicy']) => update({ ...value, passwordPolicy: next })
 
   return (
     <section className="dsh-vault-settings-panel" aria-labelledby="dsh-vault-policy-title">
@@ -61,6 +64,13 @@ export function PolicyPanel({ policy, onChange }: PolicyPanelProps) {
       ) : (
         <p className="dsh-vault-settings-warning" role="note">关闭后不会累计失败次数或进入暂停期</p>
       )}
+      <h3>密码强度</h3>
+      <label className="dsh-vault-field" htmlFor="dsh-vault-password-min-length"><span>密码最小长度</span><input id="dsh-vault-password-min-length" type="number" min="4" max="128" value={passwordPolicy.minLength} onChange={event => updatePasswordPolicy({ ...passwordPolicy, minLength: Math.min(128, Math.max(4, Number(event.currentTarget.value))) })} /></label>
+      <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求大写字母" checked={passwordPolicy.requireUppercase} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireUppercase: event.currentTarget.checked })} />要求大写字母</label>
+      <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求小写字母" checked={passwordPolicy.requireLowercase} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireLowercase: event.currentTarget.checked })} />要求小写字母</label>
+      <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求数字" checked={passwordPolicy.requireNumber} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireNumber: event.currentTarget.checked })} />要求数字</label>
+      <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求符号" checked={passwordPolicy.requireSymbol} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireSymbol: event.currentTarget.checked })} />要求符号</label>
+      <p className="dsh-vault-settings-warning" role="note">{passwordPolicyError('示例密码', passwordPolicy) ?? '当前密码策略已满足最低要求'}</p>
     </section>
   )
 }

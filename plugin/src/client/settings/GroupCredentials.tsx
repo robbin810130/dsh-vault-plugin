@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { VaultClientStore } from '../store-types.js'
+import { passwordPolicyError } from '../../shared/password-policy.js'
 
 export interface GroupCredentialsProps {
   readonly mode: 'change' | 'recover'
@@ -18,6 +19,9 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const passwordPolicy = typeof store.getSnapshot === 'function'
+    ? store.getSnapshot().policy.passwordPolicy
+    : { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false }
 
   const clearSecrets = (): void => {
     setCredential('')
@@ -35,6 +39,8 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
   const submit = (event: FormEvent): void => {
     event.preventDefault()
     if (password !== confirmation) { setError('两次密码不一致'); return }
+    const passwordError = passwordPolicyError(password, passwordPolicy)
+    if (passwordError !== undefined) { setError(passwordError); return }
     if (credential.length === 0 || password.length === 0 || pending) return
     setPending(true)
     setError(null)
@@ -44,7 +50,7 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
     void request
       .then(result => {
         if (!result.ok) {
-          setError(result.error.code === 'invalid-credentials' ? '凭据无效' : '操作失败，请刷新后重试')
+          setError(result.error.code === 'invalid-credentials' ? '凭据无效' : result.error.code === 'weak-password' ? '密码不符合当前策略' : '操作失败，请刷新后重试')
           return
         }
         if (result.value.recoveryKey !== undefined) setRecoveryKey(result.value.recoveryKey)
@@ -79,6 +85,7 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
           onChange={event => setCredential(event.currentTarget.value)}
         />
       </label>
+      {password.length > 0 && passwordPolicyError(password, passwordPolicy) !== undefined && <p className="dsh-vault-settings-warning" role="note">{passwordPolicyError(password, passwordPolicy)}</p>}
       <label className="dsh-vault-field">
         <span>新密码</span>
         <input type="password" autoComplete="new-password" aria-label="新密码" value={password} onChange={event => setPassword(event.currentTarget.value)} />

@@ -83,4 +83,18 @@ describe('Vault row affordances', () => {
     expect(screen.getByRole('dialog', { name: '设置密码并上锁' })).toBeVisible()
   })
 
+  it('shows confirmation mismatch inline when saving', () => {
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: { passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false } }, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+      createGroup: vi.fn(async () => ({ ok: true, value: { snapshot: {}, recoveryKey: 'recovery-key' } })),
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
+    fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'wrong horse' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存并上锁' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('两次密码不一致')
+  })
+
 })

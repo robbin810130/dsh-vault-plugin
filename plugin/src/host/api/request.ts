@@ -34,7 +34,7 @@ function revision(value: unknown): number {
 
 function password(value: unknown): string {
   const parsed = text(value, 512) as string
-  if (Buffer.byteLength(parsed, 'utf8') > 512 || Array.from(parsed).length < 8) throw new TypeError('Invalid request')
+  if (Buffer.byteLength(parsed, 'utf8') > 512 || Array.from(parsed).length === 0) throw new TypeError('Invalid request')
   return parsed
 }
 

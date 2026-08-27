@@ -9,6 +9,7 @@ const snapshot: VaultSnapshot = {
     lockOnSystemSleep: true,
     lockedNameVisibility: 'workspace-visible-session-hidden',
     failedAttemptProtection: { enabled: true, maxAttempts: 3, cooldownSeconds: 300 },
+    passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false },
   },
   groups: [{
     id: 'group-1',

@@ -31,6 +31,7 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
     if (JSON.stringify(next.failedAttemptProtection) !== JSON.stringify(snapshot.policy.failedAttemptProtection)) {
       writes.push(policyScope.set('failedAttemptProtection', next.failedAttemptProtection))
     }
+    if (JSON.stringify(next.passwordPolicy) !== JSON.stringify(snapshot.policy.passwordPolicy)) writes.push(policyScope.set('passwordPolicy', next.passwordPolicy))
     void Promise.all(writes).then(() => store.refresh()).catch(() => store.refresh())
   }
   const tabs: readonly [Tab, string][] = [['policy', '锁定策略'], ['groups', '密码组'], ['recovery', '恢复能力']]

@@ -29,6 +29,7 @@ const HOST_ERROR_CODES = new Set([
   'persistence-failed',
   'revision-conflict',
   'unsupported-media-type',
+  'weak-password',
 ])
 
 type JsonRecord = Record<string, unknown>
@@ -77,7 +78,7 @@ function array(value: unknown, max = 256): readonly unknown[] {
 
 function parsePolicy(value: unknown): VaultSnapshot['policy'] {
   const source = record(value)
-  exact(source, ['autoLockMinutes', 'lockOnSystemSleep', 'lockedNameVisibility', 'failedAttemptProtection'])
+  exact(source, ['autoLockMinutes', 'lockOnSystemSleep', 'lockedNameVisibility', 'failedAttemptProtection', 'passwordPolicy'])
   if (source.autoLockMinutes !== 0 && source.autoLockMinutes !== 15 && source.autoLockMinutes !== 30 && source.autoLockMinutes !== 60) {
     throw new TypeError('Invalid Vault response')
   }
@@ -88,6 +89,10 @@ function parsePolicy(value: unknown): VaultSnapshot['policy'] {
   }
   const attempts = record(source.failedAttemptProtection)
   exact(attempts, ['enabled', 'maxAttempts', 'cooldownSeconds'])
+  const passwordPolicy = source.passwordPolicy === undefined
+    ? { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false }
+    : record(source.passwordPolicy)
+  exact(passwordPolicy, ['minLength', 'requireUppercase', 'requireLowercase', 'requireNumber', 'requireSymbol'])
   return {
     autoLockMinutes: source.autoLockMinutes,
     lockOnSystemSleep: boolean(source.lockOnSystemSleep),
@@ -96,6 +101,13 @@ function parsePolicy(value: unknown): VaultSnapshot['policy'] {
       enabled: boolean(attempts.enabled),
       maxAttempts: safeInteger(attempts.maxAttempts, 1),
       cooldownSeconds: safeInteger(attempts.cooldownSeconds, 1),
+    },
+    passwordPolicy: {
+      minLength: safeInteger(passwordPolicy.minLength, 4),
+      requireUppercase: boolean(passwordPolicy.requireUppercase),
+      requireLowercase: boolean(passwordPolicy.requireLowercase),
+      requireNumber: boolean(passwordPolicy.requireNumber),
+      requireSymbol: boolean(passwordPolicy.requireSymbol),
     },
   }
 }

@@ -7,6 +7,15 @@ export interface VaultPolicy {
     readonly maxAttempts: number
     readonly cooldownSeconds: number
   }
+  readonly passwordPolicy: PasswordPolicy
+}
+
+export interface PasswordPolicy {
+  readonly minLength: number
+  readonly requireUppercase: boolean
+  readonly requireLowercase: boolean
+  readonly requireNumber: boolean
+  readonly requireSymbol: boolean
 }
 
 export type VaultTarget =

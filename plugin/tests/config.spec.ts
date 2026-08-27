@@ -10,12 +10,14 @@ describe('VaultPolicySchema', () => {
       lockOnSystemSleep: true,
       lockedNameVisibility: 'workspace-visible-session-hidden',
       failedAttemptProtection: { enabled: true, maxAttempts: 3, cooldownSeconds: 300 },
+      passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false },
     })
   })
 
   it.each([
     { failedAttemptProtection: { maxAttempts: 0 } },
     { failedAttemptProtection: { cooldownSeconds: 0 } },
+    { passwordPolicy: { minLength: 3 } },
     { autoLockMinutes: 10 },
   ])('rejects invalid policy input %#', (input) => {
     expect(() => VaultPolicySchema(input as never)).toThrow()

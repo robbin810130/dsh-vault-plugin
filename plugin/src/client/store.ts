@@ -136,6 +136,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
     lockOnSystemSleep: true,
     lockedNameVisibility: 'workspace-visible-session-hidden',
     failedAttemptProtection: { enabled: true, maxAttempts: 3, cooldownSeconds: 300 },
+    passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false },
   }, [])
 
   constructor(api: VaultApiClient) {

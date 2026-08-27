@@ -14,7 +14,10 @@ const policy: VaultPolicy = {
   lockOnSystemSleep: true,
   lockedNameVisibility: 'workspace-visible-session-hidden',
   failedAttemptProtection: { enabled: true, maxAttempts: 2, cooldownSeconds: 10 },
+  passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false },
 }
+
+const strictPolicy: VaultPolicy = { ...policy, passwordPolicy: { minLength: 12, requireUppercase: true, requireLowercase: true, requireNumber: true, requireSymbol: true } }
 
 function groupCreateRequest(
   expectedRevision: number,
@@ -71,6 +74,12 @@ describe('VaultService', () => {
     expect(unlocked.value.grant).toMatchObject({ groupId: created.value.snapshot.groups[0]!.id, credentialVersion: 1 })
     expect(service.validateGrants('client-1', [unlocked.value.grant])).toEqual({ valid: true })
     expect(service.validateGrants('client-2', [unlocked.value.grant])).toEqual({ valid: false })
+  })
+
+  it('enforces configured password strength at the Host boundary', async () => {
+    const strict = new VaultService({ repository: new VaultStateRepository(join(root, 'strict-vault-lock')), policy: strictPolicy })
+    await expect(strict.handle(groupCreateRequest(0, { name: 'Weak', password: 'correct horse', bindings: [] }))).resolves.toMatchObject({ ok: false, error: { code: 'weak-password' } })
+    await expect(strict.handle(groupCreateRequest(0, { name: 'Strong', password: 'Correct horse 123!', bindings: [] }))).resolves.toMatchObject({ ok: true })
   })
 
   it('does not issue a grant or recovery key when durable create fails', async () => {

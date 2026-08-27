@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import type { VaultPolicy } from '../config.js'
+import { passwordPolicyError } from '../shared/password-policy.js'
 import { type BindingMutation, type ChangePasswordInput, type CreateGroupInput, type GrantProof, type RecoveryKeyResult, type RecoverGroupInput, type UnlockResult, type VaultApiRequest, type VaultApiResult, type VaultSnapshot } from '../shared/contracts.js'
 import { createVerifier, generateRecoveryKey, verifySecret } from './crypto/verifier.js'
 import { FailedAttemptStore } from './auth/attempts.js'
@@ -30,7 +31,7 @@ type ServiceResult = VaultApiResult<any>
 const SAFE_ERROR: ServiceResult = { ok: false, error: { code: 'operation-failed', message: 'Vault operation failed' } }
 
 function failed(code: string, retryAt?: number): ServiceResult {
-  const message = code === 'cooldown' ? 'Too many attempts' : code === 'invalid-credentials' ? 'Invalid credentials' : code === 'revision-conflict' ? 'Vault revision changed' : 'Vault operation failed'
+  const message = code === 'cooldown' ? 'Too many attempts' : code === 'invalid-credentials' ? 'Invalid credentials' : code === 'revision-conflict' ? 'Vault revision changed' : code === 'weak-password' ? 'Password does not meet the configured strength policy' : 'Vault operation failed'
   return { ok: false, error: { code, message, ...(retryAt === undefined ? {} : { retryAt }) } }
 }
 
@@ -163,6 +164,7 @@ export class VaultService {
 
   private async createGroup(clientInstanceId: string, expectedRevision: number, proofs: readonly GrantProof[], input: CreateGroupInput): Promise<ServiceResult> {
     const state = await this.state()
+    if (passwordPolicyError(input.password, this.policy.passwordPolicy) !== undefined) return failed('weak-password')
     if (state.revision !== expectedRevision) return failed('revision-conflict')
     if (Object.values(state.groups).some((group) => group.name === input.name)) return failed('duplicate-name')
     const now = this.#now()
@@ -196,6 +198,7 @@ export class VaultService {
 
   private async changePassword(clientInstanceId: string, expectedRevision: number, input: ChangePasswordInput): Promise<ServiceResult> {
     const state = await this.state()
+    if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== undefined) return failed('weak-password')
     if (state.revision !== expectedRevision) return failed('revision-conflict')
     const group = state.groups[input.groupId]
     if (!group) return failed('invalid-credentials')
@@ -222,6 +225,7 @@ export class VaultService {
 
   private async recoverGroup(clientInstanceId: string, expectedRevision: number, input: RecoverGroupInput): Promise<ServiceResult> {
     const state = await this.state()
+    if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== undefined) return failed('weak-password')
     if (state.revision !== expectedRevision) return failed('revision-conflict')
     const group = state.groups[input.groupId]
     if (!group) return failed('invalid-credentials')

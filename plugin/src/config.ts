@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import z from '@deepseek-ai/schemastery'
-import type { VaultPolicy } from './shared/contracts.js'
+import type { PasswordPolicy, VaultPolicy } from './shared/contracts.js'
 
 export type { VaultPolicy } from './shared/contracts.js'
 
@@ -17,6 +17,13 @@ interface VaultPolicyInput {
     readonly enabled?: boolean
     readonly maxAttempts?: number
     readonly cooldownSeconds?: number
+  }
+  readonly passwordPolicy?: {
+    readonly minLength?: number
+    readonly requireUppercase?: boolean
+    readonly requireLowercase?: boolean
+    readonly requireNumber?: boolean
+    readonly requireSymbol?: boolean
   }
 }
 
@@ -65,4 +72,13 @@ export const VaultPolicySchema: z<VaultPolicyInput, VaultPolicy> = z.object({
     maxAttempts: z.number().step(1).min(1).default(3),
     cooldownSeconds: z.number().step(1).min(1).default(300),
   }),
+  passwordPolicy: z.object({
+    minLength: z.number().step(1).min(4).max(128).default(8),
+    requireUppercase: z.boolean().default(false),
+    requireLowercase: z.boolean().default(false),
+    requireNumber: z.boolean().default(false),
+    requireSymbol: z.boolean().default(false),
+  }),
 })
+
+export type { PasswordPolicy }

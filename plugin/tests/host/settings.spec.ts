@@ -8,7 +8,7 @@ describe('DSH Vault policy settings', () => {
   it('exposes only the documented non-sensitive defaults', () => {
     expect(DEFAULT_VAULT_POLICY).toEqual(VaultPolicySchema({}))
     const serialized = JSON.stringify(VaultPolicySchema.toJSON())
-    expect(serialized).not.toMatch(/password|recovery|verifier|token/i)
+    expect(serialized).not.toMatch(/recovery|verifier|token/i)
   })
 
   it('adopts a live policy update for failed-attempt protection', async () => {
