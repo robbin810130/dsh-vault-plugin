@@ -37,6 +37,10 @@ export function resolveVaultTarget(snapshot: VaultClientSnapshot, target: VaultT
     if (target.workspaceId === undefined) return { kind: 'blocked', reason: 'invalid session binding' }
     return workspaceGroup(snapshot, target.workspaceId)
   }
-  if (target.workspaceId === undefined) return { kind: 'blocked', reason: 'invalid session binding' }
+  if (target.workspaceId === undefined) {
+    return snapshot.bindings.some(candidate => candidate.targetType === 'workspace')
+      ? { kind: 'blocked', reason: 'invalid session binding' }
+      : { kind: 'plain' }
+  }
   return workspaceGroup(snapshot, target.workspaceId)
 }

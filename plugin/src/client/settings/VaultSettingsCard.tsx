@@ -15,6 +15,7 @@ export interface VaultPolicyScope {
 export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly store?: VaultClientStore; readonly policyScope?: VaultPolicyScope }) {
   const store = useVaultStore(storeProp)
   const [tab, setTab] = useState<Tab>('policy')
+  const [expanded, setExpanded] = useState(true)
   if (store === undefined) return null
   const snapshot = store.getSnapshot()
   const persistPolicy = (next: VaultPolicy): void => {
@@ -31,14 +32,24 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
   const tabs: readonly [Tab, string][] = [['policy', '锁定策略'], ['groups', '密码组'], ['recovery', '恢复能力']]
   return (
     <section className="dsh-vault-settings-card" aria-label="保险箱">
-      <h2>保险箱</h2>
-      <div className="dsh-vault-settings-tabs" role="tablist">
-        {tabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
-      </div>
-      {tab === 'policy' && <PolicyPanel policy={snapshot.policy} onChange={persistPolicy} />}
-      {tab === 'groups' && <GroupsPanel store={store} />}
-      {tab === 'recovery' && <RecoveryPanel store={store} />}
-      <p className="dsh-vault-settings-disclosure">一期仅控制 DSH 前台访问，原始会话文件未加密</p>
+      <button
+        type="button"
+        className="dsh-vault-settings-card-header"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(value => !value)}
+      >
+        <span>保险箱</span>
+        <span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+      </button>
+      {expanded && <div className="dsh-vault-settings-card-body">
+        <div className="dsh-vault-settings-tabs" role="tablist">
+          {tabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+        </div>
+        {tab === 'policy' && <PolicyPanel policy={snapshot.policy} onChange={persistPolicy} />}
+        {tab === 'groups' && <GroupsPanel store={store} />}
+        {tab === 'recovery' && <RecoveryPanel store={store} />}
+        <p className="dsh-vault-settings-disclosure">一期仅控制 DSH 前台访问，原始会话文件未加密</p>
+      </div>}
     </section>
   )
 }

@@ -60,6 +60,15 @@ const target = (type: 'workspace' | 'session', id: string, workspaceId?: string)
 })
 
 describe('Vault navigation access provider', () => {
+  it('allows an unbound session when Vault has no protection configuration', async () => {
+    const snapshot = { ...makeSnapshot([]), groups: [] }
+    const store = makeStore(snapshot)
+    await store.refresh()
+    const provider = createVaultAccessProvider(store)
+
+    expect(provider.sessionState('s-plain').kind).toBe('allow')
+  })
+
   it('blocks a grant immediately when Host expiry is reached', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1_000)
     const api: VaultApiClient = {

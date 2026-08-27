@@ -18,6 +18,31 @@
   line-height: 1.5;
 }
 
+.dsh-vault-settings-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dsh-vault-settings-card-header:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dsh-vault-settings-card-body {
+  min-width: 0;
+}
+
 .dsh-vault-settings-tabs {
   display: flex;
   align-items: flex-end;
@@ -153,6 +178,18 @@
   font-size: 13px;
   padding: 0 12px;
   cursor: pointer;
+}
+
+.dsh-vault-row-action-button {
+  width: 34px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.dsh-vault-row-action-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--dsw-alias-bg-module-platform);
 }
 
 .dsh-vault-button:hover:not(:disabled),

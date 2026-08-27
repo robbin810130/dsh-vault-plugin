@@ -34,6 +34,16 @@ function store(overrides: Partial<VaultClientStore> = {}): VaultClientStore {
 }
 
 describe('Vault settings card', () => {
+  it('can collapse independently from the surrounding plugin settings', () => {
+    render(<VaultSettingsCard store={store()} />)
+
+    const toggle = screen.getByRole('button', { name: '保险箱' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByLabelText('自动锁定')).toBeNull()
+  })
+
   it('shows policy defaults and the fixed一期 disclosure', () => {
     render(<VaultSettingsCard store={store()} />)
 
