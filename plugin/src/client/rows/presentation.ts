@@ -17,6 +17,12 @@ export interface SessionRowPresentation extends WorkspaceRowPresentation {
 
 export type VaultTranslate = (key: 'workspace' | 'session') => string
 
+const sessionWorkspaceIds = new Map<string, string>()
+
+export function workspaceIdForSession(sessionId: string): string | undefined {
+  return sessionWorkspaceIds.get(sessionId)
+}
+
 export interface WorkspaceRowDecorator {
   workspace?(id: string, base: WorkspaceRowPresentation): WorkspaceRowPresentation
   session?(id: string, base: SessionRowPresentation, workspaceId?: string): SessionRowPresentation
@@ -43,6 +49,7 @@ export function createVaultRowDecorator(store: VaultClientStore, t: VaultTransla
       return conceal('workspace', t) as WorkspaceRowPresentation
     },
     session: (id, base, workspaceId) => {
+      if (workspaceId !== undefined) sessionWorkspaceIds.set(id, workspaceId)
       const snapshot = store.getSnapshot()
       const resolution = resolveVaultTarget(snapshot, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) })
       if (resolution.kind === 'plain' || (resolution.kind === 'protected' && snapshot.host === 'ready' && store.hasUnlockedGroup(resolution.groupId))) return base

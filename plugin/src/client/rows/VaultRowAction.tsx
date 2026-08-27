@@ -79,7 +79,11 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   }
   const toggle = (event: React.MouseEvent) => {
     event.stopPropagation()
-    if (locked) { onUnlock?.(); return }
+    if (locked) {
+      if (onUnlock !== undefined) { onUnlock(); return }
+      if (store !== undefined && state.groupId !== undefined && target !== undefined) void store.requestUnlock(state.groupId, target)
+      return
+    }
     if (onLock !== undefined) { onLock(); return }
     if (binding?.passwordGroupId !== undefined && store !== undefined) { void store.lockGroup(binding.passwordGroupId); return }
     setDialogOpen(true)

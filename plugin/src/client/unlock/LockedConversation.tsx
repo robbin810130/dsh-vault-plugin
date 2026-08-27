@@ -4,6 +4,7 @@ import { LockIcon } from '../components/LockIcon.js'
 import { resolveVaultTarget } from '../access/resolution.js'
 import type { VaultClientStore } from '../store-types.js'
 import { useVaultStore } from './controller.js'
+import { workspaceIdForSession } from '../rows/presentation.js'
 
 export interface LockedConversationProps {
   readonly sessionId: string
@@ -23,9 +24,10 @@ function useSnapshot(store: VaultClientStore | undefined) {
 export function LockedConversation({ sessionId, store: storeProp, children }: LockedConversationProps) {
   const store = useVaultStore(storeProp)
   const snapshot = useSnapshot(store)
+  const knownWorkspaceId = workspaceIdForSession(sessionId)
   const target = snapshot?.prompt?.target.type === 'session' && snapshot.prompt.target.id === sessionId
     ? snapshot.prompt.target
-    : { type: 'session' as const, id: sessionId }
+    : { type: 'session' as const, id: sessionId, ...(knownWorkspaceId === undefined ? {} : { workspaceId: knownWorkspaceId }) }
   const hasProtectionConfig = snapshot !== undefined && (snapshot.groups.length > 0 || snapshot.bindings.length > 0)
   const resolution = snapshot === undefined
     ? { kind: 'blocked' as const, reason: 'Vault group locked' }

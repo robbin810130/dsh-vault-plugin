@@ -33,6 +33,18 @@ describe('Vault row affordances', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('requests unlock from the store when the native row does not provide a callback', () => {
+    const requestUnlock = vi.fn(async () => false)
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'session', targetId: 'session-a', mode: 'direct', passwordGroupId: 'group-a' }], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+      requestUnlock,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction locked kind="session" sessionId="session-a" workspaceId="workspace-a" store={store} />)
+    fireEvent.click(screen.getByRole('button', { name: '解锁' }))
+    expect(requestUnlock).toHaveBeenCalledWith('group-a', { type: 'session', id: 'session-a', workspaceId: 'workspace-a' })
+  })
+
   it('opens the password dialog even before a password group exists', () => {
     const store = {
       getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
