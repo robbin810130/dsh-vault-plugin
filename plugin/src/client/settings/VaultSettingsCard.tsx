@@ -43,7 +43,7 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
           <strong>保险箱</strong>
           <small>保护会话和工作区访问</small>
         </span>
-        <span className={`dsh-vault-settings-card-chevron${expanded ? ' dsh-vault-settings-card-chevron-open' : ''}`} aria-hidden="true">⌄</span>
+        <span className={`dsh-vault-settings-card-chevron${expanded ? ' dsh-vault-settings-card-chevron-open' : ''}`} aria-hidden="true" />
       </button>
       {expanded ? <div className="dsh-vault-settings-card-body">
           <div className="dsh-vault-settings-tabs" role="tablist">

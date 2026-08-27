@@ -76,12 +76,17 @@
 
 .dsh-vault-settings-card-chevron {
   flex: none;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
   color: var(--dsw-alias-label-tertiary);
   transition: transform .16s;
 }
 
 .dsh-vault-settings-card-chevron-open {
-  transform: rotate(180deg);
+  transform: rotate(225deg) translate(-1px, -1px);
 }
 
 .dsh-vault-settings-card-body {
@@ -246,9 +251,9 @@
 }
 
 .dsh-vault-button-primary {
-  border-color: var(--dsw-alias-brand-primary);
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-label-primary);
+  border-color: transparent;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-layer-3);
 }
 
 .dsh-vault-row-menu {
