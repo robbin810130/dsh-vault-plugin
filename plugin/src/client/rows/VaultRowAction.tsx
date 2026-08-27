@@ -81,6 +81,7 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
         {recoveryKey === null ? <>
           <h2>设置密码并上锁</h2><p>保存后将立即锁定当前对话。</p>
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-password"><span>密码</span><input id="dsh-vault-quick-password" type="password" minLength={8} value={password} onChange={event => setPassword(event.currentTarget.value)} /></label>
+          {password.length > 0 && password.length < 8 && <p className="dsh-vault-settings-warning" role="note">密码至少需要 8 个字符</p>}
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-confirm"><span>确认密码</span><input id="dsh-vault-quick-confirm" type="password" value={confirmation} onChange={event => setConfirmation(event.currentTarget.value)} /></label>
           {error !== null && <p className="dsh-vault-settings-warning" role="alert">{error}</p>}
           <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button" onClick={() => setDialogOpen(false)}>取消</button><button type="button" className="dsh-vault-button dsh-vault-button-primary" disabled={pending || password.length < 8 || confirmation.length < 8} onClick={save}>保存并上锁</button></div>

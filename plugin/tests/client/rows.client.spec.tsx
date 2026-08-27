@@ -42,6 +42,8 @@ describe('Vault row affordances', () => {
 
     expect(screen.getByRole('button', { name: '上锁' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: '123' } })
+    expect(screen.getByText('密码至少需要 8 个字符')).toBeVisible()
     expect(screen.getByRole('dialog', { name: '设置密码并上锁' })).toBeVisible()
   })
 
