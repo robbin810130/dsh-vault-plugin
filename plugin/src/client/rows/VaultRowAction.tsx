@@ -38,6 +38,11 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
       ? { type: 'session', id: sessionId, ...(workspaceId === undefined ? {} : { workspaceId }) }
       : undefined
   const binding = snapshot?.bindings.find(candidate => candidate.targetType === kind && candidate.targetId === target?.id)
+  const collapseWorkspace = () => {
+    if (kind !== 'workspace' || typeof document === 'undefined') return
+    const row = document.activeElement?.closest<HTMLElement>('[role="treeitem"]')
+    if (row?.getAttribute('aria-expanded') === 'true') row.click()
+  }
   if (!locked && target === undefined && onLock === undefined) return null
 
   const groupNameBase = (presentation?.label?.trim() || `${target?.type === 'workspace' ? '工作区' : '对话'}保护`).slice(0, 128)
@@ -86,8 +91,11 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
       if (store !== undefined && state.groupId !== undefined && target !== undefined) void store.requestUnlock(state.groupId, target)
       return
     }
-    if (onLock !== undefined) { onLock(); return }
-    if (binding?.passwordGroupId !== undefined && store !== undefined) { void store.lockGroup(binding.passwordGroupId); return }
+    if (onLock !== undefined) { onLock(); collapseWorkspace(); return }
+    if (binding?.passwordGroupId !== undefined && store !== undefined) {
+      void store.lockGroup(binding.passwordGroupId).then(result => { if (result.ok) collapseWorkspace() })
+      return
+    }
     setDialogOpen(true)
     setError(null)
   }
