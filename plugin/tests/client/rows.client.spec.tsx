@@ -33,14 +33,31 @@ describe('Vault row affordances', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('does not render an inert lock button before a password group exists', () => {
+  it('opens the password dialog even before a password group exists', () => {
     const store = {
       getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
 
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByRole('button', { name: '上锁' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+    expect(screen.getByRole('dialog', { name: '设置密码并上锁' })).toBeVisible()
+  })
+
+  it('creates and binds a password group atomically from the row lock dialog', async () => {
+    const createGroup = vi.fn(async () => ({ ok: true, value: { snapshot: {}, recoveryKey: 'recovery-key' } }))
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+      createGroup,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="session" sessionId="session-a" workspaceId="workspace-a" presentation={{ label: '我的对话' }} store={store} />)
+    fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存并上锁' }))
+    await vi.waitFor(() => expect(createGroup).toHaveBeenCalledWith(expect.objectContaining({ name: '我的对话', password: 'correct horse', bindings: [expect.objectContaining({ targetId: 'session-a', mode: 'direct' })] })))
   })
 
   it('renders a lock button when a password group exists and can be used for direct protection', () => {
@@ -53,17 +70,15 @@ describe('Vault row affordances', () => {
     expect(screen.getByRole('button', { name: '上锁' })).toBeVisible()
   })
 
-  it('uses the first password group for a direct lock when DSH does not inject callbacks', () => {
-    const updateBindings = vi.fn(async () => ({ ok: true, value: {} }))
+  it('opens the password dialog without requiring a pre-existing password group', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
-      updateBindings,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
 
     fireEvent.click(screen.getByRole('button', { name: '上锁' }))
-    expect(updateBindings).toHaveBeenCalledWith(expect.objectContaining({ kind: 'replace', binding: expect.objectContaining({ passwordGroupId: 'group-a', targetId: 'workspace-a' }) }))
+    expect(screen.getByRole('dialog', { name: '设置密码并上锁' })).toBeVisible()
   })
 
 })

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { LockIcon } from '../components/LockIcon.js'
 import type { ProtectionBinding, VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
@@ -11,17 +12,16 @@ export interface VaultRowActionProps {
   readonly store?: VaultClientStore
   readonly onUnlock?: () => void
   readonly onLock?: () => void
+  readonly presentation?: { readonly label?: string }
 }
 
-export function VaultRowAction({
-  locked: lockedProp,
-  kind: kindProp,
-  workspaceId,
-  sessionId,
-  store: storeProp,
-  onUnlock,
-  onLock,
-}: VaultRowActionProps) {
+export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId, sessionId, store: storeProp, onUnlock, onLock, presentation }: VaultRowActionProps) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
   const store = useVaultStore(storeProp)
   const kind = kindProp ?? (sessionId !== undefined ? 'session' : workspaceId !== undefined ? 'workspace' : undefined)
   const state = resolveRowLockState(store, kind, workspaceId, sessionId)
@@ -33,42 +33,50 @@ export function VaultRowAction({
       ? { type: 'session', id: sessionId, ...(workspaceId === undefined ? {} : { workspaceId }) }
       : undefined
   const binding = snapshot?.bindings.find(candidate => candidate.targetType === kind && candidate.targetId === target?.id)
-  const canManage = store !== undefined && target !== undefined && (snapshot?.groups.length ?? 0) > 0
-  if (!canManage && (locked ? onUnlock : onLock) === undefined) return null
+  if (!locked && target === undefined && onLock === undefined) return null
 
-  const toggle = () => {
-    if (locked) { onUnlock?.(); return }
-    if (onLock !== undefined) { onLock(); return }
-    if (store === undefined || target === undefined || snapshot === undefined) return
-    if (binding?.passwordGroupId !== undefined) { void store.lockGroup(binding.passwordGroupId); return }
-    const group = snapshot.groups[0]
-    if (group === undefined) return
+  const groupName = (presentation?.label?.trim() || `${target?.type === 'workspace' ? '工作区' : '对话'}保护`).slice(0, 128)
+  const save = () => {
+    if (store === undefined || target === undefined || pending) return
+    if (password.length < 8) { setError('密码至少需要 8 个字符'); return }
+    if (password !== confirmation) { setError('两次密码不一致'); return }
+    setPending(true)
+    setError(null)
     const now = new Date().toISOString()
-    const next: ProtectionBinding = {
+    const bindingInput: ProtectionBinding = {
       targetType: target.type,
       targetId: target.id,
       mode: 'direct',
-      passwordGroupId: group.id,
       ...(target.type === 'session' && target.workspaceId !== undefined ? { workspaceId: target.workspaceId } : {}),
       createdAt: now,
       updatedAt: now,
     }
-    void store.updateBindings({ kind: 'replace', binding: next })
+    void store.createGroup({ name: groupName, password, bindings: [bindingInput] })
+      .then(result => { if (result.ok) setRecoveryKey(result.value.recoveryKey); else setError(result.error.code === 'duplicate-name' ? '该对话已有同名保护记录' : '创建失败，请重试') })
+      .catch(() => setError('保险箱暂时不可用，请稍后重试'))
+      .finally(() => { setPending(false); setPassword(''); setConfirmation('') })
+  }
+  const toggle = (event: React.MouseEvent) => {
+    event.stopPropagation()
+    if (locked) { onUnlock?.(); return }
+    if (onLock !== undefined) { onLock(); return }
+    if (binding?.passwordGroupId !== undefined && store !== undefined) { void store.lockGroup(binding.passwordGroupId); return }
+    setDialogOpen(true)
+    setError(null)
   }
 
-  return (
-    <span className="dsh-vault-row-action">
-      <button
-        type="button"
-        className="dsh-vault-row-action-button"
-        aria-label={locked ? '解锁' : '上锁'}
-        onClick={(event) => {
-          event.stopPropagation()
-          toggle()
-        }}
-      >
-        <LockIcon className="dsh-vault-lock-icon" />
-      </button>
-    </span>
-  )
+  return <span className="dsh-vault-row-action">
+    <button type="button" className="dsh-vault-row-action-button" aria-label={locked ? '解锁' : '上锁'} onClick={toggle}><LockIcon className="dsh-vault-lock-icon" /></button>
+    {dialogOpen && <div className="dsh-vault-dialog-backdrop">
+      <section className="dsh-vault-dialog dsh-vault-quick-lock-dialog" role="dialog" aria-label="设置密码并上锁" aria-modal="true">
+        {recoveryKey === null ? <>
+          <h2>设置密码并上锁</h2><p>保存后将立即锁定当前对话。</p>
+          <label className="dsh-vault-field" htmlFor="dsh-vault-quick-password"><span>密码</span><input id="dsh-vault-quick-password" type="password" minLength={8} value={password} onChange={event => setPassword(event.currentTarget.value)} /></label>
+          <label className="dsh-vault-field" htmlFor="dsh-vault-quick-confirm"><span>确认密码</span><input id="dsh-vault-quick-confirm" type="password" value={confirmation} onChange={event => setConfirmation(event.currentTarget.value)} /></label>
+          {error !== null && <p className="dsh-vault-settings-warning" role="alert">{error}</p>}
+          <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button" onClick={() => setDialogOpen(false)}>取消</button><button type="button" className="dsh-vault-button dsh-vault-button-primary" disabled={pending || password.length < 8 || confirmation.length < 8} onClick={save}>保存并上锁</button></div>
+        </> : <><h2>已上锁</h2><p>请保存这条恢复密钥，关闭后不会再次显示。</p><output className="dsh-vault-recovery-key">{recoveryKey}</output><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => { setRecoveryKey(null); setDialogOpen(false) }}>完成</button></>}
+      </section>
+    </div>}
+  </span>
 }
