@@ -39,5 +39,5 @@
 
 - 将 `react-dom` 加入 DSH client manifest 和 bundler external 列表，复用 DSH 原生运行时依赖。
 - 新增 bundle 回归断言，确保共享模块不被重复打包。
-- 修复提交：待生成。
+- 修复提交：`6ea0a97`。
 - 修复后 `vitest`、客户端类型检查、构建和发布包生成均通过；当前 DSH 页面 HTTP 200，Vault snapshot API 返回正常。
