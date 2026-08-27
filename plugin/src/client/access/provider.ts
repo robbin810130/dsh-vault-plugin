@@ -1,6 +1,7 @@
 import type { VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
 import { resolveVaultTarget, type VaultProtectionResolution } from './resolution.js'
+import { workspaceIdForSession } from '../rows/presentation.js'
 
 export type NavigationAccessState =
   | { readonly kind: 'allow' }
@@ -53,13 +54,20 @@ function decisionFor(store: VaultClientStore, target: VaultTarget): Promise<Navi
 
 export function createVaultAccessProvider(store: VaultClientStore): NavigationAccessProvider {
   const listeners = new Set<() => void>()
+  const sessionTarget = (id: string, workspaceId?: string): VaultTarget => ({
+    type: 'session',
+    id,
+    ...((workspaceId ?? workspaceIdForSession(id)) === undefined ? {} : { workspaceId: workspaceId ?? workspaceIdForSession(id) }),
+  })
   const matchesSession = (id: string): boolean => {
     const snapshot = store.getSnapshot()
     // DSH may probe this method before it knows the session's workspace.
     // An implicit workspace binding cannot be resolved safely at that point;
     // let requestSession(id, workspaceId) make the authoritative decision.
     const explicit = snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)
-    return explicit && protectedResolution(store, { type: 'session', id }).kind !== 'plain'
+    const knownWorkspace = workspaceIdForSession(id)
+    if (!explicit && knownWorkspace === undefined) return false
+    return protectedResolution(store, sessionTarget(id)).kind !== 'plain'
   }
   const unsubscribe = store.subscribe(() => {
     for (const listener of [...listeners]) listener()
@@ -68,9 +76,9 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
     matchesSession,
     workspaceState: id => targetState(store, { type: 'workspace', id }),
-    sessionState: (id, workspaceId) => targetState(store, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) }),
+    sessionState: (id, workspaceId) => targetState(store, sessionTarget(id, workspaceId)),
     requestWorkspace: id => decisionFor(store, { type: 'workspace', id }),
-    requestSession: (id, workspaceId) => decisionFor(store, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) }),
+    requestSession: (id, workspaceId) => decisionFor(store, sessionTarget(id, workspaceId)),
     subscribe: listener => {
       listeners.add(listener)
       let active = true

@@ -3,6 +3,7 @@ import { createVaultAccessProvider } from '../../src/client/access/provider.js'
 import { createVaultClientStore, type VaultClientStore } from '../../src/client/store.js'
 import type { VaultApiClient } from '../../src/client/api.js'
 import type { VaultApiRequest, VaultApiResult, VaultSnapshot, VaultTarget } from '../../src/shared/contracts.js'
+import { rememberWorkspaceIdForSession } from '../../src/client/rows/presentation.js'
 
 const now = '2026-08-25T00:00:00.000Z'
 const token = 'A'.repeat(43)
@@ -133,6 +134,14 @@ describe('Vault navigation access provider', () => {
     expect(provider.sessionState('s-implicit').kind).toBe('blocked')
     expect(provider.matchesSession('s-implicit')).toBe(false)
     expect(provider.matchesSession('s-unknown')).toBe(false)
+  })
+
+  it('rechecks the current session immediately after its workspace is locked', async () => {
+    const store = makeStore(makeSnapshot([binding('workspace', 'w-locked', 'direct', 'group-a')]))
+    await store.refresh()
+    rememberWorkspaceIdForSession('s-current', 'w-locked')
+    const provider = createVaultAccessProvider(store)
+    expect(provider.sessionState('s-current')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
   })
 
   it('bypasses plain targets and blocks workspace, inherited, direct override, expired, and offline targets', async () => {
