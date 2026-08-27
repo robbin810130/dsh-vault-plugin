@@ -87,11 +87,11 @@ describe('Vault settings card', () => {
     expect(screen.getByLabelText('要求数字')).toBeVisible()
   })
 
-  it('locks all groups from the recovery tab', async () => {
+  it('locks all groups from the policy panel without a redundant recovery tab', async () => {
     const current = store()
     render(<VaultSettingsCard store={current} />)
     fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
-    fireEvent.click(screen.getByRole('tab', { name: '恢复能力' }))
+    expect(screen.queryByRole('tab', { name: '恢复能力' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '立即全部上锁' }))
     expect(current.lockAll).toHaveBeenCalledOnce()
   })

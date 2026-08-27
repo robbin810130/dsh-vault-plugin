@@ -3,10 +3,9 @@ import type { VaultClientStore } from '../store-types.js'
 import { useVaultStore } from '../unlock/controller.js'
 import { GroupsPanel } from './GroupsPanel.js'
 import { PolicyPanel } from './PolicyPanel.js'
-import { RecoveryPanel } from './RecoveryPanel.js'
 import type { VaultPolicy } from '../../shared/contracts.js'
 
-type Tab = 'policy' | 'groups' | 'recovery'
+type Tab = 'policy' | 'groups'
 
 function NativeChevron() {
   return <span className="dsh-vault-settings-card-chevron" aria-hidden="true" />
@@ -34,7 +33,7 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
     if (JSON.stringify(next.passwordPolicy) !== JSON.stringify(snapshot.policy.passwordPolicy)) writes.push(policyScope.set('passwordPolicy', next.passwordPolicy))
     void Promise.all(writes).then(() => store.refresh()).catch(() => store.refresh())
   }
-  const tabs: readonly [Tab, string][] = [['policy', '锁定策略'], ['groups', '密码组'], ['recovery', '恢复能力']]
+  const tabs: readonly [Tab, string][] = [['policy', '锁定策略'], ['groups', '密码组']]
   return (
     <section className={`dsh-vault-settings-card${expanded ? ' dsh-vault-settings-card-open' : ''}`} aria-label="保险箱">
       <button
@@ -54,9 +53,8 @@ export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly 
           <div className="dsh-vault-settings-tabs" role="tablist">
             {tabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
           </div>
-          {tab === 'policy' && <PolicyPanel policy={snapshot.policy} onChange={persistPolicy} />}
+          {tab === 'policy' && <PolicyPanel policy={snapshot.policy} onChange={persistPolicy} onLockAll={() => void store.lockAll()} />}
           {tab === 'groups' && <GroupsPanel store={store} />}
-          {tab === 'recovery' && <RecoveryPanel store={store} />}
         </div> : null}
     </section>
   )

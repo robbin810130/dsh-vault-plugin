@@ -5,9 +5,10 @@ import { passwordPolicyError } from '../../shared/password-policy.js'
 export interface PolicyPanelProps {
   readonly policy: VaultPolicy
   readonly onChange?: (policy: VaultPolicy) => void
+  readonly onLockAll?: () => void
 }
 
-export function PolicyPanel({ policy, onChange }: PolicyPanelProps) {
+export function PolicyPanel({ policy, onChange, onLockAll }: PolicyPanelProps) {
   const [value, setValue] = useState(policy)
   const update = (next: VaultPolicy) => {
     setValue(next)
@@ -69,6 +70,11 @@ export function PolicyPanel({ policy, onChange }: PolicyPanelProps) {
       <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求数字" checked={passwordPolicy.requireNumber} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireNumber: event.currentTarget.checked })} />要求数字</label>
       <label className="dsh-vault-checkbox"><input type="checkbox" aria-label="要求符号" checked={passwordPolicy.requireSymbol} onChange={event => updatePasswordPolicy({ ...passwordPolicy, requireSymbol: event.currentTarget.checked })} />要求符号</label>
       <p className="dsh-vault-settings-warning" role="note">{passwordPolicyError('示例密码', passwordPolicy) ?? '当前密码策略已满足最低要求'}</p>
+      {onLockAll !== undefined && (
+        <div className="dsh-vault-settings-heading dsh-vault-settings-heading-actions-only">
+          <button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={onLockAll}>立即全部上锁</button>
+        </div>
+      )}
     </section>
   )
 }
