@@ -13,11 +13,13 @@ import type {
 
 export interface VaultApiClient {
   call<T>(request: VaultApiRequest, signal?: AbortSignal): Promise<VaultApiResult<T>>
+  createGroupIntent(clientInstanceId: string, signal?: AbortSignal): Promise<VaultApiResult<{ readonly intent: string }>>
 }
 
 const ROUTE = '/dsh-vault/api'
 const HOST_ERROR_CODES = new Set([
   'body-too-large',
+  'create-intent-refused',
   'cooldown',
   'duplicate-name',
   'invalid-binding',
@@ -202,6 +204,14 @@ function parseSnapshotWithRecovery(value: unknown, recoveryRequired: boolean): R
   return { snapshot: parseSnapshot(source.snapshot), ...(recoveryKey === undefined ? {} : { recoveryKey }) }
 }
 
+function parseCreateIntent(value: unknown): { readonly intent: string } {
+  const source = record(value)
+  exact(source, ['intent'])
+  const intent = text(source.intent, 128)
+  if (!/^[A-Za-z0-9_-]{43}$/.test(intent)) throw new TypeError('Invalid Vault response')
+  return { intent }
+}
+
 function parseSuccess(request: VaultApiRequest, value: unknown): unknown {
   switch (request.action) {
     case 'snapshot': return parseSnapshot(value)
@@ -241,6 +251,28 @@ function parseResult<T>(request: VaultApiRequest, value: unknown): VaultApiResul
 
 export function createVaultApiClient(fetcher: typeof fetch = globalThis.fetch): VaultApiClient {
   return {
+    async createGroupIntent(clientInstanceId: string, signal?: AbortSignal): Promise<VaultApiResult<{ readonly intent: string }>> {
+      let response: Response
+      try {
+        response = await fetcher(ROUTE, {
+          method: 'POST', credentials: 'same-origin', cache: 'no-store',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'group-create-intent', clientInstanceId }),
+          ...(signal === undefined ? {} : { signal }),
+        })
+      } catch {
+        return signal?.aborted ? failure('request-aborted', 'Vault request aborted') : failure('host-unavailable', 'Vault host unavailable')
+      }
+      if (!response.ok) return failure('host-unavailable', 'Vault host unavailable')
+      try {
+        const body = record(await response.json() as unknown)
+        if (body.ok !== true) return failure('invalid-response', 'Vault response refused')
+        exact(body, ['ok', 'value'])
+        return { ok: true, value: parseCreateIntent(body.value) }
+      } catch {
+        return failure('invalid-response', 'Vault response refused')
+      }
+    },
     async call<T>(request: VaultApiRequest, signal?: AbortSignal): Promise<VaultApiResult<T>> {
       let response: Response
       try {

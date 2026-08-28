@@ -152,12 +152,14 @@ export class VaultService {
     try { valid = await verifySecret(password, group.password) } catch { valid = false }
     if (!valid) {
       const decision = this.attempts.recordFailure(groupId, clientInstanceId, this.policy.failedAttemptProtection)
+      await this.safeAudit({ action: 'unlock', groupId, clientInstanceId, credentialVersion: group.credentialVersion, result: 'denied', reasonCode: decision.kind === 'cooldown' ? 'cooldown' : 'invalid-credentials' })
       return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
     }
     this.attempts.recordSuccess(groupId, clientInstanceId)
     try {
       const grant = this.grants.issue(group.id, group.credentialVersion, clientInstanceId, this.ttlMs())
       const result: UnlockResult = { grant: { groupId: grant.groupId, credentialVersion: grant.credentialVersion, token: grant.token }, expiresAt: grant.expiresAt }
+      await this.safeAudit({ action: 'unlock', groupId: group.id, clientInstanceId, credentialVersion: group.credentialVersion, result: 'success' })
       return { ok: true, value: result }
     } catch { return SAFE_ERROR }
   }

@@ -76,6 +76,21 @@ describe('VaultService', () => {
     expect(service.validateGrants('client-2', [unlocked.value.grant])).toEqual({ valid: false })
   })
 
+  it('audits an unlock decision without persisting the supplied password', async () => {
+    const created = await service.handle(groupCreateRequest(0, {
+      name: 'Primary', password: 'correct horse', bindings: [],
+    }))
+    if (!created.ok) throw new Error('create failed')
+
+    await expect(service.handle({
+      action: 'unlock', clientInstanceId: 'client-1', groupId: created.value.snapshot.groups[0]!.id, password: 'correct horse',
+    })).resolves.toMatchObject({ ok: true })
+
+    const events = (await fs.readFile(join(root, 'vault-lock', 'audit.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(events.at(-1)).toMatchObject({ action: 'unlock', groupId: created.value.snapshot.groups[0]!.id, clientInstanceId: 'client-1', result: 'success' })
+    expect(JSON.stringify(events)).not.toContain('correct horse')
+  })
+
   it('enforces configured password strength at the Host boundary', async () => {
     const strict = new VaultService({ repository: new VaultStateRepository(join(root, 'strict-vault-lock')), policy: strictPolicy })
     await expect(strict.handle(groupCreateRequest(0, { name: 'Weak', password: 'correct horse', bindings: [] }))).resolves.toMatchObject({ ok: false, error: { code: 'weak-password' } })

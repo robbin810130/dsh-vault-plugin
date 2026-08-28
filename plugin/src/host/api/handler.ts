@@ -1,9 +1,28 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { randomBytes } from 'node:crypto'
 import { isIPv4, isIPv6 } from 'node:net'
 import { MAX_BODY_BYTES, parseVaultApiRequest } from './request.js'
 import type { VaultService } from '../service.js'
 
 type HandlerService = Pick<VaultService, 'handle'>
+
+const CREATE_INTENT_TTL_MS = 15_000
+
+class CreateIntentStore {
+  readonly entries = new Map<string, { readonly token: string; readonly expiresAt: number }>()
+
+  issue(clientInstanceId: string, now = Date.now()): string {
+    const token = randomBytes(32).toString('base64url')
+    this.entries.set(clientInstanceId, { token, expiresAt: now + CREATE_INTENT_TTL_MS })
+    return token
+  }
+
+  consume(clientInstanceId: string, token: string | undefined, now = Date.now()): boolean {
+    const entry = this.entries.get(clientInstanceId)
+    this.entries.delete(clientInstanceId)
+    return entry !== undefined && entry.expiresAt >= now && token !== undefined && entry.token === token
+  }
+}
 
 class BodyTooLargeError extends Error {}
 
@@ -78,6 +97,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
 }
 
 export function createVaultApiHandler(service: HandlerService) {
+  const createIntents = new CreateIntentStore()
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.method !== 'POST') return send(res, 405, { ok: false, error: { code: 'method-not-allowed', message: 'Request refused' } })
     if (!checkOrigin(req)) return send(res, 403, { ok: false, error: { code: 'origin-refused', message: 'Request refused' } })
@@ -85,7 +105,18 @@ export function createVaultApiHandler(service: HandlerService) {
     if (contentType !== 'application/json') return send(res, 415, { ok: false, error: { code: 'unsupported-media-type', message: 'Request refused' } })
     try {
       const body = JSON.parse(await readBody(req)) as unknown
-      const result = await service.handle(parseVaultApiRequest(body))
+      const source = body !== null && typeof body === 'object' && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : undefined
+      if (source !== undefined && Object.keys(source).length === 2 && source.action === 'group-create-intent'
+        && typeof source.clientInstanceId === 'string' && source.clientInstanceId.length > 0 && source.clientInstanceId.length <= 128) {
+        return send(res, 200, { ok: true, value: { intent: createIntents.issue(source.clientInstanceId) } })
+      }
+      const parsed = parseVaultApiRequest(body)
+      if (parsed.action === 'group-create' && !createIntents.consume(parsed.clientInstanceId, parsed.intent)) {
+        return send(res, 400, { ok: false, error: { code: 'create-intent-refused', message: 'Request refused' } })
+      }
+      const result = await service.handle(parsed)
       send(res, 200, result)
     } catch (error) {
       if (error instanceof BodyTooLargeError) return send(res, 413, { ok: false, error: { code: 'body-too-large', message: 'Request refused' } })

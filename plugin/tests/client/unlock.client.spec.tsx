@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { VaultClientStore } from '../../src/client/store.js'
@@ -54,6 +54,30 @@ describe('Vault unlock surfaces', () => {
 
     expect(screen.getByText('需要解锁才能查看内容')).toBeTruthy()
     expect(screen.queryByText('secret assistant message')).toBeNull()
+  })
+
+  it('keeps the prompted workspace target after unlock so inherited protection can render its content', () => {
+    let snapshot = {
+      host: 'ready' as const, revision: 1,
+      groups: [{ id: 'group-a', name: 'Protected', credentialVersion: 1, recoveryConfigured: true, recoveryGeneratedAt: 'now', memberCount: 1 }],
+      bindings: [{ targetType: 'workspace' as const, targetId: 'w-locked', mode: 'direct' as const, passwordGroupId: 'group-a', createdAt: 'now', updatedAt: 'now' }],
+      policy: { autoLockMinutes: 15 as const, lockOnSystemSleep: true, lockedNameVisibility: 'all-hidden' as const, failedAttemptProtection: { enabled: true, maxAttempts: 3, cooldownSeconds: 300 } },
+      unlockedGroupIds: new Set<string>(), prompt: { groupId: 'group-a', target: { type: 'session' as const, id: 's-inherited-prompt', workspaceId: 'w-locked' } },
+    }
+    let notify: (() => void) | undefined
+    const current = store({
+      getSnapshot: () => snapshot,
+      hasUnlockedGroup: groupId => snapshot.unlockedGroupIds.has(groupId),
+      subscribe: listener => { notify = listener; return () => { notify = undefined } },
+    })
+    render(<LockedConversation sessionId="s-inherited-prompt" store={current}>
+      <p>unlocked inherited content</p>
+    </LockedConversation>)
+
+    snapshot = { ...snapshot, unlockedGroupIds: new Set(['group-a']), prompt: null }
+    act(() => notify?.())
+
+    expect(screen.getByText('unlocked inherited content')).toBeTruthy()
   })
 
   it('keeps the dialog submit disabled for an empty password and cancels on Escape', () => {

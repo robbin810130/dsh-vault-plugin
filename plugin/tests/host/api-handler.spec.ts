@@ -24,6 +24,46 @@ function response() {
 const service = { handle: async () => ({ ok: true, value: { revision: 0 } }) }
 
 describe('Vault API handler', () => {
+  it('refuses a password-group creation replay without a fresh intent', async () => {
+    const res = response()
+    await createVaultApiHandler(service as never)(
+      request(JSON.stringify({
+        action: 'group-create', clientInstanceId: 'client-1', expectedRevision: 0, grants: [],
+        input: { name: 'Primary', password: 'correct horse', bindings: [] },
+      }), {
+        host: '127.0.0.1:8080', origin: 'http://127.0.0.1:8080', 'content-type': 'application/json',
+      }), res as unknown as ServerResponse,
+    )
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body)).toEqual({
+      ok: false,
+      error: { code: 'create-intent-refused', message: 'Request refused' },
+    })
+  })
+
+  it('accepts a fresh create intent once and then refuses its replay', async () => {
+    const calls: unknown[] = []
+    const handler = createVaultApiHandler({ handle: async (request: unknown) => { calls.push(request); return { ok: true, value: { revision: 1 } } } } as never)
+    const headers = { host: '127.0.0.1:8080', origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' }
+    const issued = response()
+    await handler(request('{"action":"group-create-intent","clientInstanceId":"client-1"}', headers), issued as unknown as ServerResponse)
+    const intent = JSON.parse(issued.body).value.intent as string
+
+    const body = JSON.stringify({
+      action: 'group-create', clientInstanceId: 'client-1', expectedRevision: 0, grants: [], intent,
+      input: { name: 'Primary', password: 'correct horse', bindings: [] },
+    })
+    const accepted = response()
+    await handler(request(body, headers), accepted as unknown as ServerResponse)
+    expect(accepted.statusCode).toBe(200)
+    expect(calls).toHaveLength(1)
+
+    const replayed = response()
+    await handler(request(body, headers), replayed as unknown as ServerResponse)
+    expect(replayed.statusCode).toBe(400)
+  })
+
   it('accepts same-origin localhost JSON and emits no-store JSON', async () => {
     const res = response()
     await createVaultApiHandler(service as never)(

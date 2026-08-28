@@ -143,8 +143,11 @@ export function parseVaultApiRequest(value: unknown): VaultApiRequest {
       exact(source, ['action', 'clientInstanceId'])
       return { action, clientInstanceId: id(source.clientInstanceId) }
     case 'group-create':
-      exact(source, ['action', 'clientInstanceId', 'expectedRevision', 'grants', 'input'])
-      return { action, clientInstanceId: id(source.clientInstanceId), expectedRevision: revision(source.expectedRevision), grants: proofs(source.grants), input: createInput(source.input) }
+      exact(source, ['action', 'clientInstanceId', 'expectedRevision', 'grants', 'input', 'intent'])
+      {
+        const intent = text(source.intent, 128, true)
+        return { action, clientInstanceId: id(source.clientInstanceId), expectedRevision: revision(source.expectedRevision), grants: proofs(source.grants), input: createInput(source.input), ...(intent === undefined ? {} : { intent }) }
+      }
     case 'group-change-password':
       exact(source, ['action', 'clientInstanceId', 'expectedRevision', 'input'])
       return { action, clientInstanceId: id(source.clientInstanceId), expectedRevision: revision(source.expectedRevision), input: changeInput(source.input) }

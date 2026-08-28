@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useSyncExternalStore } from 'react'
+import { useRef, useSyncExternalStore } from 'react'
 import { LockIcon } from '../components/LockIcon.js'
 import { resolveVaultTarget } from '../access/resolution.js'
 import type { VaultClientStore } from '../store-types.js'
@@ -25,9 +25,16 @@ export function LockedConversation({ sessionId, store: storeProp, children }: Lo
   const store = useVaultStore(storeProp)
   const snapshot = useSnapshot(store)
   const knownWorkspaceId = workspaceIdForSession(sessionId)
-  const target = snapshot?.prompt?.target.type === 'session' && snapshot.prompt.target.id === sessionId
+  const promptedTarget = snapshot?.prompt?.target.type === 'session' && snapshot.prompt.target.id === sessionId
     ? snapshot.prompt.target
-    : { type: 'session' as const, id: sessionId, ...(knownWorkspaceId === undefined ? {} : { workspaceId: knownWorkspaceId }) }
+    : undefined
+  const lastPromptedTarget = useRef<typeof promptedTarget>()
+  if (promptedTarget !== undefined) lastPromptedTarget.current = promptedTarget
+  const rememberedWorkspaceId = lastPromptedTarget.current?.id === sessionId
+    ? lastPromptedTarget.current.workspaceId
+    : undefined
+  const workspaceId = knownWorkspaceId ?? rememberedWorkspaceId
+  const target = promptedTarget ?? { type: 'session' as const, id: sessionId, ...(workspaceId === undefined ? {} : { workspaceId }) }
   const hasProtectionConfig = snapshot !== undefined && (snapshot.groups.length > 0 || snapshot.bindings.length > 0)
   const resolution = snapshot === undefined
     ? { kind: 'blocked' as const, reason: 'Vault group locked' }

@@ -200,7 +200,6 @@ class VaultClientStoreImplementation implements VaultClientStore {
   }
 
   async refresh(signal?: AbortSignal): Promise<VaultApiResult<VaultClientSnapshot>> {
-    this.#invalidateUnlocks()
     const generation = ++this.#refreshGeneration
     const response = await this.#call<VaultSnapshot>({
       action: 'snapshot',
@@ -228,7 +227,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
     if (!this.#isCurrentRefresh(generation)) return { ok: true, value: { valid: true } }
     const candidates = [...this.#grants.entries()]
     if (candidates.length === 0) {
-      this.#publish(this.#snapshot.host, [])
+      this.#publish(this.#snapshot.host, [], this.#snapshot.prompt, this.#pendingUnlock !== undefined)
       return { ok: true, value: { valid: true } }
     }
 
@@ -263,7 +262,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
     }
 
     if (!this.#isCurrentRefresh(generation)) return { ok: true, value: { valid: allValid } }
-    this.#publish('ready', validGroupIds)
+    this.#publish('ready', validGroupIds, this.#snapshot.prompt, this.#pendingUnlock !== undefined)
     return { ok: true, value: { valid: allValid } }
   }
 
@@ -339,12 +338,18 @@ class VaultClientStoreImplementation implements VaultClientStore {
   }
 
   async createGroup(input: CreateGroupInput, signal?: AbortSignal): Promise<VaultApiResult<RecoveryKeyResult>> {
+    const intent = await this.#api.createGroupIntent(this.clientInstanceId, signal)
+    if (!intent.ok) {
+      if (isUnavailable(intent)) this.#markOffline()
+      return intent
+    }
     const response = await this.#call<RecoveryKeyResult>({
       action: 'group-create',
       clientInstanceId: this.clientInstanceId,
       expectedRevision: this.#snapshot.revision,
       grants: this.#proofs(),
       input,
+      intent: intent.value.intent,
     }, signal)
     if (!response.ok) {
       if (isUnavailable(response)) this.#markOffline()
@@ -438,7 +443,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
     const now = Date.now()
     for (const [groupId, proof] of this.#grants) {
       const expiresAt = this.#grantExpiries.get(groupId)
-      if (expiresAt === undefined || now >= expiresAt || groups.get(groupId) !== proof.credentialVersion) {
+      if (expiresAt === undefined || (expiresAt !== 0 && now >= expiresAt) || groups.get(groupId) !== proof.credentialVersion) {
         this.#grants.delete(groupId)
         this.#grantExpiries.delete(groupId)
         continue
@@ -448,11 +453,10 @@ class VaultClientStoreImplementation implements VaultClientStore {
     return valid
   }
 
-  #acceptSnapshot(snapshot: VaultSnapshot, unlockedGroupIds: Iterable<string>): boolean {
+  #acceptSnapshot(snapshot: VaultSnapshot, unlockedGroupIds: Iterable<string>, prompt: UnlockPromptState | null = this.#snapshot.prompt): boolean {
     try {
       if (!Number.isSafeInteger(snapshot.revision) || snapshot.revision < this.#snapshot.revision) return false
-      if (this.#pendingUnlock !== undefined) this.#finishUnlock(false)
-      this.#snapshot = immutableSnapshot('ready', snapshot.revision, snapshot.groups, snapshot.bindings, snapshot.policy, unlockedGroupIds)
+      this.#snapshot = immutableSnapshot('ready', snapshot.revision, snapshot.groups, snapshot.bindings, snapshot.policy, unlockedGroupIds, prompt)
       this.#notify()
       return true
     } catch {

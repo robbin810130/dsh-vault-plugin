@@ -81,6 +81,10 @@ class RecordingApi implements VaultApiClient {
     this.calls.push(structuredClone(request))
     return await this.handler(request, signal) as VaultApiResult<T>
   }
+
+  async createGroupIntent(): Promise<VaultApiResult<{ readonly intent: string }>> {
+    return ok({ intent: 'I'.repeat(43) })
+  }
 }
 
 function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
@@ -204,6 +208,20 @@ describe('Vault client store', () => {
     await store.refresh()
     expect(api.calls.map(call => call.action)).toEqual(['snapshot', 'grants-validate'])
     expect(api.calls[1]).toMatchObject({ action: 'grants-validate', grants: [grant('group-a')] })
+  })
+
+  it('keeps a no-idle-expiry grant unlocked when the host returns expiresAt zero', async () => {
+    const api = new RecordingApi((request) => {
+      if (request.action === 'snapshot') return ok(makeSnapshot())
+      if (request.action === 'unlock') return ok({ grant: grant(request.groupId), expiresAt: 0 })
+      throw new Error('unexpected action')
+    })
+    const store = createVaultClientStore(api)
+    await store.refresh()
+
+    await expect(store.unlock('group-a', 'alpha password')).resolves.toMatchObject({ ok: true })
+
+    expect(store.hasUnlockedGroup('group-a')).toBe(true)
   })
 
   it.each([
@@ -346,6 +364,7 @@ describe('Vault client store', () => {
       expectedRevision: 7,
       grants: [grant('group-a'), grant('group-b')],
       input: createInput,
+      intent: 'I'.repeat(43),
     })
     expect(created).toMatchObject({ ok: true, value: { recoveryKey: 'CREATE-RECOVERY-KEY' } })
 
@@ -452,6 +471,27 @@ describe('Vault client store', () => {
 
     store.cancelUnlock('group-b')
     await expect(second).resolves.toBe(false)
+  })
+
+  it('keeps an in-flight unlock valid across a concurrent snapshot refresh', async () => {
+    const lateUnlock = deferred<VaultApiResult<unknown>>()
+    const api = new RecordingApi((request) => {
+      if (request.action === 'snapshot') return ok(makeSnapshot())
+      if (request.action === 'unlock' && request.groupId === 'group-a') return lateUnlock.promise
+      throw new Error('unexpected action')
+    })
+    const store = createVaultClientStore(api)
+    await store.refresh()
+
+    const requested = store.requestUnlock('group-a', { type: 'workspace', id: 'workspace-a' })
+    const unlock = store.unlock('group-a', 'alpha password')
+    await store.refresh()
+    lateUnlock.resolve(ok({ grant: grant('group-a'), expiresAt: Date.now() + 10_000 }))
+    await expect(unlock).resolves.toMatchObject({ ok: true })
+
+    expect(store.hasUnlockedGroup('group-a')).toBe(true)
+    store.settleUnlock('group-a')
+    await expect(requested).resolves.toBe(true)
   })
 
   it('sanitizes thrown errors, logs nothing, and leaves no password or recovery value in observable state', async () => {
