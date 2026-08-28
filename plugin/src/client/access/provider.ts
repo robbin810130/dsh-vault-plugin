@@ -49,11 +49,12 @@ function decisionWithoutPrompt(store: VaultClientStore, target: VaultTarget): Pr
 
 export function createVaultAccessProvider(store: VaultClientStore): NavigationAccessProvider {
   const listeners = new Set<() => void>()
-  const sessionTarget = (id: string, workspaceId?: string): VaultTarget => ({
-    type: 'session',
-    id,
-    ...((workspaceId ?? workspaceIdForSession(id)) === undefined ? {} : { workspaceId: workspaceId ?? workspaceIdForSession(id) }),
-  })
+  const sessionTarget = (id: string, workspaceId?: string): VaultTarget => {
+    const resolvedWorkspaceId = workspaceId ?? workspaceIdForSession(id)
+    return resolvedWorkspaceId === undefined
+      ? { type: 'session', id }
+      : { type: 'session', id, workspaceId: resolvedWorkspaceId }
+  }
   const matchesSession = (id: string): boolean => {
     const snapshot = store.getSnapshot()
     const workspaceId = workspaceIdForSession(id)
@@ -64,7 +65,9 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
     if (!explicit && workspaceId === undefined) {
       const workspaceBindings = snapshot.bindings.filter(binding => binding.targetType === 'workspace')
       if (workspaceBindings.length !== 1) return false
-      return protectedResolution(store, { type: 'session', id, workspaceId: workspaceBindings[0].targetId }).kind !== 'plain'
+      const [workspaceBinding] = workspaceBindings
+      if (workspaceBinding === undefined) return false
+      return protectedResolution(store, { type: 'session', id, workspaceId: workspaceBinding.targetId }).kind !== 'plain'
     }
     return protectedResolution(store, sessionTarget(id)).kind !== 'plain'
   }
