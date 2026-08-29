@@ -85,6 +85,25 @@ describe('Vault row affordances', () => {
     await vi.waitFor(() => expect(createGroup).toHaveBeenCalledWith(expect.objectContaining({ name: '我的对话', password: 'correct horse', bindings: [expect.objectContaining({ targetId: 'session-a', mode: 'direct' })] })))
   })
 
+  it('explains inherited workspace protection when a stale session lock dialog is refused', async () => {
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+      createGroup: vi.fn(async () => ({ ok: false, error: { code: 'invalid-binding', message: 'nested session protection is not allowed' } })),
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="session" sessionId="session-a" workspaceId="workspace-a" store={store} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存并上锁' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('此对话已继承工作区保护')
+    expect(alert).toHaveTextContent('请在工作区级别管理保护')
+    expect(screen.getByRole('button', { name: '保存并上锁' })).toBeDisabled()
+  })
+
   it('renders a lock button when a password group exists and can be used for direct protection', () => {
     const store = {
       getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),

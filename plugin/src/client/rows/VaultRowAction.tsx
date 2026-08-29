@@ -18,11 +18,23 @@ export interface VaultRowActionProps {
   readonly presentation?: { readonly label?: string }
 }
 
+interface QuickLockError {
+  readonly title: string
+  readonly detail?: string
+  readonly blocksSubmit?: boolean
+}
+
+const inheritedWorkspaceProtectionError: QuickLockError = {
+  title: '此对话已继承工作区保护',
+  detail: '无需再次设置密码。请在工作区级别管理保护。',
+  blocksSubmit: true,
+}
+
 export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId, sessionId, store: storeProp, onUnlock, onLock, presentation }: VaultRowActionProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<QuickLockError | null>(null)
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const store = useVaultStore(storeProp)
@@ -62,8 +74,8 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   const save = () => {
     if (store === undefined || target === undefined || pending) return
     const passwordError = passwordPolicyError(password, passwordPolicy)
-    if (passwordError !== undefined) { setError(passwordError); return }
-    if (password !== confirmation) { setError('两次密码不一致'); return }
+    if (passwordError !== undefined) { setError({ title: passwordError }); return }
+    if (password !== confirmation) { setError({ title: '两次密码不一致' }); return }
     setPending(true)
     setError(null)
     const now = new Date().toISOString()
@@ -82,10 +94,16 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
           setPassword('')
           setConfirmation('')
         } else {
-          setError(result.error.code === 'duplicate-name' ? '该对话已有同名保护记录' : result.error.code === 'weak-password' ? '密码不符合当前策略' : '创建失败，请重试')
+          setError(result.error.code === 'invalid-binding'
+            ? inheritedWorkspaceProtectionError
+            : result.error.code === 'duplicate-name'
+              ? { title: '该对话已有同名保护记录' }
+              : result.error.code === 'weak-password'
+                ? { title: '密码不符合当前策略' }
+                : { title: '创建失败，请重试', detail: '保险箱暂时无法创建保护，请稍后重试。' })
         }
       })
-      .catch(() => setError('保险箱暂时不可用，请稍后重试'))
+      .catch(() => setError({ title: '保险箱暂时不可用', detail: '请稍后重试。' }))
       .finally(() => setPending(false))
   }
   const toggle = (event: React.MouseEvent) => {
@@ -112,9 +130,9 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
           <h2>设置密码并上锁</h2><p>保存后将立即锁定当前对话。</p>
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-password"><span>密码</span><input id="dsh-vault-quick-password" type="password" minLength={passwordPolicy.minLength} value={password} onChange={event => setPassword(event.currentTarget.value)} /></label>
           {password.length > 0 && passwordPolicyError(password, passwordPolicy) !== undefined && <p className="dsh-vault-settings-warning" role="note">{passwordPolicyError(password, passwordPolicy)}</p>}
-          <label className="dsh-vault-field" htmlFor="dsh-vault-quick-confirm"><span>确认密码</span><input id="dsh-vault-quick-confirm" type="password" value={confirmation} onChange={event => { setConfirmation(event.currentTarget.value); if (error === '两次密码不一致') setError(null) }} /></label>
-          {error !== null && <p className="dsh-vault-settings-warning" role="alert">{error}</p>}
-          <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button" onClick={() => setDialogOpen(false)}>取消</button><button type="button" className="dsh-vault-button dsh-vault-button-primary" disabled={pending || password.length === 0 || confirmation.length === 0} onClick={save}>保存并上锁</button></div>
+          <label className="dsh-vault-field" htmlFor="dsh-vault-quick-confirm"><span>确认密码</span><input id="dsh-vault-quick-confirm" type="password" value={confirmation} onChange={event => { setConfirmation(event.currentTarget.value); if (error?.title === '两次密码不一致') setError(null) }} /></label>
+          {error !== null && <div className="dsh-vault-quick-lock-error" role="alert"><strong>{error.title}</strong>{error.detail !== undefined && <span>{error.detail}</span>}</div>}
+          <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button" onClick={() => setDialogOpen(false)}>取消</button><button type="button" className="dsh-vault-button dsh-vault-button-primary" disabled={pending || error?.blocksSubmit === true || password.length === 0 || confirmation.length === 0} onClick={save}>保存并上锁</button></div>
         </> : <><h2>已上锁</h2><p>请保存这条恢复密钥，关闭后不会再次显示。</p><output className="dsh-vault-recovery-key">{recoveryKey}</output><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => { setRecoveryKey(null); setDialogOpen(false) }}>完成</button></>}
       </section>
     </div>, document.body) : null}
