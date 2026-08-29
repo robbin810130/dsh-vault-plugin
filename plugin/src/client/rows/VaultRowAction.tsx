@@ -24,6 +24,8 @@ interface QuickLockError {
   readonly blocksSubmit?: boolean
 }
 
+type QuickLockDialog = 'password' | 'inherited-workspace'
+
 const inheritedWorkspaceProtectionError: QuickLockError = {
   title: '此对话已继承工作区保护',
   detail: '无需再次设置密码。请在工作区级别管理保护。',
@@ -31,7 +33,7 @@ const inheritedWorkspaceProtectionError: QuickLockError = {
 }
 
 export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId, sessionId, store: storeProp, onUnlock, onLock, presentation }: VaultRowActionProps) {
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState<QuickLockDialog | null>(null)
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState<QuickLockError | null>(null)
@@ -53,6 +55,11 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
       ? { type: 'session', id: sessionId, ...(resolvedWorkspaceId === undefined ? {} : { workspaceId: resolvedWorkspaceId }) }
       : undefined
   const binding = snapshot?.bindings.find(candidate => candidate.targetType === kind && candidate.targetId === target?.id)
+  const inheritsWorkspaceProtection = kind === 'session' && resolvedWorkspaceId !== undefined && snapshot?.bindings.some(candidate => (
+    candidate.targetType === 'workspace'
+    && candidate.targetId === resolvedWorkspaceId
+    && candidate.mode === 'direct'
+  )) === true
   const collapseWorkspace = () => {
     if (kind !== 'workspace' || typeof document === 'undefined') return
     const row = document.activeElement?.closest<HTMLElement>('[role="treeitem"]')
@@ -118,22 +125,31 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
       void store.lockGroup(binding.passwordGroupId).then(result => { if (result.ok) collapseWorkspace() })
       return
     }
-    setDialogOpen(true)
+    if (inheritsWorkspaceProtection) {
+      setDialogOpen('inherited-workspace')
+      setError(null)
+      return
+    }
+    setDialogOpen('password')
     setError(null)
   }
 
   return <span className="dsh-vault-row-action">
     <button type="button" className="dsh-vault-row-action-button" aria-label={locked ? '解锁' : '上锁'} onClick={toggle}><LockIcon className="dsh-vault-lock-icon" /></button>
-    {dialogOpen && typeof document !== 'undefined' ? createPortal(<div className="dsh-vault-dialog-backdrop">
-      <section className="dsh-vault-dialog dsh-vault-quick-lock-dialog" role="dialog" aria-label="设置密码并上锁" aria-modal="true">
-        {recoveryKey === null ? <>
+    {dialogOpen !== null && typeof document !== 'undefined' ? createPortal(<div className="dsh-vault-dialog-backdrop">
+      <section className="dsh-vault-dialog dsh-vault-quick-lock-dialog" role="dialog" aria-label={dialogOpen === 'inherited-workspace' ? '不能单独上锁' : '设置密码并上锁'} aria-modal="true">
+        {dialogOpen === 'inherited-workspace' ? <>
+          <h2>不能单独上锁</h2><p>此对话已继承工作区保护。</p>
+          <div className="dsh-vault-quick-lock-error" role="status"><strong>无需再次设置密码</strong><span>请在工作区级别管理保护。</span></div>
+          <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => setDialogOpen(null)}>知道了</button></div>
+        </> : recoveryKey === null ? <>
           <h2>设置密码并上锁</h2><p>保存后将立即锁定当前对话。</p>
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-password"><span>密码</span><input id="dsh-vault-quick-password" type="password" minLength={passwordPolicy.minLength} value={password} onChange={event => setPassword(event.currentTarget.value)} /></label>
           {password.length > 0 && passwordPolicyError(password, passwordPolicy) !== undefined && <p className="dsh-vault-settings-warning" role="note">{passwordPolicyError(password, passwordPolicy)}</p>}
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-confirm"><span>确认密码</span><input id="dsh-vault-quick-confirm" type="password" value={confirmation} onChange={event => { setConfirmation(event.currentTarget.value); if (error?.title === '两次密码不一致') setError(null) }} /></label>
           {error !== null && <div className="dsh-vault-quick-lock-error" role="alert"><strong>{error.title}</strong>{error.detail !== undefined && <span>{error.detail}</span>}</div>}
-          <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button" onClick={() => setDialogOpen(false)}>取消</button><button type="button" className="dsh-vault-button dsh-vault-button-primary" disabled={pending || error?.blocksSubmit === true || password.length === 0 || confirmation.length === 0} onClick={save}>保存并上锁</button></div>
-        </> : <><h2>已上锁</h2><p>请保存这条恢复密钥，关闭后不会再次显示。</p><output className="dsh-vault-recovery-key">{recoveryKey}</output><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => { setRecoveryKey(null); setDialogOpen(false) }}>完成</button></>}
+          <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button" onClick={() => setDialogOpen(null)}>取消</button><button type="button" className="dsh-vault-button dsh-vault-button-primary" disabled={pending || error?.blocksSubmit === true || password.length === 0 || confirmation.length === 0} onClick={save}>保存并上锁</button></div>
+        </> : <><h2>已上锁</h2><p>请保存这条恢复密钥，关闭后不会再次显示。</p><output className="dsh-vault-recovery-key">{recoveryKey}</output><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => { setRecoveryKey(null); setDialogOpen(null) }}>完成</button></>}
       </section>
     </div>, document.body) : null}
   </span>

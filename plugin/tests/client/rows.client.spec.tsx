@@ -46,6 +46,22 @@ describe('Vault row affordances', () => {
     expect(screen.queryByRole('button', { name: '上锁' })).toBeNull()
   })
 
+  it('explains inherited workspace protection before collecting a session password', () => {
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-protected', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set(['group-workspace']), prompt: null }),
+      hasUnlockedGroup: () => true,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="session" sessionId="session-inherited-open" workspaceId="workspace-protected" store={store} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+
+    expect(screen.getByRole('dialog', { name: '不能单独上锁' })).toHaveTextContent('此对话已继承工作区保护')
+    expect(screen.getByRole('dialog', { name: '不能单独上锁' })).toHaveTextContent('请在工作区级别管理保护')
+    expect(screen.queryByLabelText('密码')).toBeNull()
+    expect(screen.queryByRole('button', { name: '保存并上锁' })).toBeNull()
+    expect(screen.getByRole('button', { name: '知道了' })).toBeVisible()
+  })
+
   it('does not conceal an unbound session when workspace context is unavailable', () => {
     const store = {
       getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'workspace', targetId: 'locked-workspace', mode: 'direct', passwordGroupId: 'group-a' }], policy: { lockedNameVisibility: 'workspace-visible-session-hidden' } }),
