@@ -24,7 +24,7 @@ interface QuickLockError {
   readonly blocksSubmit?: boolean
 }
 
-type QuickLockDialog = 'password' | 'inherited-workspace'
+type QuickLockDialog = 'password' | 'inherited-workspace' | 'unresolved-workspace'
 
 const inheritedWorkspaceProtectionError: QuickLockError = {
   title: '此对话已继承工作区保护',
@@ -60,6 +60,9 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
     && candidate.targetId === resolvedWorkspaceId
     && candidate.mode === 'direct'
   )) === true
+  const workspaceContextIsUnavailable = kind === 'session'
+    && resolvedWorkspaceId === undefined
+    && snapshot?.bindings.some(candidate => candidate.targetType === 'workspace' && candidate.mode === 'direct') === true
   const collapseWorkspace = () => {
     if (kind !== 'workspace' || typeof document === 'undefined') return
     const row = document.activeElement?.closest<HTMLElement>('[role="treeitem"]')
@@ -130,6 +133,11 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
       setError(null)
       return
     }
+    if (workspaceContextIsUnavailable) {
+      setDialogOpen('unresolved-workspace')
+      setError(null)
+      return
+    }
     setDialogOpen('password')
     setError(null)
   }
@@ -137,10 +145,14 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   return <span className="dsh-vault-row-action">
     <button type="button" className="dsh-vault-row-action-button" aria-label={locked ? '解锁' : '上锁'} onClick={toggle}><LockIcon className="dsh-vault-lock-icon" /></button>
     {dialogOpen !== null && typeof document !== 'undefined' ? createPortal(<div className="dsh-vault-dialog-backdrop">
-      <section className="dsh-vault-dialog dsh-vault-quick-lock-dialog" role="dialog" aria-label={dialogOpen === 'inherited-workspace' ? '不能单独上锁' : '设置密码并上锁'} aria-modal="true">
+      <section className="dsh-vault-dialog dsh-vault-quick-lock-dialog" role="dialog" aria-label={dialogOpen === 'password' ? '设置密码并上锁' : '不能单独上锁'} aria-modal="true">
         {dialogOpen === 'inherited-workspace' ? <>
           <h2>不能单独上锁</h2><p>此对话已继承工作区保护。</p>
           <div className="dsh-vault-quick-lock-error" role="status"><strong>无需再次设置密码</strong><span>请在工作区级别管理保护。</span></div>
+          <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => setDialogOpen(null)}>知道了</button></div>
+        </> : dialogOpen === 'unresolved-workspace' ? <>
+          <h2>不能单独上锁</h2><p>无法确认此对话的工作区归属。</p>
+          <div className="dsh-vault-quick-lock-error" role="status"><strong>为避免重复创建保护</strong><span>请在工作区级别管理保护。</span></div>
           <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => setDialogOpen(null)}>知道了</button></div>
         </> : recoveryKey === null ? <>
           <h2>设置密码并上锁</h2><p>保存后将立即锁定当前对话。</p>

@@ -111,6 +111,17 @@ describe('VaultService', () => {
     }, [unlocked.value.grant]))).resolves.toMatchObject({ ok: false, error: { code: 'invalid-binding' } })
   })
 
+  it('refuses a direct session lock without workspace context once workspace protection exists', async () => {
+    const workspace = await service.handle(groupCreateRequest(0, {
+      name: 'Workspace', password: 'workspace password', bindings: [{ targetType: 'workspace', targetId: 'workspace-a', mode: 'direct', createdAt: 'now', updatedAt: 'now' }],
+    }))
+    if (!workspace.ok) throw new Error('workspace create failed')
+
+    await expect(service.handle(groupCreateRequest(1, {
+      name: 'Unknown parent session', password: 'session password', bindings: [{ targetType: 'session', targetId: 'session-a', mode: 'direct', createdAt: 'now', updatedAt: 'now' }],
+    }))).resolves.toMatchObject({ ok: false, error: { code: 'invalid-binding' } })
+  })
+
   it('accepts a four-character password when policy permits it', async () => {
     const relaxed = new VaultService({ repository: new VaultStateRepository(join(root, 'relaxed-vault-lock')), policy: { ...policy, passwordPolicy: { minLength: 4, requireUppercase: true, requireLowercase: true, requireNumber: true, requireSymbol: true } } })
     const created = await relaxed.handle(groupCreateRequest(0, { name: 'Short', password: 'Aa-1', bindings: [] }))

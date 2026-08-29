@@ -171,10 +171,9 @@ export class VaultService {
     if (Object.values(state.groups).some((group) => group.name === input.name)) return failed('duplicate-name')
     if (input.bindings.some((binding) => binding.targetType === 'session'
       && binding.mode === 'direct'
-      && binding.workspaceId !== undefined
       && state.bindings.some((candidate) => candidate.targetType === 'workspace'
-        && candidate.targetId === binding.workspaceId
-        && candidate.mode === 'direct'))) return failed('invalid-binding')
+        && candidate.mode === 'direct'
+        && (binding.workspaceId === undefined || candidate.targetId === binding.workspaceId)))) return failed('invalid-binding')
     const now = this.#now()
     const id = 'group-' + randomUUID()
     const recoveryKey = generateRecoveryKey()
