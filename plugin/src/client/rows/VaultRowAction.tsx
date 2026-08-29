@@ -5,7 +5,7 @@ import type { ProtectionBinding, VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
 import { resolveRowLockState, useVaultStore } from '../unlock/controller.js'
 import { passwordPolicyError } from '../../shared/password-policy.js'
-import { rememberWorkspaceIdForSession } from './presentation.js'
+import { rememberWorkspaceIdForSession, workspaceIdForSession } from './presentation.js'
 
 export interface VaultRowActionProps {
   readonly locked?: boolean
@@ -27,15 +27,18 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   const [pending, setPending] = useState(false)
   const store = useVaultStore(storeProp)
   const kind = kindProp ?? (sessionId !== undefined ? 'session' : workspaceId !== undefined ? 'workspace' : undefined)
-  if (kind === 'session' && sessionId !== undefined) rememberWorkspaceIdForSession(sessionId, workspaceId)
-  const state = resolveRowLockState(store, kind, workspaceId, sessionId)
+  const resolvedWorkspaceId = kind === 'session' && sessionId !== undefined
+    ? workspaceId ?? workspaceIdForSession(sessionId)
+    : workspaceId
+  if (kind === 'session' && sessionId !== undefined) rememberWorkspaceIdForSession(sessionId, resolvedWorkspaceId)
+  const state = resolveRowLockState(store, kind, resolvedWorkspaceId, sessionId)
   const locked = lockedProp ?? state.locked
   const snapshot = store?.getSnapshot()
   const passwordPolicy = snapshot?.policy.passwordPolicy ?? { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false }
   const target: VaultTarget | undefined = kind === 'workspace' && workspaceId !== undefined
     ? { type: 'workspace', id: workspaceId }
     : kind === 'session' && sessionId !== undefined
-      ? { type: 'session', id: sessionId, ...(workspaceId === undefined ? {} : { workspaceId }) }
+      ? { type: 'session', id: sessionId, ...(resolvedWorkspaceId === undefined ? {} : { workspaceId: resolvedWorkspaceId }) }
       : undefined
   const binding = snapshot?.bindings.find(candidate => candidate.targetType === kind && candidate.targetId === target?.id)
   const collapseWorkspace = () => {

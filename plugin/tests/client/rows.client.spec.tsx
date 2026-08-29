@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VaultRowAccessory } from '../../src/client/rows/VaultRowAccessory.js'
 import { VaultRowAction } from '../../src/client/rows/VaultRowAction.js'
-import { createVaultRowDecorator } from '../../src/client/rows/presentation.js'
+import { createVaultRowDecorator, rememberWorkspaceIdForSession } from '../../src/client/rows/presentation.js'
 import type { VaultClientStore } from '../../src/client/store.js'
 
 afterEach(() => cleanup())
@@ -33,6 +33,17 @@ describe('Vault row affordances', () => {
     } as unknown as VaultClientStore
     render(<VaultRowAction locked kind="session" sessionId="session-a" workspaceId="workspace-a" store={store} />)
     expect(screen.queryByRole('button', { name: '解锁' })).toBeNull()
+  })
+
+  it('does not offer a second lock for a session that inherits a locked workspace', () => {
+    rememberWorkspaceIdForSession('session-inherited', 'workspace-locked')
+    const store = {
+      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-locked', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="session" sessionId="session-inherited" store={store} />)
+
+    expect(screen.queryByRole('button', { name: '上锁' })).toBeNull()
   })
 
   it('does not conceal an unbound session when workspace context is unavailable', () => {
