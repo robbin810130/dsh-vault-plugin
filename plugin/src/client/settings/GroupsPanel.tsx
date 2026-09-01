@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { BindingMutation, VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
+import { useVaultSnapshot } from '../unlock/controller.js'
 import { GroupCredentials } from './GroupCredentials.js'
 
 interface CredentialAction {
@@ -15,7 +16,7 @@ interface DeleteAction {
 }
 
 export function GroupsPanel({ store }: { readonly store: VaultClientStore }) {
-  const snapshot = store.getSnapshot()
+  const snapshot = useVaultSnapshot(store) ?? store.getSnapshot()
   const [credentialAction, setCredentialAction] = useState<CredentialAction | null>(null)
   const [deleteAction, setDeleteAction] = useState<DeleteAction | null>(null)
   const [error, setError] = useState<string | null>(null)

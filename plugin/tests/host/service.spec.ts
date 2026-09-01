@@ -159,6 +159,18 @@ describe('VaultService', () => {
     await expect(service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'wrong horse' })).resolves.toMatchObject({ ok: false, error: { code: 'cooldown' } })
   })
 
+  it('does not let rotating client identifiers bypass the failed-attempt cooldown', async () => {
+    await service.handle(groupCreateRequest(0, { name: 'Primary', password: 'correct horse', bindings: [] }))
+    const groupId = (await service.snapshot()).groups[0]!.id
+
+    // policy allows maxAttempts=2; each failure uses a fresh self-reported id
+    await expect(service.handle({ action: 'unlock', clientInstanceId: 'attacker-1', groupId, password: 'wrong horse' })).resolves.toMatchObject({ ok: false, error: { code: 'invalid-credentials' } })
+    await expect(service.handle({ action: 'unlock', clientInstanceId: 'attacker-2', groupId, password: 'wrong horse' })).resolves.toMatchObject({ ok: false, error: { code: 'cooldown' } })
+    // a third identity stays locked out, and so does the legitimate client
+    await expect(service.handle({ action: 'unlock', clientInstanceId: 'attacker-3', groupId, password: 'wrong horse' })).resolves.toMatchObject({ ok: false, error: { code: 'cooldown' } })
+    await expect(service.handle({ action: 'unlock', clientInstanceId: 'client-1', groupId, password: 'correct horse' })).resolves.toMatchObject({ ok: false, error: { code: 'cooldown' } })
+  })
+
   it('touches each client at most once per 60 seconds and supports lock lifecycle', async () => {
     await service.handle(groupCreateRequest(0, { name: 'Primary', password: 'correct horse', bindings: [] }))
     const snapshot = await service.snapshot()
@@ -614,7 +626,7 @@ describe('VaultService', () => {
     expect(cooldown).toMatchObject({ ok: false, error: { code: 'cooldown' } })
   })
 
-  it('resets change and recovery failures only after successful credential commits', async () => {
+  it('shares change and recovery failure counters per group and resets them after successful credential commits', async () => {
     const created = await service.handle(groupCreateRequest(0, { name: 'Primary', password: 'correct horse', bindings: [] }))
     if (!created.ok) throw new Error('create failed')
     const groupId = created.value.snapshot.groups[0]!.id
@@ -635,11 +647,22 @@ describe('VaultService', () => {
     } as never)
     expect(afterChange).toMatchObject({ ok: false, error: { code: 'invalid-credentials' } })
 
-    await service.handle({
+    // failures accumulate per group across actions and self-reported clients
+    const cooldown = await service.handle({
       action: 'group-recover', clientInstanceId: 'client-2', expectedRevision: 2,
       input: { groupId, recoveryKey: 'wrong recovery', newPassword: 'recovered horse' },
     } as never)
-    const recovered = await service.handle({
+    expect(cooldown).toMatchObject({ ok: false, error: { code: 'cooldown' } })
+
+    // a fresh Host (cooldown state is in-memory) still accepts the recovery key
+    const restarted = new VaultService({
+      repository: new VaultStateRepository(join(root, 'vault-lock')),
+      policy,
+      grants: new InMemoryGrantStore({ monotonicNow: () => 100, wallNow: () => 1_000 }),
+      attempts: new FailedAttemptStore({ monotonicNow: () => 100, wallNow: () => 1_000 }),
+      now: () => '2026-08-25T00:00:00.000Z',
+    })
+    const recovered = await restarted.handle({
       action: 'group-recover', clientInstanceId: 'client-2', expectedRevision: 2,
       input: { groupId, recoveryKey, newPassword: 'recovered horse' },
     } as never)
@@ -884,7 +907,7 @@ describe('VaultService', () => {
     const grants = new InMemoryGrantStore({ monotonicNow: () => 100, wallNow: () => 1_000 })
     const attempts = new FailedAttemptStore({ monotonicNow: () => 100, wallNow: () => 1_000 })
     const grant = grants.issue('group-1', 1, 'client-1', 0)
-    attempts.recordFailure('group-1', 'client-1', policy.failedAttemptProtection)
+    attempts.recordFailure('group-1', policy.failedAttemptProtection)
     const failing = new VaultService({
       repository: {
         load: async () => { throw new Error('state unavailable') },
@@ -899,7 +922,7 @@ describe('VaultService', () => {
     await expect(failing.handle({ action: 'snapshot', clientInstanceId: 'client-1' }))
       .resolves.toEqual({ ok: false, error: { code: 'operation-failed', message: 'Vault operation failed' } })
     expect(grants.authorize(grant.token, 'group-1', 1, 'client-1')).toBe(false)
-    expect(attempts.recordFailure('group-1', 'client-1', policy.failedAttemptProtection))
+    expect(attempts.recordFailure('group-1', policy.failedAttemptProtection))
       .toEqual({ kind: 'rejected', remainingAttempts: 1 })
   })
 

@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
-import { useRef, useSyncExternalStore } from 'react'
+import { useRef } from 'react'
 import { LockIcon } from '../components/LockIcon.js'
 import { resolveVaultTarget } from '../access/resolution.js'
 import type { VaultClientStore } from '../store-types.js'
-import { useVaultStore } from './controller.js'
+import { useVaultSnapshot, useVaultStore } from './controller.js'
 import { workspaceIdForSession } from '../rows/presentation.js'
 
 export interface LockedConversationProps {
@@ -13,17 +13,9 @@ export interface LockedConversationProps {
   readonly children?: ReactNode
 }
 
-function useSnapshot(store: VaultClientStore | undefined) {
-  return useSyncExternalStore(
-    listener => store?.subscribe(listener) ?? (() => undefined),
-    () => store?.getSnapshot(),
-    () => store?.getSnapshot(),
-  )
-}
-
 export function LockedConversation({ sessionId, store: storeProp, children }: LockedConversationProps) {
   const store = useVaultStore(storeProp)
-  const snapshot = useSnapshot(store)
+  const snapshot = useVaultSnapshot(store)
   const knownWorkspaceId = workspaceIdForSession(sessionId)
   const promptedTarget = snapshot?.prompt?.target.type === 'session' && snapshot.prompt.target.id === sessionId
     ? snapshot.prompt.target

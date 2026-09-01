@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { VaultClientStore } from '../store-types.js'
-import { useVaultStore } from '../unlock/controller.js'
+import { useVaultSnapshot, useVaultStore } from '../unlock/controller.js'
 import { GroupsPanel } from './GroupsPanel.js'
 import { PolicyPanel } from './PolicyPanel.js'
 import type { VaultPolicy } from '../../shared/contracts.js'
@@ -17,10 +17,11 @@ export interface VaultPolicyScope {
 
 export function VaultSettingsCard({ store: storeProp, policyScope }: { readonly store?: VaultClientStore; readonly policyScope?: VaultPolicyScope }) {
   const store = useVaultStore(storeProp)
+  const liveSnapshot = useVaultSnapshot(store)
   const [tab, setTab] = useState<Tab>('policy')
   const [expanded, setExpanded] = useState(false)
-  if (store === undefined) return null
-  const snapshot = store.getSnapshot()
+  if (store === undefined || liveSnapshot === undefined) return null
+  const snapshot = liveSnapshot
   const persistPolicy = (next: VaultPolicy): void => {
     if (policyScope === undefined) return
     const writes: Promise<void>[] = []

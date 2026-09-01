@@ -7,25 +7,30 @@ import type { VaultClientStore } from '../../src/client/store.js'
 
 afterEach(() => cleanup())
 
+// getSnapshot must return a stable reference (same contract as the real store),
+// otherwise useSyncExternalStore loops on every render.
+const fixed = <T,>(value: T) => () => value
+
 function groupsStore(overrides: Partial<VaultClientStore> = {}): VaultClientStore {
+  const snapshot = {
+    host: 'ready',
+    revision: 3,
+    groups: [{
+      id: 'group-a',
+      name: '研发组',
+      credentialVersion: 1,
+      recoveryConfigured: true,
+      recoveryGeneratedAt: '2026-08-26T00:00:00.000Z',
+      memberCount: 2,
+    }],
+    bindings: [],
+    policy: {} as never,
+    unlockedGroupIds: new Set(['group-a']),
+    prompt: null,
+  }
   return {
     clientInstanceId: 'client',
-    getSnapshot: () => ({
-      host: 'ready',
-      revision: 3,
-      groups: [{
-        id: 'group-a',
-        name: '研发组',
-        credentialVersion: 1,
-        recoveryConfigured: true,
-        recoveryGeneratedAt: '2026-08-26T00:00:00.000Z',
-        memberCount: 2,
-      }],
-      bindings: [],
-      policy: {} as never,
-      unlockedGroupIds: new Set(['group-a']),
-      prompt: null,
-    }),
+    getSnapshot: fixed(snapshot),
     lockGroup: vi.fn(async () => ({ ok: true, value: null })),
     ...overrides,
   } as unknown as VaultClientStore
@@ -56,15 +61,16 @@ describe('Vault groups panel', () => {
   })
 
   it('requires an explicit migration or protection removal choice before deleting a group', async () => {
+    const twoGroupSnapshot = {
+      host: 'ready', revision: 3,
+      groups: [
+        { id: 'group-a', name: '研发组', credentialVersion: 1, recoveryConfigured: true, recoveryGeneratedAt: 'now', memberCount: 2 },
+        { id: 'group-b', name: '运营组', credentialVersion: 1, recoveryConfigured: true, recoveryGeneratedAt: 'now', memberCount: 0 },
+      ],
+      bindings: [], policy: {} as never, unlockedGroupIds: new Set(['group-a']), prompt: null,
+    }
     const store = groupsStore({
-      getSnapshot: () => ({
-        host: 'ready', revision: 3,
-        groups: [
-          { id: 'group-a', name: '研发组', credentialVersion: 1, recoveryConfigured: true, recoveryGeneratedAt: 'now', memberCount: 2 },
-          { id: 'group-b', name: '运营组', credentialVersion: 1, recoveryConfigured: true, recoveryGeneratedAt: 'now', memberCount: 0 },
-        ],
-        bindings: [], policy: {} as never, unlockedGroupIds: new Set(['group-a']), prompt: null,
-      }),
+      getSnapshot: fixed(twoGroupSnapshot),
       updateBindings: vi.fn(async () => ({ ok: true, value: {} as never })),
       hasUnlockedGroup: vi.fn(() => true),
       requestUnlock: vi.fn(async () => true),

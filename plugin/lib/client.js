@@ -390,9 +390,16 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/rows/presentation.ts
+		const MAX_REMEMBERED_SESSIONS = 500;
 		const sessionWorkspaceIds = /* @__PURE__ */ new Map();
 		function rememberWorkspaceIdForSession(sessionId, workspaceId) {
-			if (workspaceId !== void 0) sessionWorkspaceIds.set(sessionId, workspaceId);
+			if (workspaceId === void 0) return;
+			sessionWorkspaceIds.delete(sessionId);
+			sessionWorkspaceIds.set(sessionId, workspaceId);
+			if (sessionWorkspaceIds.size > MAX_REMEMBERED_SESSIONS) {
+				const oldest = sessionWorkspaceIds.keys().next().value;
+				if (oldest !== void 0) sessionWorkspaceIds.delete(oldest);
+			}
 		}
 		function workspaceIdForSession(sessionId) {
 			return sessionWorkspaceIds.get(sessionId);
@@ -484,7 +491,7 @@ window.__ModuleLoader__.load({
 				const workspaceId = workspaceIdForSession(id);
 				if (!snapshot.bindings.some((binding) => binding.targetType === "session" && binding.targetId === id) && workspaceId === void 0) {
 					const workspaceBindings = snapshot.bindings.filter((binding) => binding.targetType === "workspace");
-					if (workspaceBindings.length !== 1) return false;
+					if (workspaceBindings.length === 0) return false;
 					const [workspaceBinding] = workspaceBindings;
 					if (workspaceBinding === void 0) return false;
 					return protectedResolution(store, {
@@ -1033,6 +1040,9 @@ window.__ModuleLoader__.load({
 		function useVaultStore(explicit) {
 			return explicit ?? activeStore;
 		}
+		function useVaultSnapshot(store) {
+			return (0, react.useSyncExternalStore)((listener) => typeof store?.subscribe === "function" ? store.subscribe(listener) : () => void 0, () => store?.getSnapshot(), () => store?.getSnapshot());
+		}
 		function sessionInherited(snapshot, sessionId, workspaceId) {
 			if (snapshot.bindings.find((binding) => binding.targetType === "session" && binding.targetId === sessionId && binding.mode === "direct") !== void 0) return false;
 			if (snapshot.bindings.some((binding) => binding.targetType === "session" && binding.targetId === sessionId && binding.mode === "inherit")) return true;
@@ -1122,12 +1132,9 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/unlock/LockedConversation.tsx
-		function useSnapshot(store) {
-			return (0, react.useSyncExternalStore)((listener) => store?.subscribe(listener) ?? (() => void 0), () => store?.getSnapshot(), () => store?.getSnapshot());
-		}
 		function LockedConversation({ sessionId, store: storeProp, children }) {
 			const store = useVaultStore(storeProp);
-			const snapshot = useSnapshot(store);
+			const snapshot = useVaultSnapshot(store);
 			const knownWorkspaceId = workspaceIdForSession(sessionId);
 			const promptedTarget = snapshot?.prompt?.target.type === "session" && snapshot.prompt.target.id === sessionId ? snapshot.prompt.target : void 0;
 			const lastPromptedTarget = (0, react.useRef)();
@@ -1175,7 +1182,7 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/unlock/UnlockDialog.tsx
 		function usePrompt(store) {
-			const snapshot = (0, react.useSyncExternalStore)((listener) => store?.subscribe(listener) ?? (() => void 0), () => store?.getSnapshot(), () => store?.getSnapshot());
+			const snapshot = useVaultSnapshot(store);
 			return (0, react.useMemo)(() => resolvePromptSnapshot(snapshot), [snapshot]);
 		}
 		function UnlockDialog({ store: storeProp }) {
@@ -1335,7 +1342,9 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/rows/VaultRowAccessory.tsx
 		function VaultRowAccessory({ locked: lockedProp, kind: kindProp, inherited: inheritedProp, workspaceId, sessionId, store: storeProp }) {
-			const state = resolveRowLockState(useVaultStore(storeProp), kindProp ?? (sessionId !== void 0 ? "session" : workspaceId !== void 0 ? "workspace" : void 0), workspaceId, sessionId);
+			const store = useVaultStore(storeProp);
+			useVaultSnapshot(store);
+			const state = resolveRowLockState(store, kindProp ?? (sessionId !== void 0 ? "session" : workspaceId !== void 0 ? "workspace" : void 0), workspaceId, sessionId);
 			const locked = lockedProp ?? state.locked;
 			const inherited = inheritedProp ?? state.inherited;
 			if (!locked) return null;
@@ -1381,12 +1390,13 @@ window.__ModuleLoader__.load({
 			const [recoveryKey, setRecoveryKey] = (0, react.useState)(null);
 			const [pending, setPending] = (0, react.useState)(false);
 			const store = useVaultStore(storeProp);
+			const liveSnapshot = useVaultSnapshot(store);
 			const kind = kindProp ?? (sessionId !== void 0 ? "session" : workspaceId !== void 0 ? "workspace" : void 0);
 			const resolvedWorkspaceId = kind === "session" && sessionId !== void 0 ? workspaceId ?? workspaceIdForSession(sessionId) : workspaceId;
 			if (kind === "session" && sessionId !== void 0) rememberWorkspaceIdForSession(sessionId, resolvedWorkspaceId);
 			const state = resolveRowLockState(store, kind, resolvedWorkspaceId, sessionId);
 			const locked = lockedProp ?? state.locked;
-			const snapshot = store?.getSnapshot();
+			const snapshot = liveSnapshot;
 			const passwordPolicy = snapshot?.policy.passwordPolicy ?? {
 				minLength: 8,
 				requireUppercase: false,
@@ -1779,7 +1789,7 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/client/settings/GroupsPanel.tsx
 		function GroupsPanel({ store }) {
-			const snapshot = store.getSnapshot();
+			const snapshot = useVaultSnapshot(store) ?? store.getSnapshot();
 			const [credentialAction, setCredentialAction] = (0, react.useState)(null);
 			const [deleteAction, setDeleteAction] = (0, react.useState)(null);
 			const [error, setError] = (0, react.useState)(null);
@@ -1925,6 +1935,9 @@ window.__ModuleLoader__.load({
 		//#region src/client/settings/PolicyPanel.tsx
 		function PolicyPanel({ policy, onChange, onLockAll }) {
 			const [value, setValue] = (0, react.useState)(policy);
+			(0, react.useEffect)(() => {
+				setValue(policy);
+			}, [policy]);
 			const update = (next) => {
 				setValue(next);
 				onChange?.(next);
@@ -2125,10 +2138,11 @@ window.__ModuleLoader__.load({
 		}
 		function VaultSettingsCard({ store: storeProp, policyScope }) {
 			const store = useVaultStore(storeProp);
+			const liveSnapshot = useVaultSnapshot(store);
 			const [tab, setTab] = (0, react.useState)("policy");
 			const [expanded, setExpanded] = (0, react.useState)(false);
-			if (store === void 0) return null;
-			const snapshot = store.getSnapshot();
+			if (store === void 0 || liveSnapshot === void 0) return null;
+			const snapshot = liveSnapshot;
 			const persistPolicy = (next) => {
 				if (policyScope === void 0) return;
 				const writes = [];

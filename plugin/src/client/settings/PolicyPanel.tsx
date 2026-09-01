@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { VaultPolicy } from '../../shared/contracts.js'
 import { passwordPolicyError } from '../../shared/password-policy.js'
 
@@ -10,6 +10,8 @@ export interface PolicyPanelProps {
 
 export function PolicyPanel({ policy, onChange, onLockAll }: PolicyPanelProps) {
   const [value, setValue] = useState(policy)
+  // Keep local state in step when the persisted policy is refreshed externally.
+  useEffect(() => { setValue(policy) }, [policy])
   const update = (next: VaultPolicy) => {
     setValue(next)
     onChange?.(next)

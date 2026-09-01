@@ -1,4 +1,5 @@
 import type { VaultTarget } from '../../shared/contracts.js'
+import { useSyncExternalStore } from 'react'
 import { resolveVaultTarget } from '../access/resolution.js'
 import type { VaultClientSnapshot, VaultClientStore } from '../store-types.js'
 
@@ -24,6 +25,15 @@ export function createVaultUnlockController(store: VaultClientStore): {
 
 export function useVaultStore(explicit?: VaultClientStore): VaultClientStore | undefined {
   return explicit ?? activeStore
+}
+
+export function useVaultSnapshot(store: VaultClientStore | undefined): VaultClientSnapshot | undefined {
+  return useSyncExternalStore(
+    // Tolerate partial stores (tests, host-provided fakes) that cannot subscribe.
+    listener => (typeof store?.subscribe === 'function' ? store.subscribe(listener) : () => undefined),
+    () => store?.getSnapshot(),
+    () => store?.getSnapshot(),
+  )
 }
 
 export interface ResolvedRowLockState {

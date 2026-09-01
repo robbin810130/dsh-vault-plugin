@@ -1,6 +1,6 @@
 import { ProtectedLockIcon } from '../components/ProtectedLockIcon.js'
 import type { VaultClientStore } from '../store-types.js'
-import { resolveRowLockState, useVaultStore } from '../unlock/controller.js'
+import { resolveRowLockState, useVaultSnapshot, useVaultStore } from '../unlock/controller.js'
 
 export interface VaultRowAccessoryProps {
   readonly locked?: boolean
@@ -21,6 +21,8 @@ export function VaultRowAccessory({
   store: storeProp,
 }: VaultRowAccessoryProps) {
   const store = useVaultStore(storeProp)
+  // Subscribe so the badge tracks unlock/lock transitions instead of going stale.
+  useVaultSnapshot(store)
   const kind = kindProp ?? (sessionId !== undefined ? 'session' : workspaceId !== undefined ? 'workspace' : undefined)
   const state = resolveRowLockState(store, kind, workspaceId, sessionId)
   const locked = lockedProp ?? state.locked

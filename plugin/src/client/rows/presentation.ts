@@ -17,10 +17,18 @@ export interface SessionRowPresentation extends WorkspaceRowPresentation {
 
 export type VaultTranslate = (key: 'workspace' | 'session') => string
 
+const MAX_REMEMBERED_SESSIONS = 500
 const sessionWorkspaceIds = new Map<string, string>()
 
 export function rememberWorkspaceIdForSession(sessionId: string, workspaceId: string | undefined): void {
-  if (workspaceId !== undefined) sessionWorkspaceIds.set(sessionId, workspaceId)
+  if (workspaceId === undefined) return
+  // Refresh recency, then evict the oldest entry so the map stays bounded.
+  sessionWorkspaceIds.delete(sessionId)
+  sessionWorkspaceIds.set(sessionId, workspaceId)
+  if (sessionWorkspaceIds.size > MAX_REMEMBERED_SESSIONS) {
+    const oldest = sessionWorkspaceIds.keys().next().value
+    if (oldest !== undefined) sessionWorkspaceIds.delete(oldest)
+  }
 }
 
 export function workspaceIdForSession(sessionId: string): string | undefined {

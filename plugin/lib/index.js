@@ -532,9 +532,9 @@ var FailedAttemptStore = class {
 			...dependencies
 		};
 	}
-	check(groupId, clientInstanceId, policy) {
+	check(groupId, policy) {
 		this.setPolicy(policy);
-		const state = this.get(groupId, clientInstanceId);
+		const state = this.groups.get(groupId);
 		const now = this.readMonotonicNow();
 		if (now === void 0) return {
 			kind: "cooldown",
@@ -542,7 +542,7 @@ var FailedAttemptStore = class {
 		};
 		if (state?.cooldownDeadline === void 0 || state.retryAt === void 0) return { kind: "allowed" };
 		if (state.cooldownDeadline !== null && now >= state.cooldownDeadline) {
-			this.delete(groupId, clientInstanceId);
+			this.groups.delete(groupId);
 			return { kind: "allowed" };
 		}
 		return {
@@ -550,9 +550,9 @@ var FailedAttemptStore = class {
 			retryAt: state.retryAt
 		};
 	}
-	recordFailure(groupId, clientInstanceId, policy) {
+	recordFailure(groupId, policy) {
 		this.setPolicy(policy);
-		const current = this.get(groupId, clientInstanceId);
+		const current = this.groups.get(groupId);
 		if (!policy.enabled) {
 			if (current?.cooldownDeadline === void 0 || current.retryAt === void 0) return { kind: "rejected" };
 			const now = this.readMonotonicNow();
@@ -560,7 +560,7 @@ var FailedAttemptStore = class {
 				kind: "cooldown",
 				retryAt: current.retryAt
 			};
-			this.delete(groupId, clientInstanceId);
+			this.groups.delete(groupId);
 			return { kind: "rejected" };
 		}
 		const now = this.readMonotonicNow();
@@ -576,7 +576,7 @@ var FailedAttemptStore = class {
 				kind: "cooldown",
 				retryAt: current.retryAt
 			};
-			this.delete(groupId, clientInstanceId);
+			this.groups.delete(groupId);
 		}
 		const nextFailures = ((current?.cooldownDeadline === void 0 ? current?.failures : void 0) ?? 0) + 1;
 		if (nextFailures >= policy.maxAttempts) {
@@ -585,7 +585,7 @@ var FailedAttemptStore = class {
 			const wallNow = this.dependencies.wallNow();
 			const retryAtCandidate = wallNow + cooldownMs;
 			const retryAt = Number.isFinite(retryAtCandidate) ? retryAtCandidate : Number.isFinite(wallNow) ? wallNow : 0;
-			this.set(groupId, clientInstanceId, {
+			this.groups.set(groupId, {
 				failures: nextFailures,
 				cooldownDeadline,
 				retryAt
@@ -595,7 +595,7 @@ var FailedAttemptStore = class {
 				retryAt
 			};
 		}
-		this.set(groupId, clientInstanceId, { failures: nextFailures });
+		this.groups.set(groupId, { failures: nextFailures });
 		return {
 			kind: "rejected",
 			remainingAttempts: policy.maxAttempts - nextFailures
@@ -603,39 +603,16 @@ var FailedAttemptStore = class {
 	}
 	setPolicy(policy) {
 		if (policy.enabled) return;
-		for (const [groupId, clients] of this.groups) {
-			for (const [clientInstanceId, state] of clients) if (state.cooldownDeadline === void 0 || state.retryAt === void 0) clients.delete(clientInstanceId);
-			if (clients.size === 0) this.groups.delete(groupId);
-		}
+		for (const [groupId, state] of this.groups) if (state.cooldownDeadline === void 0 || state.retryAt === void 0) this.groups.delete(groupId);
 	}
-	recordSuccess(groupId, clientInstanceId) {
-		this.delete(groupId, clientInstanceId);
+	recordSuccess(groupId) {
+		this.groups.delete(groupId);
 	}
 	resetGroup(groupId) {
 		this.groups.delete(groupId);
 	}
-	resetClient(clientInstanceId) {
-		for (const [groupId, clients] of this.groups) {
-			clients.delete(clientInstanceId);
-			if (clients.size === 0) this.groups.delete(groupId);
-		}
-	}
 	clear() {
 		this.groups.clear();
-	}
-	get(groupId, clientInstanceId) {
-		return this.groups.get(groupId)?.get(clientInstanceId);
-	}
-	set(groupId, clientInstanceId, state) {
-		const clients = this.groups.get(groupId) ?? /* @__PURE__ */ new Map();
-		clients.set(clientInstanceId, state);
-		this.groups.set(groupId, clients);
-	}
-	delete(groupId, clientInstanceId) {
-		const clients = this.groups.get(groupId);
-		if (!clients) return;
-		clients.delete(clientInstanceId);
-		if (clients.size === 0) this.groups.delete(groupId);
 	}
 	readMonotonicNow() {
 		const now = this.dependencies.monotonicNow();
@@ -1004,7 +981,7 @@ var VaultService = class {
 	async unlock(clientInstanceId, groupId, password) {
 		const group = (await this.state()).groups[groupId];
 		if (!group) return failed("invalid-credentials");
-		const availability = this.attempts.check(groupId, clientInstanceId, this.policy.failedAttemptProtection);
+		const availability = this.attempts.check(groupId, this.policy.failedAttemptProtection);
 		if (availability.kind === "cooldown") return failed("cooldown", availability.retryAt);
 		let valid = false;
 		try {
@@ -1013,7 +990,7 @@ var VaultService = class {
 			valid = false;
 		}
 		if (!valid) {
-			const decision = this.attempts.recordFailure(groupId, clientInstanceId, this.policy.failedAttemptProtection);
+			const decision = this.attempts.recordFailure(groupId, this.policy.failedAttemptProtection);
 			await this.safeAudit({
 				action: "unlock",
 				groupId,
@@ -1024,7 +1001,7 @@ var VaultService = class {
 			});
 			return decision.kind === "cooldown" ? failed("cooldown", decision.retryAt) : failed("invalid-credentials");
 		}
-		this.attempts.recordSuccess(groupId, clientInstanceId);
+		this.attempts.recordSuccess(groupId);
 		try {
 			const grant = this.grants.issue(group.id, group.credentialVersion, clientInstanceId, this.ttlMs());
 			const result = {
@@ -1125,7 +1102,7 @@ var VaultService = class {
 		if (state.revision !== expectedRevision) return failed("revision-conflict");
 		const group = state.groups[input.groupId];
 		if (!group) return failed("invalid-credentials");
-		const availability = this.attempts.check(group.id, clientInstanceId, this.policy.failedAttemptProtection);
+		const availability = this.attempts.check(group.id, this.policy.failedAttemptProtection);
 		if (availability.kind === "cooldown") return failed("cooldown", availability.retryAt);
 		let valid = false;
 		try {
@@ -1134,7 +1111,7 @@ var VaultService = class {
 			valid = false;
 		}
 		if (!valid) {
-			const decision = this.attempts.recordFailure(group.id, clientInstanceId, this.policy.failedAttemptProtection);
+			const decision = this.attempts.recordFailure(group.id, this.policy.failedAttemptProtection);
 			return decision.kind === "cooldown" ? failed("cooldown", decision.retryAt) : failed("invalid-credentials");
 		}
 		const now = this.#now();
@@ -1161,7 +1138,7 @@ var VaultService = class {
 		if (committed === "conflict") return failed("revision-conflict");
 		if (committed === "failed") return failed("persistence-failed");
 		this.grants.revokeGroup(group.id);
-		this.attempts.recordSuccess(group.id, clientInstanceId);
+		this.attempts.recordSuccess(group.id);
 		await this.safeAudit({
 			action: "password-changed",
 			groupId: group.id,
@@ -1183,7 +1160,7 @@ var VaultService = class {
 		if (state.revision !== expectedRevision) return failed("revision-conflict");
 		const group = state.groups[input.groupId];
 		if (!group) return failed("invalid-credentials");
-		const availability = this.attempts.check(group.id, clientInstanceId, this.policy.failedAttemptProtection);
+		const availability = this.attempts.check(group.id, this.policy.failedAttemptProtection);
 		if (availability.kind === "cooldown") return failed("cooldown", availability.retryAt);
 		let valid = false;
 		try {
@@ -1192,7 +1169,7 @@ var VaultService = class {
 			valid = false;
 		}
 		if (!valid) {
-			const decision = this.attempts.recordFailure(group.id, clientInstanceId, this.policy.failedAttemptProtection);
+			const decision = this.attempts.recordFailure(group.id, this.policy.failedAttemptProtection);
 			return decision.kind === "cooldown" ? failed("cooldown", decision.retryAt) : failed("invalid-credentials");
 		}
 		const now = this.#now();
@@ -1220,7 +1197,7 @@ var VaultService = class {
 		if (committed === "conflict") return failed("revision-conflict");
 		if (committed === "failed") return failed("persistence-failed");
 		this.grants.revokeGroup(group.id);
-		this.attempts.recordSuccess(group.id, clientInstanceId);
+		this.attempts.recordSuccess(group.id);
 		await this.safeAudit({
 			action: "group-recovered",
 			groupId: group.id,

@@ -30,7 +30,10 @@ const defaults: FailedAttemptStoreDependencies = {
 
 export class FailedAttemptStore {
   private readonly dependencies: FailedAttemptStoreDependencies
-  private readonly groups = new Map<string, Map<string, AttemptState>>()
+  // Counters are keyed by group only. clientInstanceId is self-reported by the
+  // caller, so keying by it would let any local process reset its allowance by
+  // rotating identifiers; group-level counters cannot be bypassed that way.
+  private readonly groups = new Map<string, AttemptState>()
   private lastMonotonicNow?: number
 
   constructor(dependencies: Partial<FailedAttemptStoreDependencies> = {}) {
@@ -39,12 +42,11 @@ export class FailedAttemptStore {
 
   check(
     groupId: string,
-    clientInstanceId: string,
     policy: FailedAttemptPolicy,
   ): AttemptAvailability {
     this.setPolicy(policy)
 
-    const state = this.get(groupId, clientInstanceId)
+    const state = this.groups.get(groupId)
     const now = this.readMonotonicNow()
     if (now === undefined) {
       return { kind: 'cooldown', retryAt: state?.retryAt ?? this.failClosedRetryAt() }
@@ -53,7 +55,7 @@ export class FailedAttemptStore {
       return { kind: 'allowed' }
     }
     if (state.cooldownDeadline !== null && now >= state.cooldownDeadline) {
-      this.delete(groupId, clientInstanceId)
+      this.groups.delete(groupId)
       return { kind: 'allowed' }
     }
     return { kind: 'cooldown', retryAt: state.retryAt }
@@ -61,12 +63,11 @@ export class FailedAttemptStore {
 
   recordFailure(
     groupId: string,
-    clientInstanceId: string,
     policy: FailedAttemptPolicy,
   ): FailedAttemptDecision {
     this.setPolicy(policy)
 
-    const current = this.get(groupId, clientInstanceId)
+    const current = this.groups.get(groupId)
     if (!policy.enabled) {
       if (current?.cooldownDeadline === undefined || current.retryAt === undefined) {
         return { kind: 'rejected' }
@@ -75,7 +76,7 @@ export class FailedAttemptStore {
       if (now === undefined || current.cooldownDeadline === null || now < current.cooldownDeadline) {
         return { kind: 'cooldown', retryAt: current.retryAt }
       }
-      this.delete(groupId, clientInstanceId)
+      this.groups.delete(groupId)
       return { kind: 'rejected' }
     }
 
@@ -90,7 +91,7 @@ export class FailedAttemptStore {
       if (current.cooldownDeadline === null || now < current.cooldownDeadline) {
         return { kind: 'cooldown', retryAt: current.retryAt }
       }
-      this.delete(groupId, clientInstanceId)
+      this.groups.delete(groupId)
     }
 
     const failures = (current?.cooldownDeadline === undefined ? current?.failures : undefined) ?? 0
@@ -103,7 +104,7 @@ export class FailedAttemptStore {
       const retryAt = Number.isFinite(retryAtCandidate)
         ? retryAtCandidate
         : (Number.isFinite(wallNow) ? wallNow : 0)
-      this.set(groupId, clientInstanceId, {
+      this.groups.set(groupId, {
         failures: nextFailures,
         cooldownDeadline,
         retryAt,
@@ -111,7 +112,7 @@ export class FailedAttemptStore {
       return { kind: 'cooldown', retryAt }
     }
 
-    this.set(groupId, clientInstanceId, { failures: nextFailures })
+    this.groups.set(groupId, { failures: nextFailures })
     return {
       kind: 'rejected',
       remainingAttempts: policy.maxAttempts - nextFailures,
@@ -121,50 +122,23 @@ export class FailedAttemptStore {
   setPolicy(policy: FailedAttemptPolicy): void {
     if (policy.enabled) return
 
-    for (const [groupId, clients] of this.groups) {
-      for (const [clientInstanceId, state] of clients) {
-        if (state.cooldownDeadline === undefined || state.retryAt === undefined) {
-          clients.delete(clientInstanceId)
-        }
+    for (const [groupId, state] of this.groups) {
+      if (state.cooldownDeadline === undefined || state.retryAt === undefined) {
+        this.groups.delete(groupId)
       }
-      if (clients.size === 0) this.groups.delete(groupId)
     }
   }
 
-  recordSuccess(groupId: string, clientInstanceId: string): void {
-    this.delete(groupId, clientInstanceId)
+  recordSuccess(groupId: string): void {
+    this.groups.delete(groupId)
   }
 
   resetGroup(groupId: string): void {
     this.groups.delete(groupId)
   }
 
-  resetClient(clientInstanceId: string): void {
-    for (const [groupId, clients] of this.groups) {
-      clients.delete(clientInstanceId)
-      if (clients.size === 0) this.groups.delete(groupId)
-    }
-  }
-
   clear(): void {
     this.groups.clear()
-  }
-
-  private get(groupId: string, clientInstanceId: string): AttemptState | undefined {
-    return this.groups.get(groupId)?.get(clientInstanceId)
-  }
-
-  private set(groupId: string, clientInstanceId: string, state: AttemptState): void {
-    const clients = this.groups.get(groupId) ?? new Map<string, AttemptState>()
-    clients.set(clientInstanceId, state)
-    this.groups.set(groupId, clients)
-  }
-
-  private delete(groupId: string, clientInstanceId: string): void {
-    const clients = this.groups.get(groupId)
-    if (!clients) return
-    clients.delete(clientInstanceId)
-    if (clients.size === 0) this.groups.delete(groupId)
   }
 
   private readMonotonicNow(): number | undefined {

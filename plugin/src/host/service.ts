@@ -146,16 +146,16 @@ export class VaultService {
     const state = await this.state()
     const group = state.groups[groupId]
     if (!group) return failed('invalid-credentials')
-    const availability = this.attempts.check(groupId, clientInstanceId, this.policy.failedAttemptProtection)
+    const availability = this.attempts.check(groupId, this.policy.failedAttemptProtection)
     if (availability.kind === 'cooldown') return failed('cooldown', availability.retryAt)
     let valid = false
     try { valid = await verifySecret(password, group.password) } catch { valid = false }
     if (!valid) {
-      const decision = this.attempts.recordFailure(groupId, clientInstanceId, this.policy.failedAttemptProtection)
+      const decision = this.attempts.recordFailure(groupId, this.policy.failedAttemptProtection)
       await this.safeAudit({ action: 'unlock', groupId, clientInstanceId, credentialVersion: group.credentialVersion, result: 'denied', reasonCode: decision.kind === 'cooldown' ? 'cooldown' : 'invalid-credentials' })
       return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
     }
-    this.attempts.recordSuccess(groupId, clientInstanceId)
+    this.attempts.recordSuccess(groupId)
     try {
       const grant = this.grants.issue(group.id, group.credentialVersion, clientInstanceId, this.ttlMs())
       const result: UnlockResult = { grant: { groupId: grant.groupId, credentialVersion: grant.credentialVersion, token: grant.token }, expiresAt: grant.expiresAt }
@@ -209,12 +209,12 @@ export class VaultService {
     if (state.revision !== expectedRevision) return failed('revision-conflict')
     const group = state.groups[input.groupId]
     if (!group) return failed('invalid-credentials')
-    const availability = this.attempts.check(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+    const availability = this.attempts.check(group.id, this.policy.failedAttemptProtection)
     if (availability.kind === 'cooldown') return failed('cooldown', availability.retryAt)
     let valid = false
     try { valid = await this.authorizeCredential(group, input) } catch { valid = false }
     if (!valid) {
-      const decision = this.attempts.recordFailure(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+      const decision = this.attempts.recordFailure(group.id, this.policy.failedAttemptProtection)
       return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
     }
     const now = this.#now()
@@ -225,7 +225,7 @@ export class VaultService {
     if (committed === 'conflict') return failed('revision-conflict')
     if (committed === 'failed') return failed('persistence-failed')
     this.grants.revokeGroup(group.id)
-    this.attempts.recordSuccess(group.id, clientInstanceId)
+    this.attempts.recordSuccess(group.id)
     await this.safeAudit({ action: 'password-changed', groupId: group.id, credentialVersion: nextGroup.credentialVersion, revision: next.revision, result: 'success' })
     return { ok: true, value: { snapshot: this.redacted(next), ...(recoveryKey === undefined ? {} : { recoveryKey }) } }
   }
@@ -236,12 +236,12 @@ export class VaultService {
     if (state.revision !== expectedRevision) return failed('revision-conflict')
     const group = state.groups[input.groupId]
     if (!group) return failed('invalid-credentials')
-    const availability = this.attempts.check(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+    const availability = this.attempts.check(group.id, this.policy.failedAttemptProtection)
     if (availability.kind === 'cooldown') return failed('cooldown', availability.retryAt)
     let valid = false
     try { valid = await verifySecret(input.recoveryKey, group.recovery) } catch { valid = false }
     if (!valid) {
-      const decision = this.attempts.recordFailure(group.id, clientInstanceId, this.policy.failedAttemptProtection)
+      const decision = this.attempts.recordFailure(group.id, this.policy.failedAttemptProtection)
       return decision.kind === 'cooldown' ? failed('cooldown', decision.retryAt) : failed('invalid-credentials')
     }
     const now = this.#now()
@@ -252,7 +252,7 @@ export class VaultService {
     if (committed === 'conflict') return failed('revision-conflict')
     if (committed === 'failed') return failed('persistence-failed')
     this.grants.revokeGroup(group.id)
-    this.attempts.recordSuccess(group.id, clientInstanceId)
+    this.attempts.recordSuccess(group.id)
     await this.safeAudit({ action: 'group-recovered', groupId: group.id, credentialVersion: nextGroup.credentialVersion, revision: next.revision, result: 'success' })
     const value: RecoveryKeyResult = { snapshot: this.redacted(next), recoveryKey }
     return { ok: true, value }

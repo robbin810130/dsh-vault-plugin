@@ -64,7 +64,9 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
     // placeholder after selection instead of opening protected content.
     if (!explicit && workspaceId === undefined) {
       const workspaceBindings = snapshot.bindings.filter(binding => binding.targetType === 'workspace')
-      if (workspaceBindings.length !== 1) return false
+      // Fail closed whenever any workspace protection exists: refusing to claim
+      // here would let DSH render a possibly-inherited session without checks.
+      if (workspaceBindings.length === 0) return false
       const [workspaceBinding] = workspaceBindings
       if (workspaceBinding === undefined) return false
       return protectedResolution(store, { type: 'session', id, workspaceId: workspaceBinding.targetId }).kind !== 'plain'

@@ -1,20 +1,16 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { LockIcon } from '../components/LockIcon.js'
 import type { VaultClientStore } from '../store-types.js'
-import { resolvePromptSnapshot, unlockMessage, useVaultStore } from './controller.js'
+import { resolvePromptSnapshot, unlockMessage, useVaultSnapshot, useVaultStore } from './controller.js'
 
 export interface UnlockDialogProps {
   readonly store?: VaultClientStore
 }
 
 function usePrompt(store: VaultClientStore | undefined) {
-  const snapshot = useSyncExternalStore(
-    listener => store?.subscribe(listener) ?? (() => undefined),
-    () => store?.getSnapshot(),
-    () => store?.getSnapshot(),
-  )
+  const snapshot = useVaultSnapshot(store)
   return useMemo(() => resolvePromptSnapshot(snapshot), [snapshot])
 }
 

@@ -9,6 +9,10 @@ import type { VaultClientStore } from '../../src/client/store.js'
 
 afterEach(() => cleanup())
 
+// getSnapshot must return a stable reference (same contract as the real store),
+// otherwise useSyncExternalStore loops on every render.
+const fixed = <T,>(value: T) => () => value
+
 describe('Vault row affordances', () => {
   it('announces an independently protected locked row without exposing its real name', () => {
     render(<VaultRowAccessory locked kind="session" inherited={false} onUnlock={() => undefined} />)
@@ -28,7 +32,7 @@ describe('Vault row affordances', () => {
 
   it('does not expose an unlock action in a locked list row', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'session', targetId: 'session-a', mode: 'direct', passwordGroupId: 'group-a' }], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'session', targetId: 'session-a', mode: 'direct', passwordGroupId: 'group-a' }], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     render(<VaultRowAction locked kind="session" sessionId="session-a" workspaceId="workspace-a" store={store} />)
@@ -38,7 +42,7 @@ describe('Vault row affordances', () => {
   it('does not offer a second lock for a session that inherits a locked workspace', () => {
     rememberWorkspaceIdForSession('session-inherited', 'workspace-locked')
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-locked', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-locked', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="session" sessionId="session-inherited" store={store} />)
@@ -48,7 +52,7 @@ describe('Vault row affordances', () => {
 
   it('explains inherited workspace protection before collecting a session password', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-protected', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set(['group-workspace']), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-protected', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set(['group-workspace']), prompt: null }),
       hasUnlockedGroup: () => true,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="session" sessionId="session-inherited-open" workspaceId="workspace-protected" store={store} />)
@@ -64,7 +68,7 @@ describe('Vault row affordances', () => {
 
   it('does not collect a session password when DSH omits workspace context after a workspace is protected', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-protected', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set(['group-workspace']), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [{ id: 'group-workspace' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-protected', mode: 'direct', passwordGroupId: 'group-workspace' }], policy: {} as never, unlockedGroupIds: new Set(['group-workspace']), prompt: null }),
       hasUnlockedGroup: () => true,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="session" sessionId="session-without-workspace-context" store={store} />)
@@ -80,7 +84,7 @@ describe('Vault row affordances', () => {
 
   it('does not conceal an unbound session when workspace context is unavailable', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'workspace', targetId: 'locked-workspace', mode: 'direct', passwordGroupId: 'group-a' }], policy: { lockedNameVisibility: 'workspace-visible-session-hidden' } }),
+      getSnapshot: fixed({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'workspace', targetId: 'locked-workspace', mode: 'direct', passwordGroupId: 'group-a' }], policy: { lockedNameVisibility: 'workspace-visible-session-hidden' } }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     const decorator = createVaultRowDecorator(store, () => 'Protected session')
@@ -90,7 +94,7 @@ describe('Vault row affordances', () => {
 
   it('opens the password dialog even before a password group exists', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
@@ -105,7 +109,7 @@ describe('Vault row affordances', () => {
   it('creates and binds a password group atomically from the row lock dialog', async () => {
     const createGroup = vi.fn(async () => ({ ok: true, value: { snapshot: {}, recoveryKey: 'recovery-key' } }))
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
       createGroup,
     } as unknown as VaultClientStore
@@ -119,7 +123,7 @@ describe('Vault row affordances', () => {
 
   it('explains inherited workspace protection when a stale session lock dialog is refused', async () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
       createGroup: vi.fn(async () => ({ ok: false, error: { code: 'invalid-binding', message: 'nested session protection is not allowed' } })),
     } as unknown as VaultClientStore
@@ -138,7 +142,7 @@ describe('Vault row affordances', () => {
 
   it('renders a lock button when a password group exists and can be used for direct protection', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
@@ -148,7 +152,7 @@ describe('Vault row affordances', () => {
 
   it('opens the password dialog without requiring a pre-existing password group', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
@@ -159,7 +163,7 @@ describe('Vault row affordances', () => {
 
   it('shows confirmation mismatch inline when saving', () => {
     const store = {
-      getSnapshot: () => ({ host: 'ready', groups: [], bindings: [], policy: { passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false } }, unlockedGroupIds: new Set<string>(), prompt: null }),
+      getSnapshot: fixed({ host: 'ready', groups: [], bindings: [], policy: { passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false } }, unlockedGroupIds: new Set<string>(), prompt: null }),
       hasUnlockedGroup: () => false,
       createGroup: vi.fn(async () => ({ ok: true, value: { snapshot: {}, recoveryKey: 'recovery-key' } })),
     } as unknown as VaultClientStore

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { LockIcon } from '../components/LockIcon.js'
 import type { ProtectionBinding, VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
-import { resolveRowLockState, useVaultStore } from '../unlock/controller.js'
+import { resolveRowLockState, useVaultSnapshot, useVaultStore } from '../unlock/controller.js'
 import { passwordPolicyError } from '../../shared/password-policy.js'
 import { rememberWorkspaceIdForSession, workspaceIdForSession } from './presentation.js'
 
@@ -40,6 +40,7 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const store = useVaultStore(storeProp)
+  const liveSnapshot = useVaultSnapshot(store)
   const kind = kindProp ?? (sessionId !== undefined ? 'session' : workspaceId !== undefined ? 'workspace' : undefined)
   const resolvedWorkspaceId = kind === 'session' && sessionId !== undefined
     ? workspaceId ?? workspaceIdForSession(sessionId)
@@ -47,7 +48,7 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
   if (kind === 'session' && sessionId !== undefined) rememberWorkspaceIdForSession(sessionId, resolvedWorkspaceId)
   const state = resolveRowLockState(store, kind, resolvedWorkspaceId, sessionId)
   const locked = lockedProp ?? state.locked
-  const snapshot = store?.getSnapshot()
+  const snapshot = liveSnapshot
   const passwordPolicy = snapshot?.policy.passwordPolicy ?? { minLength: 8, requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false }
   const target: VaultTarget | undefined = kind === 'workspace' && workspaceId !== undefined
     ? { type: 'workspace', id: workspaceId }
