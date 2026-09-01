@@ -912,8 +912,8 @@ var VaultService = class {
 				case "lock-group": return this.lockGroup(request.clientInstanceId, request.groupId);
 				case "lock-all": return this.lockAll(request.clientInstanceId);
 				case "group-create": return await this.createGroup(request.clientInstanceId, request.expectedRevision, request.grants, request.input);
-				case "group-change-password": return await this.changePassword(request.clientInstanceId, request.expectedRevision, request.input);
-				case "group-recover": return await this.recoverGroup(request.clientInstanceId, request.expectedRevision, request.input);
+				case "group-change-password": return await this.changePassword(request.expectedRevision, request.input);
+				case "group-recover": return await this.recoverGroup(request.expectedRevision, request.input);
 				case "bindings-update": return await this.updateBindings(request.clientInstanceId, request.expectedRevision, request.grants, request.input);
 			}
 		} catch {
@@ -1096,7 +1096,7 @@ var VaultService = class {
 			}
 		};
 	}
-	async changePassword(clientInstanceId, expectedRevision, input) {
+	async changePassword(expectedRevision, input) {
 		const state = await this.state();
 		if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== void 0) return failed("weak-password");
 		if (state.revision !== expectedRevision) return failed("revision-conflict");
@@ -1154,7 +1154,7 @@ var VaultService = class {
 			}
 		};
 	}
-	async recoverGroup(clientInstanceId, expectedRevision, input) {
+	async recoverGroup(expectedRevision, input) {
 		const state = await this.state();
 		if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== void 0) return failed("weak-password");
 		if (state.revision !== expectedRevision) return failed("revision-conflict");

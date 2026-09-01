@@ -84,8 +84,8 @@ export class VaultService {
         case 'lock-group': return this.lockGroup(request.clientInstanceId, request.groupId)
         case 'lock-all': return this.lockAll(request.clientInstanceId)
         case 'group-create': return await this.createGroup(request.clientInstanceId, request.expectedRevision, request.grants, request.input)
-        case 'group-change-password': return await this.changePassword(request.clientInstanceId, request.expectedRevision, request.input)
-        case 'group-recover': return await this.recoverGroup(request.clientInstanceId, request.expectedRevision, request.input)
+        case 'group-change-password': return await this.changePassword(request.expectedRevision, request.input)
+        case 'group-recover': return await this.recoverGroup(request.expectedRevision, request.input)
         case 'bindings-update': return await this.updateBindings(request.clientInstanceId, request.expectedRevision, request.grants, request.input)
       }
     } catch {
@@ -203,7 +203,7 @@ export class VaultService {
     return { ok: true, value }
   }
 
-  private async changePassword(clientInstanceId: string, expectedRevision: number, input: ChangePasswordInput): Promise<ServiceResult> {
+  private async changePassword(expectedRevision: number, input: ChangePasswordInput): Promise<ServiceResult> {
     const state = await this.state()
     if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== undefined) return failed('weak-password')
     if (state.revision !== expectedRevision) return failed('revision-conflict')
@@ -230,7 +230,7 @@ export class VaultService {
     return { ok: true, value: { snapshot: this.redacted(next), ...(recoveryKey === undefined ? {} : { recoveryKey }) } }
   }
 
-  private async recoverGroup(clientInstanceId: string, expectedRevision: number, input: RecoverGroupInput): Promise<ServiceResult> {
+  private async recoverGroup(expectedRevision: number, input: RecoverGroupInput): Promise<ServiceResult> {
     const state = await this.state()
     if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== undefined) return failed('weak-password')
     if (state.revision !== expectedRevision) return failed('revision-conflict')
