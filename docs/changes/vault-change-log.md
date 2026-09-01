@@ -2,6 +2,26 @@
 
 本文件为 Vault 插件的追加式变更日志。每次用户需求变更都记录原始诉求、设计决策、验证证据和交付状态，禁止覆盖历史条目。
 
+## 2026-09-01：补丁宿主部署落地与 v0.2.1 发布
+
+### 背景
+
+- WorkBuddy 升级内置 Node（22.22.2 → 22.22.2-2）删除了旧目录，LaunchAgent 指向失效路径，DSH 以 exit 78 退出。
+- 重装官方 `@deepseek-ai/dsh@0.1.1-rc.2` 后，Vault 插件 pending（`waiting for services: navigationAccess, workspaceRows`）：官方宿主始终未含兼容层，补丁宿主自 8 月 26 日构建成功后从未正式部署。
+
+### 实施
+
+- `dsh` CLI 改由 Homebrew npm 全局安装（脱离 WorkBuddy Node 目录生命周期），LaunchAgent 指向 `/opt/homebrew/bin/dsh`。
+- 补丁宿主以最小 overlay 落地：从 pinned 基线 `b150a551b8` + 3 个 vault 提交（`02a9bfb5dd`、`d07f9e7193`、`2ae651f1e4`）构建，覆盖安装树中 6 个客户端包的 `lib/` 与 `dsh-web-frontend/dist`；原版备份存于 `~/.dsh-overlay-backup-20260901-101836`。
+- 6 个未发布的 fail-closed 修复（保留解锁授权、阻止嵌套/继承会话锁、无会话上下文时拒绝、严格类型检查）并入 `0.2.1`。
+- 兼容补丁经 `scripts/export-dsh-patch.mjs` 重新导出：42 文件、3488 插入，`git apply --check` 通过。
+
+### 测试与实装证据
+
+- 插件：`tsc --noEmit` 通过；25 个测试文件、256 个测试通过。
+- 宿主：ui-workspace / ui-conversation / runtime 共 64 个测试文件、1052 个测试通过。
+- 实装：Vault 0.2.1 装入 web profile；浏览器确认工作区行渲染 `dsh-vault-row-action`「上锁」按钮，无 `Failed to load plugins` / `did not activate`；RTK 补丁与其余 6 个插件完好。
+
 ## 2026-08-27：快速上锁流程与密码策略
 
 ### 原始需求
