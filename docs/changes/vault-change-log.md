@@ -20,6 +20,7 @@
 
 - 插件：vitest 25 个测试文件、257 个测试通过（含限流轮换标识回归测试）；tsdown 构建通过。
 - 实装：web profile 以 file: 安装本地构建，launchctl kickstart 重启后浏览器实测——启动零错误（无 did not activate）、侧栏 15 个锁图标渲染、保险箱设置卡两个面板渲染真实数据、受保护工作区会话显示 fail-closed 锁定占位符、解锁对话框错误密码路径提示正确。
+- 发布实装：CI/Release 工作流全绿（首次 CI 暴露 typecheck 未跑导致的死参问题，863eb4b 修复后 tag 重指）；web profile 切换为 github:#v0.2.3，launchctl kickstart 重启后浏览器确认启动零错误、锁图标渲染、锁定徽标正常，运行包版本 0.2.3。市场收录待 dsh-plugin.org 下一轮爬虫周期复核。
 
 ## 2026-09-01：v0.2.2 插件市场收录适配
 
