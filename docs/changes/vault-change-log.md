@@ -17,7 +17,11 @@
 
 ### 测试与实装证据
 
-- （发布流程中补充：构建、typecheck、vitest、scratch 目录 `pnpm add github:` 实测、web profile 切换安装与浏览器激活验证。）
+- 插件：`tsdown` 构建通过；`tsc --noEmit` 通过；25 个测试文件、256 个测试通过。
+- scratch 目录实测 `pnpm add github:robbin810130/dsh-vault-plugin#codex/dsh-vault-host`：解析为 `@robbin810130/dsh-vault-plugin@0.2.2`，安装树含根 package.json、`plugin/lib` 产物与 `plugin/cordis.patch.yml`，`apply(ctx)` 可加载。
+- GitHub Release `v0.2.2` 由 tag 工作流自动生成，tgz / sha256 / 兼容补丁三件资产齐全。
+- 实装：web profile 从 file:tgz 切换为 `github:#v0.2.2` 引用，`launchctl kickstart` 重启后浏览器确认无 `Failed to load plugins` / `did not activate`，9 个 `dsh-vault-row-action` 渲染，运行包版本 0.2.2。
+- 市场收录：dsh-plugin.org 每日刷新索引，收录状态待下一轮爬虫周期后复核。
 
 ## 2026-09-01：补丁宿主部署落地与 v0.2.1 发布
 
