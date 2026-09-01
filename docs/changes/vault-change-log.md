@@ -2,6 +2,23 @@
 
 本文件为 Vault 插件的追加式变更日志。每次用户需求变更都记录原始诉求、设计决策、验证证据和交付状态，禁止覆盖历史条目。
 
+## 2026-09-01：v0.2.2 插件市场收录适配
+
+### 背景
+
+- v0.2.1 发布后核查 dsh-plugin.org 全量索引（7942 个 topic 仓库）：`robbin810130/dsh-vault-plugin` 未被收录，而同日创建的 `robbin810130/dsh-rtk` 在列。
+- 根因：爬虫按仓库根部的 `package.json` 识别插件，Vault 的 manifest 只在 `plugin/` 子目录；同一原因导致 README 广告的 `github:` 安装路径必然失败（`dsh plugin add github:` 底层是 `pnpm add github:`，要求包根有 package.json）。
+
+### 实施
+
+- 仓库根部新增面向市场的包装 `package.json`：name/version 与 `plugin/package.json` 保持一致，`main`/`exports`/`bin` 指向 `plugin/lib` 构建产物，`dsh.bundle.patch` 指向 `./plugin/cordis.patch.yml`（运行时按包根相对解析，已核对 `packages/boot/app-boot/src/profile.ts`）。
+- `plugin/lib` 构建产物随发布提交进 git（参照 dsh-rtk 模式），`github:` 安装免 prepare 脚本、无 pnpm allowBuilds 摩擦。
+- `scripts/package-release.mjs` 增加发布期守卫：根/插件 manifest 的 name、version 漂移或 patch 路径失效时发布直接失败。
+
+### 测试与实装证据
+
+- （发布流程中补充：构建、typecheck、vitest、scratch 目录 `pnpm add github:` 实测、web profile 切换安装与浏览器激活验证。）
+
 ## 2026-09-01：补丁宿主部署落地与 v0.2.1 发布
 
 ### 背景

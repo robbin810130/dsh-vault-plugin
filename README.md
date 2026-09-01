@@ -31,7 +31,7 @@ dsh plugin --profile web add <downloaded-package>
 也可以直接使用 DSH 原生安装命令安装 GitHub 仓库：
 
 ```bash
-dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.1
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.2
 ```
 
 ## 功能概览

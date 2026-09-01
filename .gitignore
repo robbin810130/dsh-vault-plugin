@@ -14,6 +14,7 @@ rtk-token-keeper/restart-report.txt
 node_modules/
 dist/
 lib/
+!plugin/lib/
 coverage/
 *.log
 artifacts/

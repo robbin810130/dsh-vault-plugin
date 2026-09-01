@@ -1,12 +1,27 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readdirSync, renameSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const artifacts = join(root, 'artifacts')
 const expected = 'dsh-vault-plugin.tgz'
+
+// Marketplace wrapper guard: the repo-root package.json is what dsh-plugin.org
+// crawls and what `pnpm add github:owner/repo` installs. It must mirror the
+// real plugin manifest under plugin/ — fail the release if they drift apart.
+const pluginManifest = JSON.parse(readFileSync(join(root, 'plugin/package.json'), 'utf8'))
+const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+for (const key of ['name', 'version']) {
+  if (rootManifest[key] !== pluginManifest[key]) {
+    throw new Error(`root package.json ${key} (${rootManifest[key]}) != plugin/package.json (${pluginManifest[key]})`)
+  }
+}
+const patchEntry = rootManifest.dsh?.bundle?.patch
+if (typeof patchEntry !== 'string' || !existsSync(join(root, patchEntry))) {
+  throw new Error(`root package.json dsh.bundle.patch (${patchEntry}) does not resolve to a file`)
+}
 
 rmSync(artifacts, { recursive: true, force: true })
 mkdirSync(artifacts, { recursive: true })
