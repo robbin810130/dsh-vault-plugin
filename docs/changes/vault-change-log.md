@@ -2,6 +2,25 @@
 
 本文件为 Vault 插件的追加式变更日志。每次用户需求变更都记录原始诉求、设计决策、验证证据和交付状态，禁止覆盖历史条目。
 
+## 2026-09-01：v0.2.3 安全修复与响应式订阅修复
+
+### 背景
+
+- 整体 review 发现两项 P1 安全问题与三项 P3 健壮性问题，用户确认后修复并随本版本发布。
+
+### 实施
+
+- P1 限流键自报绕过：FailedAttemptStore 原按 (groupId, clientInstanceId) 计数，clientInstanceId 为请求体自报字段，攻击者轮换标识即重置冷却；改为按组计数，任何客户端标识共享同一失败计数。
+- P1 matchesSession fail-open：兜底启发式在 2 个及以上 workspace 绑定时放弃锁定检查直接渲染内容；改为任何 workspace 保护存在且归属未知时即认领该会话（fail-closed），与 2026-08-29 既定设计方向一致。
+- P3 行/设置/解锁组件一次性读 getSnapshot 不订阅：新增 useVaultSnapshot hook（useSyncExternalStore），UnlockDialog、LockedConversation、VaultRowAccessory、VaultRowAction、GroupsPanel、VaultSettingsCard 全部接入，修复状态过期不刷新。
+- P3 PolicyPanel 不同步外部 props：useEffect 同步；sessionWorkspaceIds Map 加 FIFO 上限 500。
+- 威胁模型文档化：README 新增"威胁模型与安全边界说明"章节，明确 snapshot 元数据暴露的理由、UI 层门禁非内容加密、内存态限流的权衡。
+
+### 测试与实装证据
+
+- 插件：vitest 25 个测试文件、257 个测试通过（含限流轮换标识回归测试）；tsdown 构建通过。
+- 实装：web profile 以 file: 安装本地构建，launchctl kickstart 重启后浏览器实测——启动零错误（无 did not activate）、侧栏 15 个锁图标渲染、保险箱设置卡两个面板渲染真实数据、受保护工作区会话显示 fail-closed 锁定占位符、解锁对话框错误密码路径提示正确。
+
 ## 2026-09-01：v0.2.2 插件市场收录适配
 
 ### 背景
