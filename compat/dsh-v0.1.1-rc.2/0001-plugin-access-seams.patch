@@ -109,7 +109,7 @@ index 90a2b2f5f3..2db3f6df9b 100644
    ctx.typert.contexts.registerClient('agent', {
 diff --git a/packages/client/runtime/src/client/navigation/access.ts b/packages/client/runtime/src/client/navigation/access.ts
 new file mode 100644
-index 0000000000..b6af74f44f
+index 0000000000..6d367a2d66
 --- /dev/null
 +++ b/packages/client/runtime/src/client/navigation/access.ts
 @@ -0,0 +1,167 @@
@@ -127,9 +127,9 @@ index 0000000000..b6af74f44f
 +
 +export interface NavigationAccessProvider {
 +  matchesWorkspace(id: WorkspaceId): boolean
-+  matchesSession(id: SessionId): boolean
++  matchesSession(id: SessionId, workspaceId?: WorkspaceId | null): boolean
 +  workspaceState(id: WorkspaceId): NavigationAccessState
-+  sessionState(id: SessionId): NavigationAccessState
++  sessionState(id: SessionId, workspaceId?: WorkspaceId | null): NavigationAccessState
 +  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
 +  requestSession(id: SessionId): Promise<NavigationDecision>
 +  subscribe(listener: () => void): () => void
@@ -138,7 +138,7 @@ index 0000000000..b6af74f44f
 +export interface NavigationAccess {
 +  register(provider: NavigationAccessProvider): () => void
 +  workspaceState(id: WorkspaceId): NavigationAccessState
-+  sessionState(id: SessionId): NavigationAccessState
++  sessionState(id: SessionId, workspaceId?: WorkspaceId | null): NavigationAccessState
 +  requestWorkspace(id: WorkspaceId): Promise<NavigationDecision>
 +  requestSession(id: SessionId): Promise<NavigationDecision>
 +  subscribe(listener: () => void): () => void
@@ -224,11 +224,11 @@ index 0000000000..b6af74f44f
 +    return ALLOW_STATE
 +  }
 +
-+  sessionState(id: SessionId): NavigationAccessState {
++  sessionState(id: SessionId, workspaceId?: WorkspaceId | null): NavigationAccessState {
 +    for (const entry of this.providers) {
 +      try {
-+        if (!entry.provider.matchesSession(id)) continue
-+        const state = entry.provider.sessionState(id)
++        if (!entry.provider.matchesSession(id, workspaceId)) continue
++        const state = entry.provider.sessionState(id, workspaceId)
 +        if (state.kind === 'blocked') return state
 +      } catch {
 +        return FAILED_STATE
@@ -928,10 +928,10 @@ index 199181fe2e..010c5fd8ea 100644
      await workspaces.refresh()
 diff --git a/packages/client/runtime/tests/navigation-access.client.spec.ts b/packages/client/runtime/tests/navigation-access.client.spec.ts
 new file mode 100644
-index 0000000000..97cb975ca6
+index 0000000000..aa51d79f80
 --- /dev/null
 +++ b/packages/client/runtime/tests/navigation-access.client.spec.ts
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,204 @@
 +import { describe, expect, it, vi } from 'vitest'
 +import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-api-remotes/client'
 +import {
@@ -1021,6 +1021,23 @@ index 0000000000..97cb975ca6
 +    const registry = new NavigationAccessRegistry()
 +    registry.register(provider)
 +    await expect(registry.requestSession(sid('locked'))).resolves.toEqual({ allow: false })
++  })
++
++  it('forwards workspace context to session match and state probes', () => {
++    const provider = fakeProvider({ matchesSession: true })
++    const registry = new NavigationAccessRegistry()
++    registry.register(provider)
++
++    expect(registry.sessionState(sid('s-context'), wid('w-plain'))).toEqual(allowState)
++    expect(provider.matchesSession).toHaveBeenCalledWith(sid('s-context'), wid('w-plain'))
++    expect(provider.sessionState).toHaveBeenCalledWith(sid('s-context'), wid('w-plain'))
++
++    expect(registry.sessionState(sid('s-fresh'), null)).toEqual(allowState)
++    expect(provider.matchesSession).toHaveBeenCalledWith(sid('s-fresh'), null)
++    expect(provider.sessionState).toHaveBeenCalledWith(sid('s-fresh'), null)
++
++    expect(registry.sessionState(sid('s-unknown'))).toEqual(allowState)
++    expect(provider.matchesSession).toHaveBeenCalledWith(sid('s-unknown'), undefined)
 +  })
 +
 +  it('blocks target state when a matching provider state read throws', () => {
@@ -2432,7 +2449,7 @@ index 307ac38482..34016dbe1d 100644
      | 'conversation.input.overlay'
      | 'conversation.input.dock' | 'conversation.composer.dock'
 diff --git a/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx b/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
-index 07655d7dba..8cf7e3c649 100644
+index 07655d7dba..fea2b67e21 100644
 --- a/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
 +++ b/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.tsx
 @@ -2,8 +2,9 @@
@@ -2446,7 +2463,7 @@ index 07655d7dba..8cf7e3c649 100644
  import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
  import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
  import { HeroGlow, HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
-@@ -12,10 +13,36 @@ import css from './ConversationRoot.module.css'
+@@ -12,9 +13,35 @@ import css from './ConversationRoot.module.css'
  /** Full props composed from the slot contract. */
  export type ConversationRootProps = ConversationSlotProps
  
@@ -2462,16 +2479,17 @@ index 07655d7dba..8cf7e3c649 100644
 +function useCurrentSessionAccess(
 +  navigationAccess: NavigationAccess | undefined,
 +  sessionId: ConversationRootProps['sessionId'],
++  workspaceId: WorkspaceId | null | undefined,
 +): NavigationAccessState {
 +  const last = useRef<NavigationAccessState>(ALLOW_ACCESS)
 +  const subscribe = useCallback((listener: () => void) =>
 +    navigationAccess?.subscribe(listener) ?? noopSubscribe(), [navigationAccess])
 +  const getSnapshot = useCallback(() => {
-+    const next = sessionId === undefined ? ALLOW_ACCESS : navigationAccess?.sessionState(sessionId) ?? ALLOW_ACCESS
++    const next = sessionId === undefined ? ALLOW_ACCESS : navigationAccess?.sessionState(sessionId, workspaceId) ?? ALLOW_ACCESS
 +    if (sameAccessState(last.current, next)) return last.current
 +    last.current = next
 +    return next
-+  }, [navigationAccess, sessionId])
++  }, [navigationAccess, sessionId, workspaceId])
 +  return useSyncExternalStore(subscribe, getSnapshot)
 +}
 +
@@ -2480,11 +2498,38 @@ index 07655d7dba..8cf7e3c649 100644
 -  renderSlot, renderSlotChain, selectWorkspace, t,
 +  renderSlot, renderSlotChain, selectWorkspace, navigationAccess, t,
  }: ConversationRootProps) {
-+  const access = useCurrentSessionAccess(navigationAccess, sessionId)
    const openState = useSession(s => s.openState)
    const composerPhase = useSession(s => s.composerPhase)
-   const pending = useSession(s => s.pending) ?? []
-@@ -65,6 +92,14 @@ export function ConversationRoot({
+@@ -23,7 +50,18 @@ export function ConversationRoot({
+   const inputState = useInput(s => s)
+   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
+   const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
++  const sessionKnown = useSessions(s => sessionId === undefined ? false : s.byId[sessionId] !== undefined)
+   const workspaces = useWorkspaces(s => s)
++  const sessionWorkspace = sessionId === undefined
++    ? undefined
++    : workspaces.items.find(workspace => workspace.sessionIds.includes(sessionId))
++  // Access-gate workspace context: known membership wins; once the workspace
++  // list is ready and the session is known but memberless, null tells
++  // providers the session has no parent workspace (nothing to inherit);
++  // undefined leaves unknown context to the provider's fail-closed default.
++  const accessWorkspaceId = sessionWorkspace?.workspaceId
++    ?? (workspaces.phase === 'ready' && sessionKnown ? null : undefined)
++  const access = useCurrentSessionAccess(navigationAccess, sessionId, accessWorkspaceId)
+   // A plugin this package cannot import (ui-model-selection) says this session cannot
+   // send; its reason is already localized by whoever raised it.
+   const composerBlock = useComposerBlock(block => block)
+@@ -48,9 +86,6 @@ export function ConversationRoot({
+     seatObserver.current.observe(seat)
+   }, [])
+ 
+-  const sessionWorkspace = sessionId === undefined
+-    ? undefined
+-    : workspaces.items.find(workspace => workspace.sessionIds.includes(sessionId))
+   const pendingWorkspace = workspaces.items.find(
+     workspace => workspace.workspaceId === pendingWorkspaceId,
+   )
+@@ -65,6 +100,14 @@ export function ConversationRoot({
      }
    }, [pendingWorkspaceId, sessionWorkspace?.workspaceId, workspaces.phase, pendingWorkspace])
  
@@ -2501,16 +2546,16 @@ index 07655d7dba..8cf7e3c649 100644
    // the centered hero and snapping to the docked bar (or vice versa).
 diff --git a/packages/client/ui-conversation/tests/access-gate.client.spec.tsx b/packages/client/ui-conversation/tests/access-gate.client.spec.tsx
 new file mode 100644
-index 0000000000..c4eb33619b
+index 0000000000..92c3e2b882
 --- /dev/null
 +++ b/packages/client/ui-conversation/tests/access-gate.client.spec.tsx
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,234 @@
 +// @vitest-environment jsdom
 +import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 +import { cleanup, waitFor } from '@testing-library/react'
 +import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 +import type {
-+  ISession, NavigationAccess, NavigationAccessState, SessionId,
++  ISession, NavigationAccess, NavigationAccessState, SessionId, WorkspaceId, WorkspaceView,
 +} from '@deepseek-ai/dsh-client-runtime/client'
 +import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 +import { SlotTestRuntime, stubSettingsScope, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
@@ -2692,6 +2737,49 @@ index 0000000000..c4eb33619b
 +    expect(view.queryByTestId('access-denied')).toBeNull()
 +    expect(view.queryByRole('textbox')).not.toBeNull()
 +    expect(view.queryByTestId('native-view')).not.toBeNull()
++
++    await runtime.dispose()
++  })
++
++  it('reports confirmed-absent workspace context for a memberless session', async () => {
++    // Mirrors the Vault plugin contract: unknown context fails closed, but a
++    // session with no parent workspace (null) has nothing to inherit.
++    const access = accessHarness({ kind: 'blocked', reason: 'locked' })
++    access.navigationAccess.sessionState = vi.fn(
++      (_id: SessionId, workspaceId?: WorkspaceId | null) =>
++        workspaceId === null ? ALLOW : { kind: 'blocked', reason: 'locked' } as NavigationAccessState,
++    )
++    const { runtime, view } = await bench({ access })
++
++    expect(view.queryByTestId('access-denied')).toBeNull()
++    expect(view.queryByTestId('native-view')).not.toBeNull()
++    expect(access.navigationAccess.sessionState).toHaveBeenCalledWith(SID, null)
++
++    await runtime.dispose()
++  })
++
++  it('reports workspace membership context to the access gate', async () => {
++    const workspace: WorkspaceView = {
++      workspaceId: 'w-1' as WorkspaceId,
++      path: '/proj',
++      title: 'proj',
++      sessionIds: [SID],
++      createdAt: '2026-09-02T00:00:00.000Z',
++      updatedAt: '2026-09-02T00:00:00.000Z',
++    }
++    const access = accessHarness({ kind: 'blocked', reason: 'locked' })
++    access.navigationAccess.sessionState = vi.fn(
++      (_id: SessionId, workspaceId?: WorkspaceId | null) =>
++        workspaceId === workspace.workspaceId ? ALLOW : { kind: 'blocked', reason: 'locked' } as NavigationAccessState,
++    )
++    const { runtime, view } = await bench({ access })
++    await runtime.workspaces.update((draft) => { draft.items = [...draft.items, workspace] })
++
++    await waitFor(() => {
++      expect(view.queryByTestId('access-denied')).toBeNull()
++      expect(view.queryByTestId('native-view')).not.toBeNull()
++    })
++    expect(access.navigationAccess.sessionState).toHaveBeenCalledWith(SID, workspace.workspaceId)
 +
 +    await runtime.dispose()
 +  })

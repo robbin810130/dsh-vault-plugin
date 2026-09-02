@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 		let react = require("react");
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let react_dom = require("react-dom");
-		//#region \0dsh-vault-css:/Users/Robbin/Documents/WorkSapce/DeepSeek/DSH 插件/.worktrees/dsh-vault-host/plugin/src/client/styles.css.mjs
+		//#region \0dsh-vault-css:/Users/Robbin/Documents/WorkSapce/DeepSeek/DSH 插件/plugin/src/client/styles.css.mjs
 		const css = ".dsh-vault{color:inherit}.dsh-vault-settings-card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);max-width:760px;color:var(--dsw-alias-label-primary);border-radius:12px;list-style:none;transition:border-color .16s,background .16s}.dsh-vault-settings-card:hover{border-color:var(--dsw-alias-label-dimmed)}.dsh-vault-settings-card-open{border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-bg-layer-2)}.dsh-vault-settings-card-heading{flex-direction:column;gap:2px;min-width:0;display:flex}.dsh-vault-settings-card-heading strong{font-size:15px;font-weight:600;line-height:1.5}.dsh-vault-settings-card-heading small{color:var(--dsw-alias-label-tertiary);font-size:13px;font-weight:400;line-height:1.5}.dsh-vault-settings-card h2,.dsh-vault-settings-panel h3{margin:0;font-size:13px;font-weight:600;line-height:1.5}.dsh-vault-settings-card-header{appearance:none;width:100%;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}.dsh-vault-settings-card-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}.dsh-vault-settings-card-heading{flex:1}.dsh-vault-settings-card-chevron{width:7px;height:7px;color:var(--dsw-alias-label-tertiary);border-bottom:1.5px solid;border-right:1.5px solid;flex:none;margin:0 5px 3px 0;transition:transform .12s;transform:rotate(45deg)}.dsh-vault-settings-card-open .dsh-vault-settings-card-chevron{margin-bottom:-3px;transform:rotate(225deg)}.dsh-vault-settings-card-body{border-top:1px solid var(--dsw-alias-border-l2);min-width:0;margin:0 16px;padding-bottom:8px}.dsh-vault-settings-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);align-items:flex-end;gap:22px;margin-top:2px;display:flex}.dsh-vault-settings-tabs button{color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:0;padding:7px 1px 9px;font-size:13px;line-height:20px;position:relative}.dsh-vault-settings-tabs button:hover,.dsh-vault-settings-tabs button[aria-selected=true]{color:var(--dsw-alias-label-primary)}.dsh-vault-settings-tabs button[aria-selected=true]:after,.dsh-vault-settings-tabs button:focus-visible:after{content:\"\";background:var(--dsw-alias-label-primary);border-radius:2px 2px 0 0;height:2px;position:absolute;bottom:-1px;left:0;right:0}.dsh-vault-settings-panel{min-width:0}.dsh-vault-field{flex-direction:column;gap:6px;padding:12px 0;display:flex}.dsh-vault-field+.dsh-vault-field{border-top:1px solid var(--dsw-alias-border-l2)}.dsh-vault-field>span,.dsh-vault-checkbox{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dsh-vault-field select,.dsh-vault-field input[type=number],.dsh-vault-field input[type=text],.dsh-vault-field input[type=password]{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);width:100%;height:34px;color:var(--dsw-alias-label-primary);font:inherit;border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dsh-vault-field select:focus-visible,.dsh-vault-field input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dsh-vault-checkbox{align-items:center;gap:8px;padding:6px 0;display:flex}.dsh-vault-checkbox input{accent-color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory,.dsh-vault-row-action,.dsh-vault-row-menu,.dsh-vault-dialog,.dsh-vault-locked-conversation{color:inherit;font:inherit}.dsh-vault-row-accessory{align-items:center;gap:.35rem;min-height:44px;display:inline-flex}.dsh-vault-row-accessory-locked{color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory-inherited{color:var(--dsw-alias-label-secondary)}.dsh-vault-row-accessory-text,.dsh-vault-row-accessory-muted{display:none}.dsh-vault-lock-icon,.dsh-vault-protected-lock-icon,.dsh-vault-dialog-icon,.dsh-vault-locked-conversation-icon{flex:none;width:16px;height:16px}.dsh-vault-protected-lock-icon{color:var(--dsw-alias-label-secondary)}.dsh-vault-row-accessory-locked .dsh-vault-protected-lock-icon{color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory-inherited .dsh-vault-protected-lock-icon{color:var(--dsw-alias-label-tertiary)}.dsh-vault-row-action{align-items:center;display:inline-flex;position:relative}.dsh-vault-row-action-button,.dsh-vault-button,.dsh-vault-row-menu-item{border:1px solid var(--dsw-alias-border-l2);min-height:34px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:8px;padding:0 12px;font-size:13px}.dsh-vault-row-action-button{background:0 0;border-color:#0000;width:34px;padding:0}.dsh-vault-row-action-button:hover:not(:disabled){background:var(--dsw-alias-bg-module-platform);border-color:#0000}.dsh-vault-button:hover:not(:disabled),.dsh-vault-row-menu-item:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dsh-vault-button-primary{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);border-color:#0000}.dsh-vault-button-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.dsh-vault-row-menu{z-index:10;gap:.25rem;display:grid;position:absolute;top:100%;right:0}.dsh-vault-dialog-backdrop{z-index:2147483000;box-sizing:border-box;background:#0000008f;background:color-mix(in srgb, var(--dsw-alias-bg-base) 64%, transparent);place-items:center;padding:16px;display:grid;position:fixed;inset:0}.dsh-vault-dialog{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);width:min(420px,100%);max-width:100%;color:var(--dsw-alias-label-primary);box-shadow:0 18px 52px #0000006b;box-shadow:0 18px 52px color-mix(in srgb, var(--dsw-alias-bg-base) 42%, transparent);border-radius:12px;gap:.75rem;padding:20px;display:grid}.dsh-vault-dialog h2{color:var(--dsw-alias-label-primary);margin:0;font-size:18px;font-weight:600;line-height:1.4}.dsh-vault-dialog>p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:13px;line-height:1.5}.dsh-vault-quick-lock-dialog .dsh-vault-field input{box-sizing:border-box;width:100%}.dsh-vault-quick-lock-error{border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, var(--dsw-alias-border-l2));background:color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);border-radius:10px;gap:.25rem;margin:0;padding:.75rem .875rem;font-size:13px;line-height:1.5;display:grid}.dsh-vault-quick-lock-error>strong{font-weight:600}.dsh-vault-quick-lock-error>span{color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-primary))}.dsh-vault-field{gap:.35rem;display:grid}.dsh-vault-field input{min-height:34px}.dsh-vault-settings-heading{justify-content:space-between;align-items:center;gap:12px;padding:12px 0;display:flex}.dsh-vault-settings-heading-actions-only{justify-content:flex-end}.dsh-vault-settings-disclosure,.dsh-vault-settings-warning{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dsh-vault-group-list{gap:8px;margin:0;padding:0;list-style:none;display:grid}.dsh-vault-group-list>li{flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;padding:8px 0;display:flex}.dsh-vault-group-list>li>strong{min-width:0;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.dsh-vault-group-list>li>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dsh-vault-group-list>li>.dsh-vault-dialog-actions{margin-left:auto}.dsh-vault-dialog-actions{justify-content:flex-end;gap:.5rem;display:flex}.dsh-vault-locked-conversation{text-align:center;align-content:center;justify-items:center;gap:.75rem;max-width:28rem;min-height:100%;margin:0 auto;padding:3rem 2rem;display:grid}.dsh-vault-locked-conversation-icon{width:48px;height:48px;color:var(--dsw-alias-brand-primary);opacity:.9;margin-bottom:.5rem}.dsh-vault-locked-conversation-title{margin:0;font-size:1.5rem;font-weight:600}.dsh-vault-locked-conversation-copy{color:var(--dsw-alias-label-secondary);margin:0}";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin=\"@robbin810130/dsh-vault-plugin\"]") === null) {
 			const tag = document.createElement("style");
@@ -365,7 +365,7 @@ window.__ModuleLoader__.load({
 				reason: "invalid workspace binding"
 			} : groupState(snapshot, groupId);
 		}
-		function resolveVaultTarget(snapshot, target) {
+		function resolveVaultTarget(snapshot, target, context) {
 			if (target.type === "workspace") return workspaceGroup(snapshot, target.id);
 			const sessionBindings = snapshot.bindings.filter((candidate) => candidate.targetType === "session" && candidate.targetId === target.id);
 			const direct = sessionBindings.find((candidate) => candidate.mode === "direct");
@@ -382,10 +382,13 @@ window.__ModuleLoader__.load({
 				};
 				return workspaceGroup(snapshot, target.workspaceId);
 			}
-			if (target.workspaceId === void 0) return snapshot.bindings.some((candidate) => candidate.targetType === "workspace") ? {
-				kind: "blocked",
-				reason: "invalid session binding"
-			} : { kind: "plain" };
+			if (target.workspaceId === void 0) {
+				if (context?.workspaceAbsent === true) return { kind: "plain" };
+				return snapshot.bindings.some((candidate) => candidate.targetType === "workspace") ? {
+					kind: "blocked",
+					reason: "invalid session binding"
+				} : { kind: "plain" };
+			}
 			return workspaceGroup(snapshot, target.workspaceId);
 		}
 		//#endregion
@@ -447,9 +450,9 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/access/provider.ts
-		function targetState(store, target) {
+		function targetState(store, target, workspaceAbsent = false) {
 			const snapshot = store.getSnapshot();
-			const resolution = resolveVaultTarget(snapshot, target);
+			const resolution = resolveVaultTarget(snapshot, target, { workspaceAbsent });
 			if (resolution.kind === "plain") return { kind: "allow" };
 			if (resolution.kind === "blocked") return {
 				kind: "blocked",
@@ -476,20 +479,39 @@ window.__ModuleLoader__.load({
 		function createVaultAccessProvider(store) {
 			const listeners = /* @__PURE__ */ new Set();
 			const sessionTarget = (id, workspaceId) => {
+				if (workspaceId === null) return {
+					target: {
+						type: "session",
+						id
+					},
+					workspaceAbsent: true
+				};
 				const resolvedWorkspaceId = workspaceId ?? workspaceIdForSession(id);
 				return resolvedWorkspaceId === void 0 ? {
-					type: "session",
-					id
+					target: {
+						type: "session",
+						id
+					},
+					workspaceAbsent: false
 				} : {
-					type: "session",
-					id,
-					workspaceId: resolvedWorkspaceId
+					target: {
+						type: "session",
+						id,
+						workspaceId: resolvedWorkspaceId
+					},
+					workspaceAbsent: false
 				};
 			};
-			const matchesSession = (id) => {
+			const matchesSession = (id, workspaceId) => {
 				const snapshot = store.getSnapshot();
-				const workspaceId = workspaceIdForSession(id);
-				if (!snapshot.bindings.some((binding) => binding.targetType === "session" && binding.targetId === id) && workspaceId === void 0) {
+				if (typeof workspaceId === "string") rememberWorkspaceIdForSession(id, workspaceId);
+				if (snapshot.bindings.some((binding) => binding.targetType === "session" && binding.targetId === id)) {
+					const { target, workspaceAbsent } = sessionTarget(id, workspaceId);
+					return resolveVaultTarget(snapshot, target, { workspaceAbsent }).kind !== "plain";
+				}
+				if (workspaceId === null) return false;
+				const rememberedWorkspaceId = workspaceId ?? workspaceIdForSession(id);
+				if (rememberedWorkspaceId === void 0) {
 					const workspaceBindings = snapshot.bindings.filter((binding) => binding.targetType === "workspace");
 					if (workspaceBindings.length === 0) return false;
 					const [workspaceBinding] = workspaceBindings;
@@ -500,7 +522,11 @@ window.__ModuleLoader__.load({
 						workspaceId: workspaceBinding.targetId
 					}).kind !== "plain";
 				}
-				return protectedResolution(store, sessionTarget(id)).kind !== "plain";
+				return protectedResolution(store, {
+					type: "session",
+					id,
+					workspaceId: rememberedWorkspaceId
+				}).kind !== "plain";
 			};
 			const unsubscribe = store.subscribe(() => {
 				for (const listener of [...listeners]) listener();
@@ -520,7 +546,10 @@ window.__ModuleLoader__.load({
 					type: "workspace",
 					id
 				}),
-				sessionState: (id, workspaceId) => targetState(store, sessionTarget(id, workspaceId)),
+				sessionState: (id, workspaceId) => {
+					const { target, workspaceAbsent } = sessionTarget(id, workspaceId);
+					return targetState(store, target, workspaceAbsent);
+				},
 				requestWorkspace: (id) => decisionWithoutPrompt(store, {
 					type: "workspace",
 					id

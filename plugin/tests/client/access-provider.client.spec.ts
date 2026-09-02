@@ -208,4 +208,42 @@ describe('Vault navigation access provider', () => {
     expect(store.getSnapshot().prompt).toBeNull()
     expect(provider.workspaceState('w-a')).toEqual({ kind: 'allow' })
   })
+
+  it('does not claim or block a session whose workspace is confirmed absent', async () => {
+    const store = makeStore(makeSnapshot([binding('workspace', 'w-locked', 'direct', 'group-a')]))
+    await store.refresh()
+    const provider = createVaultAccessProvider(store)
+
+    // Host-confirmed "no parent workspace": nothing to inherit, so even with
+    // workspace protection configured elsewhere the session must open.
+    expect(provider.matchesSession('s-fresh', null)).toBe(false)
+    expect(provider.sessionState('s-fresh', null)).toEqual({ kind: 'allow' })
+  })
+
+  it('honours host-provided workspace context for match and state probes', async () => {
+    const store = makeStore(makeSnapshot([
+      binding('workspace', 'w-locked', 'direct', 'group-a'),
+    ]))
+    await store.refresh()
+    const provider = createVaultAccessProvider(store)
+
+    // Plain workspace context: the provider must not claim the session.
+    expect(provider.matchesSession('s-new', 'w-plain')).toBe(false)
+    expect(provider.sessionState('s-new', 'w-plain')).toEqual({ kind: 'allow' })
+    // Locked workspace context: claim and block until unlock.
+    expect(provider.matchesSession('s-new', 'w-locked')).toBe(true)
+    expect(provider.sessionState('s-new', 'w-locked')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
+  })
+
+  it('still enforces explicit session bindings when the workspace is confirmed absent', async () => {
+    const store = makeStore(makeSnapshot([
+      binding('workspace', 'w-locked', 'direct', 'group-a'),
+      binding('session', 's-direct', 'direct', 'group-b'),
+    ]))
+    await store.refresh()
+    const provider = createVaultAccessProvider(store)
+
+    expect(provider.matchesSession('s-direct', null)).toBe(true)
+    expect(provider.sessionState('s-direct', null)).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
+  })
 })

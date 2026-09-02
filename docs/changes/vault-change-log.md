@@ -2,6 +2,36 @@
 
 本文件为 Vault 插件的追加式变更日志。每次用户需求变更都记录原始诉求、设计决策、验证证据和交付状态，禁止覆盖历史条目。
 
+## 2026-09-02：修复新建对话被误判为已上锁
+
+### 复现证据
+
+- 用户报告：开新对话时右侧对话窗口直接显示"已上锁"页面，无法新建对话。
+- 现场态：`~/.dsh/vault-lock/state.json` 仅有 1 条工作区绑定（"本地模型配置与调试"），无会话级绑定。
+
+### 根因
+
+- v0.2.3 的 fail-closed 链路误伤新会话：`resolveVaultTarget` 对"无 workspaceId 且存在任何工作区绑定"的会话返回 blocked；`matchesSession` 又把未知工作区会话认领给第一个工作区绑定。
+- 新会话刚创建时插件尚未获知它的工作区归属（宿主 `openAndWait`/`requestSession` 不传 workspaceId，`workspaceIdForSession` 映射为空），于是 ConversationRoot 渲染锁定占位符，且 blocked≠protected 导致解锁按钮被禁用，用户彻底无法继续。
+- 2026-09-01 接受过的"工作区无法确认时 fail-closed"决策针对的是存量会话，不应误伤刚创建的新会话。
+
+### 修复（三态工作区上下文）
+
+- 会话工作区上下文改为三态：`string`=已知归属，正常解析；`null`=宿主确认无父工作区，不继承、不 fail-closed（仅显式会话绑定生效）；`undefined`=未知，维持 fail-closed。
+- 插件：`VaultResolutionContext` 新增 `workspaceAbsent`，为 true 时未知工作区会话返回 plain；`matchesSession`/`sessionState` 接受 `workspaceId?: string | null`，null 时不再回落到记忆映射。
+- 宿主兼容补丁：runtime 导航访问层与 ConversationRoot 透传 `accessWorkspaceId`（`sessionWorkspace?.workspaceId ?? (phase==='ready' && sessionKnown ? null : undefined)`），并重新导出 `compat/dsh-v0.1.1-rc.2/0001-plugin-access-seams.patch`。
+
+### 测试与实装证据
+
+- 插件：vitest 260/260 通过（新增 3 个 workspaceAbsent/null-workspace 用例）；typecheck、tsdown 构建通过。
+- 宿主 checkout：runtime 与 ui-conversation 898/898 通过（registry +1、access-gate +2）；`npm run build:lib:client` 通过；提交 a9a43e991a。
+- 实装：宿主 overlay（dsh-client-runtime、dsh-client-ui-conversation，备份于 `~/.dsh-overlay-backup-20260902-vault-context/`）+ 插件 tarball 装入 web profile，launchctl kickstart 重启。
+- 浏览器实测（内置浏览器 + 本地 OCR 截图留证）：服务端实际下发的 client.js 均含新代码标记（ui-conversation 含 accessWorkspaceId、runtime 含新签名、vault 含 workspaceAbsent）；默认工作区新建会话→无"已上锁"、无禁用解锁按钮、composer 可输入可发送；受保护工作区（本地模型配置与调试）内存量会话与新建会话仍正常锁定（设计使然：保护工作区内的新会话同样受保护，解锁后可用）。
+
+### 兼容性边界补充
+
+- 若当前选中的是受保护工作区，其中新建会话会继承保护并显示锁定页，这是保护功能的预期行为；要开普通新对话，请先切到未保护的工作区。
+
 ## 2026-09-01：v0.2.3 安全修复与响应式订阅修复
 
 ### 背景

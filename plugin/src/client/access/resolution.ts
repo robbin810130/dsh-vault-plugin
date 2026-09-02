@@ -6,6 +6,15 @@ export type VaultProtectionResolution =
   | { readonly kind: 'protected'; readonly groupId: string }
   | { readonly kind: 'blocked'; readonly reason: string }
 
+export interface VaultResolutionContext {
+  /**
+   * Host-confirmed absence of a parent workspace. A session without any
+   * workspace has nothing to inherit, so workspace bindings elsewhere must
+   * not fail it closed; only explicit session bindings apply.
+   */
+  readonly workspaceAbsent?: boolean
+}
+
 function directGroup(binding: ProtectionBinding | undefined): string | undefined {
   return binding?.mode === 'direct' ? binding.passwordGroupId : undefined
 }
@@ -23,7 +32,7 @@ function workspaceGroup(snapshot: VaultClientSnapshot, workspaceId: string | und
   return groupId === undefined ? { kind: 'blocked', reason: 'invalid workspace binding' } : groupState(snapshot, groupId)
 }
 
-export function resolveVaultTarget(snapshot: VaultClientSnapshot, target: VaultTarget): VaultProtectionResolution {
+export function resolveVaultTarget(snapshot: VaultClientSnapshot, target: VaultTarget, context?: VaultResolutionContext): VaultProtectionResolution {
   if (target.type === 'workspace') return workspaceGroup(snapshot, target.id)
 
   const sessionBindings = snapshot.bindings.filter(candidate => candidate.targetType === 'session' && candidate.targetId === target.id)
@@ -38,6 +47,7 @@ export function resolveVaultTarget(snapshot: VaultClientSnapshot, target: VaultT
     return workspaceGroup(snapshot, target.workspaceId)
   }
   if (target.workspaceId === undefined) {
+    if (context?.workspaceAbsent === true) return { kind: 'plain' }
     return snapshot.bindings.some(candidate => candidate.targetType === 'workspace')
       ? { kind: 'blocked', reason: 'invalid session binding' }
       : { kind: 'plain' }

@@ -14,18 +14,18 @@ export interface NavigationDecision {
 
 export interface NavigationAccessProvider {
   matchesWorkspace(id: string): boolean
-  matchesSession(id: string): boolean
+  matchesSession(id: string, workspaceId?: string | null): boolean
   workspaceState(id: string): NavigationAccessState
-  sessionState(id: string, workspaceId?: string): NavigationAccessState
+  sessionState(id: string, workspaceId?: string | null): NavigationAccessState
   requestWorkspace(id: string): Promise<NavigationDecision>
   requestSession(id: string, workspaceId?: string): Promise<NavigationDecision>
   subscribe(listener: () => void): () => void
   dispose(): void
 }
 
-function targetState(store: VaultClientStore, target: VaultTarget): NavigationAccessState {
+function targetState(store: VaultClientStore, target: VaultTarget, workspaceAbsent = false): NavigationAccessState {
   const snapshot = store.getSnapshot()
-  const resolution = resolveVaultTarget(snapshot, target)
+  const resolution = resolveVaultTarget(snapshot, target, { workspaceAbsent })
   if (resolution.kind === 'plain') return { kind: 'allow' }
   if (resolution.kind === 'blocked') return { kind: 'blocked', reason: resolution.reason }
   if (snapshot.host !== 'ready' || !store.hasUnlockedGroup(resolution.groupId)) {
@@ -49,20 +49,30 @@ function decisionWithoutPrompt(store: VaultClientStore, target: VaultTarget): Pr
 
 export function createVaultAccessProvider(store: VaultClientStore): NavigationAccessProvider {
   const listeners = new Set<() => void>()
-  const sessionTarget = (id: string, workspaceId?: string): VaultTarget => {
+  const sessionTarget = (id: string, workspaceId?: string | null): { target: VaultTarget; workspaceAbsent: boolean } => {
+    // null means the host confirmed this session has no parent workspace;
+    // do not fall back to remembered context in that case.
+    if (workspaceId === null) return { target: { type: 'session', id }, workspaceAbsent: true }
     const resolvedWorkspaceId = workspaceId ?? workspaceIdForSession(id)
     return resolvedWorkspaceId === undefined
-      ? { type: 'session', id }
-      : { type: 'session', id, workspaceId: resolvedWorkspaceId }
+      ? { target: { type: 'session', id }, workspaceAbsent: false }
+      : { target: { type: 'session', id, workspaceId: resolvedWorkspaceId }, workspaceAbsent: false }
   }
-  const matchesSession = (id: string): boolean => {
+  const matchesSession = (id: string, workspaceId?: string | null): boolean => {
     const snapshot = store.getSnapshot()
-    const workspaceId = workspaceIdForSession(id)
+    if (typeof workspaceId === 'string') rememberWorkspaceIdForSession(id, workspaceId)
     const explicit = snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)
+    if (explicit) {
+      const { target, workspaceAbsent } = sessionTarget(id, workspaceId)
+      return resolveVaultTarget(snapshot, target, { workspaceAbsent }).kind !== 'plain'
+    }
+    // Host-confirmed absence of a parent workspace: nothing to inherit.
+    if (workspaceId === null) return false
+    const rememberedWorkspaceId = workspaceId ?? workspaceIdForSession(id)
     // The workspace browser remembers the owning workspace before this probe.
     // Claim inherited sessions too, so ConversationRoot can render its locked
     // placeholder after selection instead of opening protected content.
-    if (!explicit && workspaceId === undefined) {
+    if (rememberedWorkspaceId === undefined) {
       const workspaceBindings = snapshot.bindings.filter(binding => binding.targetType === 'workspace')
       // Fail closed whenever any workspace protection exists: refusing to claim
       // here would let DSH render a possibly-inherited session without checks.
@@ -71,7 +81,7 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
       if (workspaceBinding === undefined) return false
       return protectedResolution(store, { type: 'session', id, workspaceId: workspaceBinding.targetId }).kind !== 'plain'
     }
-    return protectedResolution(store, sessionTarget(id)).kind !== 'plain'
+    return protectedResolution(store, { type: 'session', id, workspaceId: rememberedWorkspaceId }).kind !== 'plain'
   }
   const unsubscribe = store.subscribe(() => {
     for (const listener of [...listeners]) listener()
@@ -86,7 +96,10 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
     matchesSession,
     workspaceState: id => targetState(store, { type: 'workspace', id }),
-    sessionState: (id, workspaceId) => targetState(store, sessionTarget(id, workspaceId)),
+    sessionState: (id, workspaceId) => {
+      const { target, workspaceAbsent } = sessionTarget(id, workspaceId)
+      return targetState(store, target, workspaceAbsent)
+    },
     requestWorkspace: id => decisionWithoutPrompt(store, { type: 'workspace', id }),
     requestSession,
     subscribe: listener => {
