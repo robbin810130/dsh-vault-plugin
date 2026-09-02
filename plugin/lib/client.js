@@ -533,7 +533,8 @@ window.__ModuleLoader__.load({
 			});
 			const requestSession = (id, workspaceId) => {
 				rememberWorkspaceIdForSession(id, workspaceId);
-				if (protectedResolution(store, sessionTarget(id, workspaceId)).kind === "blocked") return Promise.resolve({ allow: true });
+				const { target } = sessionTarget(id, workspaceId);
+				if (protectedResolution(store, target).kind === "blocked") return Promise.resolve({ allow: true });
 				return Promise.resolve({ allow: true });
 			};
 			return {

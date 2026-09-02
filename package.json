@@ -1,6 +1,6 @@
 {
   "name": "@robbin810130/dsh-vault-plugin",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "DSH 保险箱插件：项目与对话的前台隐私锁",
   "type": "module",
   "bin": {

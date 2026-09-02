@@ -88,7 +88,8 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
   })
   const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => {
     rememberWorkspaceIdForSession(id, workspaceId)
-    const resolution = protectedResolution(store, sessionTarget(id, workspaceId))
+    const { target } = sessionTarget(id, workspaceId)
+    const resolution = protectedResolution(store, target)
     if (resolution.kind === 'blocked') return Promise.resolve({ allow: true })
     return Promise.resolve({ allow: true })
   }
