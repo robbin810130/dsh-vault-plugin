@@ -32,6 +32,12 @@
 
 - 若当前选中的是受保护工作区，其中新建会话会继承保护并显示锁定页，这是保护功能的预期行为；要开普通新对话，请先切到未保护的工作区。
 
+### 发布实装
+
+- 发布前本地复跑 CI 全量检查时发现 host tsconfig 类型错误（`requestSession` 未适配 `sessionTarget` 新返回结构）并修复；此后 build、vitest 260/260、双 tsconfig typecheck、install-script 与 package-release 测试全绿。
+- 48eecab 发布 v0.2.4，CI 与 Release 工作流均成功，release 资产含插件 tarball、sha256 与 DSH 兼容补丁。
+- web profile 切换为 `github:#v0.2.4`，launchctl kickstart 重启后浏览器复验：运行包版本 0.2.4，默认工作区新建会话无锁定页、composer 可用，受保护工作区会话仍正常锁定且解锁入口可用。
+
 ## 2026-09-01：v0.2.3 安全修复与响应式订阅修复
 
 ### 背景
