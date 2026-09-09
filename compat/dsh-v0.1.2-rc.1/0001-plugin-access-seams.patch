@@ -264,10 +264,10 @@ index 5107c319bf..d882788dd4 100644
    & InjectFace<ConversationSessionInjected>
  
 diff --git a/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx b/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
-index ea7a3fe76f..1ce3a9fe33 100644
+index ea7a3fe76f..25c0c2d194 100644
 --- a/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
 +++ b/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
-@@ -1,6 +1,6 @@
+@@ -1,9 +1,10 @@
  /** Strict per-session header/body content inserted into the resident conversation layout. */
  
 -import { useEffect } from 'react'
@@ -275,7 +275,28 @@ index ea7a3fe76f..1ce3a9fe33 100644
  import clsx from 'clsx'
  import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
  import type { SessionId } from '@deepseek-ai/dsh-session/types'
-@@ -163,9 +163,14 @@ export function ConversationSessionHeader({
++import type { NavigationAccess } from '@deepseek-ai/dsh-api-session-controller/client'
+ import type {
+   ConversationSessionHeaderSlotProps, ConversationSessionSlotProps,
+ } from '../contract/slots.ts'
+@@ -17,6 +18,16 @@ export type ConversationSessionProps = ConversationSessionSlotProps
+ /** Full props composed from the strict session header contract. */
+ export type ConversationSessionHeaderProps = ConversationSessionHeaderSlotProps
+ 
++const ALLOW_NAVIGATION: NavigationAccess = {
++  revision: 0,
++  register: () => () => {},
++  workspaceState: () => ({ kind: 'allow' }),
++  sessionState: () => ({ kind: 'allow' }),
++  requestWorkspace: async () => ({ allow: true }),
++  requestSession: async () => ({ allow: true }),
++  subscribe: () => () => {},
++}
++
+ interface Breadcrumb {
+   readonly id: SessionId
+   readonly displayTitle: string
+@@ -163,9 +174,15 @@ export function ConversationSessionHeader({
   * @returns the active view area, or null while the Session remains blank.
   */
  export function ConversationSession({
@@ -284,19 +305,20 @@ index ea7a3fe76f..1ce3a9fe33 100644
 +  sessionId, useSession, useConversation, useConversationViews, useInput, inputActions, useStore, actions,
 +  renderSlot, bindDraftMirror, openView, navigationAccess,
  }: ConversationSessionProps) {
++  const accessController = navigationAccess ?? ALLOW_NAVIGATION
 +  useSyncExternalStore(
-+    listener => navigationAccess.subscribe(listener),
-+    () => navigationAccess.revision,
-+    () => navigationAccess.revision,
++    listener => accessController.subscribe(listener),
++    () => accessController.revision,
++    () => accessController.revision,
 +  )
    const tabs = useConversationViews(value => value)
    const selectedId = useStore(s => s.view)
    const active = resolveActiveView(tabs, selectedId)
-@@ -184,6 +189,15 @@ export function ConversationSession({
+@@ -184,6 +201,15 @@ export function ConversationSession({
    }, [inputActions])
  
    if (session.blank && conversationPhase(session, conversation) === 'blank') return null
-+  const access = navigationAccess.sessionState(sessionId as SessionId) as
++  const access = accessController.sessionState(sessionId as SessionId) as
 +    { kind: 'allow' } | { kind: 'blocked'; reason: string }
 +  if (access.kind === 'blocked') {
 +    return (
