@@ -8,7 +8,6 @@ const CLIENT_CSS_PREFIX = '\0dsh-vault-css:'
 const CLIENT_CSS_SUFFIX = '.mjs'
 const CLIENT_EXTERNALS = new Set([
   '@deepseek-ai/cordis',
-  '@deepseek-ai/dsh-client-runtime/client',
   '@deepseek-ai/dsh-client-ui-primitives',
   'react',
   'react/jsx-runtime',
@@ -27,6 +26,9 @@ export default defineConfig([
     dts: true,
     sourcemap: true,
     clean: true,
+    deps: {
+      alwaysBundle: specifier => specifier === '@deepseek-ai/schemastery',
+    },
   },
   {
     name: `${PLUGIN_ID}/client`,

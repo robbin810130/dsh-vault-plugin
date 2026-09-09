@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
+  "tag": "dsh-v0.1.2-rc.1",
+  "commit": "a66e4702047846cdaa10c66c9d3df3951f5ea70d",
+  "scope": [
+    "packages/api/session-controller",
+    "packages/client/ui-workspace",
+    "packages/client/ui-conversation"
+  ]
+}

@@ -1,9 +1,8 @@
-import { a as resolveStateDirectory, i as VaultPolicySchema, n as Config, r as ConfigSchema, t as VaultStateRepository } from "./repository-BXZ0A9Qk.js";
+import { a as resolveStateDirectory, i as VaultPolicySchema, n as Config, r as ConfigSchema, t as VaultStateRepository } from "./repository-BO9I8Swf.js";
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { isIPv4, isIPv6 } from "node:net";
 import { isDeepStrictEqual } from "node:util";
 import { performance } from "node:perf_hooks";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 function record(value) {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Invalid request");
 	return value;
@@ -1373,7 +1372,7 @@ function createVaultPolicySettings(service) {
 function installVaultPolicySettings(ctx, service, entry = DEFAULT_VAULT_POLICY) {
 	let source = () => entry;
 	const controller = createVaultPolicySettings(service);
-	installSettingsSection(ctx, settingsNamespace("dsh-vault"), VaultPolicySchema, entry, {
+	ctx.settings.installSection(ctx, "dsh-vault", VaultPolicySchema, entry, {
 		setSource: (current) => {
 			source = current;
 		},
@@ -1383,7 +1382,7 @@ function installVaultPolicySettings(ctx, service, entry = DEFAULT_VAULT_POLICY) 
 }
 //#endregion
 //#region src/index.ts
-const inject = ["webServer"];
+const inject = ["webServer", "settings"];
 const name = "dsh-vault";
 function apply(ctx, config) {
 	const stateDirectory = resolveStateDirectory(config.stateDir);

@@ -6,7 +6,7 @@ const PLUGIN_ID = '@robbin810130/dsh-vault-plugin'
 const CLIENT_MANIFEST = {
   platform: 'web',
   inject: [
-    '@deepseek-ai/dsh-client-runtime',
+    '@deepseek-ai/dsh-api-session-controller',
     '@deepseek-ai/dsh-client-locale',
     '@deepseek-ai/dsh-client-ui-layout',
     '@deepseek-ai/dsh-client-ui-settings-plugins',
@@ -15,7 +15,6 @@ const CLIENT_MANIFEST = {
   ],
   external: [
     '@deepseek-ai/cordis',
-    '@deepseek-ai/dsh-client-runtime/client',
     '@deepseek-ai/dsh-client-ui-primitives',
     'react',
     'react/jsx-runtime',
@@ -26,7 +25,7 @@ const CLIENT_MANIFEST = {
 
 const SHARED_IDENTITY_PACKAGES = [
   '@deepseek-ai/cordis',
-  '@deepseek-ai/dsh-client-runtime',
+  '@deepseek-ai/dsh-api-session-controller',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-locale',
   '@deepseek-ai/dsh-client-ui-layout',

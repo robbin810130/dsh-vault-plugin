@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import type { VaultPolicy } from '../config.js'
 import { VaultPolicySchema } from '../config.js'
 import type { VaultService } from './service.js'
@@ -23,7 +23,7 @@ export function installVaultPolicySettings(
 ): void {
   let source = () => entry
   const controller = createVaultPolicySettings(service)
-  installSettingsSection(ctx, settingsNamespace('dsh-vault'), VaultPolicySchema, entry, {
+  ctx.settings.installSection(ctx, 'dsh-vault', VaultPolicySchema, entry, {
     setSource: (current) => { source = current },
     onChange: () => controller.onChange(source()),
   })

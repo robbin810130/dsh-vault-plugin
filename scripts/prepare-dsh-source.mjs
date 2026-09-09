@@ -6,9 +6,9 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
-export const PINNED_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
+export const PINNED_COMMIT = 'a66e4702047846cdaa10c66c9d3df3951f5ea70d'
 const REPOSITORY = 'https://github.com/deepseek-ai/deepseek-harness.git'
-const TAG = 'dsh-v0.1.1-rc.2'
+const TAG = 'dsh-v0.1.2-rc.1'
 
 export function validateHead(head) {
   if (head !== PINNED_COMMIT) throw new Error(`unexpected DSH commit: ${head}`)

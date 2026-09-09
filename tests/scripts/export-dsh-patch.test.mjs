@@ -12,16 +12,13 @@ import { PINNED_COMMIT } from '../../scripts/prepare-dsh-source.mjs'
 const execFileAsync = promisify(execFile)
 const repoRoot = join(fileURLToPath(new URL('../..', import.meta.url)))
 const sourceCheckout = join(repoRoot, '.cache', 'deepseek-harness')
-const patchPath = join(repoRoot, 'compat', 'dsh-v0.1.1-rc.2', '0001-plugin-access-seams.patch')
+const patchPath = join(repoRoot, 'compat', 'dsh-v0.1.2-rc.1', '0001-plugin-access-seams.patch')
 
 const required = [
-  'packages/client/runtime/src/client/navigation/access.ts',
-  'packages/client/ui-agent-preset/src/client/index.ts',
-  'packages/client/ui-sidebar/src/client/contract/slots.ts',
+  'packages/api/session-controller/src/client/navigation/access.ts',
+  'packages/api/session-controller/src/client/sessions/service.ts',
   'packages/client/ui-workspace/src/client/row-extensions.ts',
-  'packages/client/ui-conversation/tests/access-gate.client.spec.tsx',
-  'packages/extensions/cordis-client-runner/src/client/api-catalog.ts',
-  'packages/test-support/client-runtime/src/workspaces.ts',
+  'packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx',
 ]
 
 async function git(cwd, args) {

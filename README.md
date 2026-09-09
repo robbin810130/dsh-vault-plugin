@@ -53,11 +53,11 @@ dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.2
 
 ## 兼容性
 
-- DSH：`v0.1.1-rc.2`
+- DSH：`v0.1.2-rc.1`（Host 设置 API 与客户端兼容层已适配）
 - Node.js：`^22.19.0 || >=24.0.0`（由插件包声明）
 - 运行 profile：`web`
 
-此版本依赖仓库内针对 DSH `v0.1.1-rc.2` 的兼容补丁。使用源码构建的 DSH，先按 [`compat/dsh-v0.1.1-rc.2/README.md`](compat/dsh-v0.1.1-rc.2/README.md) 应用补丁；未知 DSH 版本不得直接套用旧补丁。
+当前版本完整支持 DSH `v0.1.2-rc.1`，但客户端需要先应用 [`compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch`](compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch) 并重新构建 DSH。补丁只针对记录的上游提交，未知 DSH 版本不得直接套用。
 
 ## 权限、隐私与风险边界
 
@@ -112,11 +112,11 @@ node --test tests/install-script.test.mjs tests/scripts/package-release.test.mjs
 
 - `dsh-vault-plugin.tgz`
 - `dsh-vault-plugin.tgz.sha256`
-- `dsh-vault-plugin-dsh-v0.1.1-rc.2.patch`
+- `dsh-vault-plugin-dsh-v0.1.2-rc.1.patch`
 
 ## 项目文档
 
 - 设计规格：[`docs/superpowers/specs/2026-08-24-dsh-vault-privacy-lock-design.md`](docs/superpowers/specs/2026-08-24-dsh-vault-privacy-lock-design.md)
 - 安装与回滚：[`docs/install.md`](docs/install.md)
 - 安全边界：[`docs/security-boundary.md`](docs/security-boundary.md)
-- DSH 兼容补丁：[`compat/dsh-v0.1.1-rc.2/README.md`](compat/dsh-v0.1.1-rc.2/README.md)
+- DSH 兼容补丁：[`compat/dsh-v0.1.2-rc.1/README.md`](compat/dsh-v0.1.2-rc.1/README.md)

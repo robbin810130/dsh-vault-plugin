@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { a as resolveStateDirectory, t as VaultStateRepository } from "./repository-BXZ0A9Qk.js";
+import { a as resolveStateDirectory, t as VaultStateRepository } from "./repository-BO9I8Swf.js";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { realpathSync } from "node:fs";
