@@ -11,7 +11,7 @@ index 08c13a208e..48475c7828 100644
     * Open a healthy catalog child through its exact direct-parent address.
     * @param address - catalog-derived parent and child ids.
 diff --git a/packages/api/session-controller/src/client/index.ts b/packages/api/session-controller/src/client/index.ts
-index 4bad2bb8c2..235071bd85 100644
+index 4bad2bb8c2..b5e5501ced 100644
 --- a/packages/api/session-controller/src/client/index.ts
 +++ b/packages/api/session-controller/src/client/index.ts
 @@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
@@ -35,13 +35,13 @@ index 4bad2bb8c2..235071bd85 100644
   * @param ctx - Client Cordis context.
   */
  export function apply(ctx: Context): void {
-+  new NavigationAccessRegistry(ctx)
++  if (ctx.get('navigationAccess') === undefined) new NavigationAccessRegistry(ctx)
    const remotes = ctx.remote as unknown as SessionRemotes
    const sessions = new ClientSessions(ctx, remotes)
    ctx.remote.$on('api-session/added', (summary) => { sessions.handleSessionAdded(summary) })
 diff --git a/packages/api/session-controller/src/client/navigation/access.ts b/packages/api/session-controller/src/client/navigation/access.ts
 new file mode 100644
-index 0000000000..aff1cc727c
+index 0000000000..d8260d29fd
 --- /dev/null
 +++ b/packages/api/session-controller/src/client/navigation/access.ts
 @@ -0,0 +1,88 @@
@@ -79,7 +79,7 @@ index 0000000000..aff1cc727c
 +  private readonly providers: Array<{ provider: NavigationAccessProvider; unsubscribe: () => void }> = []
 +  private readonly listeners = new Set<() => void>()
 +  private revisionValue = 0
-+  constructor(ctx: Context) { super(ctx, 'navigationAccess'); ctx.reflect.provide('navigationAccess', this, undefined) }
++  constructor(ctx: Context) { super(ctx, 'navigationAccess') }
 +  register(provider: NavigationAccessProvider): () => void {
 +    const entry = { provider, unsubscribe: provider.subscribe(() => { this.notify() }) }
 +    this.providers.push(entry); this.notify()
@@ -264,7 +264,7 @@ index 5107c319bf..d882788dd4 100644
    & InjectFace<ConversationSessionInjected>
  
 diff --git a/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx b/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
-index ea7a3fe76f..15b1a06d2e 100644
+index ea7a3fe76f..1ce3a9fe33 100644
 --- a/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
 +++ b/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
 @@ -1,6 +1,6 @@
@@ -275,11 +275,13 @@ index ea7a3fe76f..15b1a06d2e 100644
  import clsx from 'clsx'
  import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
  import type { SessionId } from '@deepseek-ai/dsh-session/types'
-@@ -164,8 +164,13 @@ export function ConversationSessionHeader({
+@@ -163,9 +163,14 @@ export function ConversationSessionHeader({
+  * @returns the active view area, or null while the Session remains blank.
   */
  export function ConversationSession({
-   useSession, useConversation, useConversationViews, useInput, inputActions, useStore, actions,
+-  useSession, useConversation, useConversationViews, useInput, inputActions, useStore, actions,
 -  renderSlot, bindDraftMirror, openView,
++  sessionId, useSession, useConversation, useConversationViews, useInput, inputActions, useStore, actions,
 +  renderSlot, bindDraftMirror, openView, navigationAccess,
  }: ConversationSessionProps) {
 +  useSyncExternalStore(
@@ -351,7 +353,7 @@ index df17251c38..b03f2b1526 100644
    & Omit<WorkspaceBrowserInjected, 'hooks'>
    & PropsHooks<WorkspaceBrowserInjected['hooks']>
 diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
-index 7c8e1108dc..cc592c79c7 100644
+index 7c8e1108dc..79d994e81e 100644
 --- a/packages/client/ui-workspace/src/client/index.ts
 +++ b/packages/client/ui-workspace/src/client/index.ts
 @@ -28,6 +28,7 @@ import { createWorkspaceViewStore } from './stores.ts'
@@ -378,7 +380,7 @@ index 7c8e1108dc..cc592c79c7 100644
   * @param ctx - client root context.
   */
  export function apply(ctx: Context): void {
-+  const workspaceRows = new WorkspaceRowsRegistry(ctx)
++  const workspaceRows = ctx.get('workspaceRows') ?? new WorkspaceRowsRegistry(ctx)
    const sessions = ctx.get('sessions') as ISessions
    const workspaces = ctx.get('workspaces') as IWorkspaces
    const uiWorkspace = new UiWorkspaceService(
@@ -407,10 +409,10 @@ index 7c8e1108dc..cc592c79c7 100644
        locale: NS,
 diff --git a/packages/client/ui-workspace/src/client/row-extensions.ts b/packages/client/ui-workspace/src/client/row-extensions.ts
 new file mode 100644
-index 0000000000..15ed6666d2
+index 0000000000..8e6a971974
 --- /dev/null
 +++ b/packages/client/ui-workspace/src/client/row-extensions.ts
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,83 @@
 +import { Context, Service } from '@deepseek-ai/cordis'
 +import type { SessionId } from '@deepseek-ai/dsh-session/types'
 +import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -462,7 +464,6 @@ index 0000000000..15ed6666d2
 +
 +  constructor(ctx: Context) {
 +    super(ctx, 'workspaceRows')
-+    ctx.reflect.provide('workspaceRows', this, undefined)
 +  }
 +
 +  get revision(): number { return this.revisionValue }
