@@ -49,5 +49,5 @@
 
 - [x] Build and run all plugin tests and typechecks serially.
 - [x] Install the rebuilt package into the web profile only after preserving the current profile state.
-- [ ] Restart DSH, verify no plugin import errors, HTTP 200, and the Vault entry/lock flow.
+- [x] Restart DSH, verify no plugin import errors, HTTP 200, and the Vault entry/lock flow.
 - [x] Record exact version, commit, test counts, and remaining limitations.
