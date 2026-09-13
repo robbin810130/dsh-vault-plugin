@@ -23,7 +23,11 @@ jobs:
       - run: pnpm --dir plugin install --frozen-lockfile
       - run: node scripts/package-release.mjs
       - name: Add DSH compatibility patch asset
-        run: cp compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.2-rc.1.patch
+        run: |
+          cp compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.2-rc.1.patch
+          cp compat/dsh-v0.1.5-rc.1/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.5-rc.1.patch
+          tar -czf artifacts/dsh-vault-compat-dsh-v0.1.5-rc.1.tgz -C compat dsh-v0.1.5-rc.1
+          cd artifacts && sha256sum *.patch dsh-vault-compat-*.tgz > compatibility.sha256
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -32,4 +36,7 @@ jobs:
           artifacts/dsh-vault-plugin.tgz
           artifacts/dsh-vault-plugin.tgz.sha256
           artifacts/dsh-vault-plugin-dsh-v0.1.2-rc.1.patch
-          --generate-notes
+          artifacts/dsh-vault-plugin-dsh-v0.1.5-rc.1.patch
+          artifacts/dsh-vault-compat-dsh-v0.1.5-rc.1.tgz
+          artifacts/compatibility.sha256
+          --notes-file docs/releases/v0.2.5.md

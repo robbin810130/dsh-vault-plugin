@@ -1,0 +1,7 @@
+{
+  "version": "0.1.5-rc.1",
+  "tag": "dsh-v0.1.5-rc.1",
+  "upstreamCommit": "183f08e9c6dde7e36cd2318eaee70b0da08fb35e",
+  "sourceArchiveSHA256": "c9525f2568fa58efa7c7364e2757521c1a50a95c4105d30e594c6929d61ebc3e",
+  "patchSHA256": "54246b42a468c4b34925eec5ac0db45099d7d0e3bab0a8e093a624bdd87d8717"
+}

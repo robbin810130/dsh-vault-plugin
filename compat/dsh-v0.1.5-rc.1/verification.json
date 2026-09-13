@@ -1,0 +1,15 @@
+{
+  "date": "2026-09-13",
+  "hostTests": {
+    "files": 85,
+    "passed": 1407
+  },
+  "pluginTests": {
+    "files": 25,
+    "passed": 261
+  },
+  "isolatedBrowser": "passed",
+  "formalBrowser": "settings and readonly snapshot; no real lock mutations",
+  "typecheck": "not clean; see README",
+  "backup": "/Users/Robbin/.dsh/backups/vault-v015-20260913-132524"
+}
