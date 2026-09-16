@@ -20,6 +20,9 @@ window.__ModuleLoader__.load({
 		const ROUTE = "/dsh-vault/api";
 		const HOST_ERROR_CODES = /* @__PURE__ */ new Set([
 			"body-too-large",
+			"busy",
+			"state-lock-busy",
+			"state-lock-recovery-required",
 			"create-intent-refused",
 			"cooldown",
 			"duplicate-name",
@@ -264,20 +267,21 @@ window.__ModuleLoader__.load({
 					value: parseSuccess(request, source.value)
 				};
 			}
-			if (source.ok === false) {
-				exact(source, ["ok", "error"]);
-				const error = record(source.error);
-				exact(error, [
-					"code",
-					"message",
-					"retryAt"
-				]);
-				const code = text(error.code, 64);
-				text(error.message, 512);
-				if (!HOST_ERROR_CODES.has(code)) throw new TypeError("Invalid Vault response");
-				return failure(code, "Vault operation failed", error.retryAt === void 0 ? void 0 : finiteNumber(error.retryAt));
-			}
+			if (source.ok === false) return parseError(source);
 			throw new TypeError("Invalid Vault response");
+		}
+		function parseError(source) {
+			exact(source, ["ok", "error"]);
+			const error = record(source.error);
+			exact(error, [
+				"code",
+				"message",
+				"retryAt"
+			]);
+			const code = text(error.code, 64);
+			text(error.message, 512);
+			if (!HOST_ERROR_CODES.has(code)) throw new TypeError("Invalid Vault response");
+			return failure(code, "Vault operation failed", error.retryAt === void 0 ? void 0 : finiteNumber(error.retryAt));
 		}
 		function createVaultApiClient(fetcher = globalThis.fetch) {
 			return {
@@ -301,6 +305,7 @@ window.__ModuleLoader__.load({
 					if (!response.ok) return failure("host-unavailable", "Vault host unavailable");
 					try {
 						const body = record(await response.json());
+						if (body.ok === false) return parseError(body);
 						if (body.ok !== true) return failure("invalid-response", "Vault response refused");
 						exact(body, ["ok", "value"]);
 						return {
@@ -366,6 +371,10 @@ window.__ModuleLoader__.load({
 			} : groupState(snapshot, groupId);
 		}
 		function resolveVaultTarget(snapshot, target, context) {
+			if (snapshot.host !== "ready") return {
+				kind: "blocked",
+				reason: snapshot.host === "offline" ? "Vault host unavailable" : "Vault protection loading"
+			};
 			if (target.type === "workspace") return workspaceGroup(snapshot, target.id);
 			const sessionBindings = snapshot.bindings.filter((candidate) => candidate.targetType === "session" && candidate.targetId === target.id);
 			const direct = sessionBindings.find((candidate) => candidate.mode === "direct");
@@ -398,6 +407,7 @@ window.__ModuleLoader__.load({
 		function rememberWorkspaceIdForSession(sessionId, workspaceId) {
 			if (workspaceId === void 0) return;
 			sessionWorkspaceIds.delete(sessionId);
+			if (workspaceId === null) return;
 			sessionWorkspaceIds.set(sessionId, workspaceId);
 			if (sessionWorkspaceIds.size > MAX_REMEMBERED_SESSIONS) {
 				const oldest = sessionWorkspaceIds.keys().next().value;
@@ -429,19 +439,24 @@ window.__ModuleLoader__.load({
 		function createVaultRowDecorator(store, t) {
 			return {
 				workspace: (id, base) => {
-					const policy = store.getSnapshot().policy;
+					const snapshot = store.getSnapshot();
+					if (snapshot.host !== "ready") return conceal("workspace", t);
+					const policy = snapshot.policy;
 					if (visible(store, "workspace", id) || policy.lockedNameVisibility !== "all-hidden") return base;
 					return conceal("workspace", t);
 				},
-				session: (id, base, workspaceId) => {
-					rememberWorkspaceIdForSession(id, workspaceId);
+				session: (id, base, ...context) => {
+					const workspaceId = context[0];
+					const authoritative = context.length > 0;
+					rememberWorkspaceIdForSession(id, authoritative ? workspaceId ?? null : void 0);
 					const snapshot = store.getSnapshot();
-					if (workspaceId === void 0 && !snapshot.bindings.some((binding) => binding.targetType === "session" && binding.targetId === id)) return base;
+					if (snapshot.host !== "ready") return conceal("session", t);
+					const parent = authoritative ? workspaceId ?? void 0 : workspaceIdForSession(id);
 					const resolution = resolveVaultTarget(snapshot, {
 						type: "session",
 						id,
-						...workspaceId === void 0 ? {} : { workspaceId }
-					});
+						...parent === void 0 ? {} : { workspaceId: parent }
+					}, { workspaceAbsent: workspaceId === null });
 					if (resolution.kind === "plain" || resolution.kind === "protected" && snapshot.host === "ready" && store.hasUnlockedGroup(resolution.groupId)) return base;
 					if (snapshot.policy.lockedNameVisibility === "all-visible") return base;
 					return conceal("session", t);
@@ -478,7 +493,9 @@ window.__ModuleLoader__.load({
 		}
 		function createVaultAccessProvider(store) {
 			const listeners = /* @__PURE__ */ new Set();
-			const sessionTarget = (id, workspaceId) => {
+			const sessionTarget = (id, ...context) => {
+				const workspaceId = context[0];
+				rememberWorkspaceIdForSession(id, context.length > 0 ? workspaceId ?? null : void 0);
 				if (workspaceId === null) return {
 					target: {
 						type: "session",
@@ -502,39 +519,15 @@ window.__ModuleLoader__.load({
 					workspaceAbsent: false
 				};
 			};
-			const matchesSession = (id, workspaceId) => {
-				const snapshot = store.getSnapshot();
-				if (typeof workspaceId === "string") rememberWorkspaceIdForSession(id, workspaceId);
-				if (snapshot.bindings.some((binding) => binding.targetType === "session" && binding.targetId === id)) {
-					const { target, workspaceAbsent } = sessionTarget(id, workspaceId);
-					return resolveVaultTarget(snapshot, target, { workspaceAbsent }).kind !== "plain";
-				}
-				if (workspaceId === null) return false;
-				const rememberedWorkspaceId = workspaceId ?? workspaceIdForSession(id);
-				if (rememberedWorkspaceId === void 0) {
-					const workspaceBindings = snapshot.bindings.filter((binding) => binding.targetType === "workspace");
-					if (workspaceBindings.length === 0) return false;
-					const [workspaceBinding] = workspaceBindings;
-					if (workspaceBinding === void 0) return false;
-					return protectedResolution(store, {
-						type: "session",
-						id,
-						workspaceId: workspaceBinding.targetId
-					}).kind !== "plain";
-				}
-				return protectedResolution(store, {
-					type: "session",
-					id,
-					workspaceId: rememberedWorkspaceId
-				}).kind !== "plain";
+			const matchesSession = (id, ...context) => {
+				const { target, workspaceAbsent } = sessionTarget(id, ...context);
+				return resolveVaultTarget(store.getSnapshot(), target, { workspaceAbsent }).kind !== "plain";
 			};
 			const unsubscribe = store.subscribe(() => {
 				for (const listener of [...listeners]) listener();
 			});
-			const requestSession = (id, workspaceId) => {
-				rememberWorkspaceIdForSession(id, workspaceId);
-				const { target } = sessionTarget(id, workspaceId);
-				if (protectedResolution(store, target).kind === "blocked") return Promise.resolve({ allow: true });
+			const requestSession = (id, ...context) => {
+				sessionTarget(id, ...context);
 				return Promise.resolve({ allow: true });
 			};
 			return {
@@ -547,8 +540,8 @@ window.__ModuleLoader__.load({
 					type: "workspace",
 					id
 				}),
-				sessionState: (id, workspaceId) => {
-					const { target, workspaceAbsent } = sessionTarget(id, workspaceId);
+				sessionState: (id, ...context) => {
+					const { target, workspaceAbsent } = sessionTarget(id, ...context);
 					return targetState(store, target, workspaceAbsent);
 				},
 				requestWorkspace: (id) => decisionWithoutPrompt(store, {
@@ -573,6 +566,9 @@ window.__ModuleLoader__.load({
 		//#region src/client/store.ts
 		const SAFE_ERROR_CODES = /* @__PURE__ */ new Set([
 			"body-too-large",
+			"busy",
+			"state-lock-busy",
+			"state-lock-recovery-required",
 			"cooldown",
 			"duplicate-name",
 			"host-unavailable",
@@ -916,7 +912,7 @@ window.__ModuleLoader__.load({
 					return response;
 				}
 				this.#grants.clear();
-				if (!this.#acceptSnapshot(response.value.snapshot, [])) return this.#invalidResponse();
+				this.#reconcileCredentialSnapshot(response.value.snapshot);
 				return response;
 			}
 			async changePassword(input, signal) {
@@ -931,7 +927,7 @@ window.__ModuleLoader__.load({
 					return response;
 				}
 				this.#grants.delete(input.groupId);
-				if (!this.#acceptSnapshot(response.value.snapshot, this.#validLocalGroupIds(response.value.snapshot))) return this.#invalidResponse();
+				this.#reconcileCredentialSnapshot(response.value.snapshot);
 				return response;
 			}
 			async recoverGroup(input, signal) {
@@ -946,7 +942,7 @@ window.__ModuleLoader__.load({
 					return response;
 				}
 				this.#grants.delete(input.groupId);
-				if (!this.#acceptSnapshot(response.value.snapshot, this.#validLocalGroupIds(response.value.snapshot))) return this.#invalidResponse();
+				this.#reconcileCredentialSnapshot(response.value.snapshot);
 				return response;
 			}
 			async updateBindings(input, signal) {
@@ -996,6 +992,13 @@ window.__ModuleLoader__.load({
 					valid.push(groupId);
 				}
 				return valid;
+			}
+			#reconcileCredentialSnapshot(snapshot) {
+				if (snapshot.revision < this.#snapshot.revision) {
+					this.#publish(this.#snapshot.host, this.#validLocalGroupIds());
+					return;
+				}
+				if (!this.#acceptSnapshot(snapshot, this.#validLocalGroupIds(snapshot))) this.#markOffline();
 			}
 			#acceptSnapshot(snapshot, unlockedGroupIds, prompt = this.#snapshot.prompt) {
 				try {
@@ -1050,6 +1053,16 @@ window.__ModuleLoader__.load({
 		};
 		function createVaultClientStore(api = createVaultApiClient()) {
 			return new VaultClientStoreImplementation(api);
+		}
+		//#endregion
+		//#region src/client/i18n/errors.ts
+		function vaultOperationError(code, fallback = "操作失败，请稍后重试") {
+			switch (code) {
+				case "busy": return "保险箱验证繁忙，请稍后重试。";
+				case "state-lock-busy": return "保险箱状态正在使用，请稍后重试。";
+				case "state-lock-recovery-required": return "保险箱状态锁需要管理员检查并恢复。请勿直接删除状态文件。";
+				default: return fallback;
+			}
 		}
 		//#endregion
 		//#region src/client/unlock/controller.ts
@@ -1124,7 +1137,7 @@ window.__ModuleLoader__.load({
 				return `尝试过于频繁，请在 ${Math.max(1, Math.ceil((retryAt - Date.now()) / 1e3))} 秒后重试`;
 			}
 			if (code === "host-unavailable" || code === "invalid-response" || code === "request-aborted") return "保险箱暂时不可用，请稍后重试";
-			return "解锁失败，请重试";
+			return vaultOperationError(code, "解锁失败，请重试");
 		}
 		//#endregion
 		//#region src/client/components/LockIcon.tsx
@@ -1162,7 +1175,8 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/unlock/LockedConversation.tsx
-		function LockedConversation({ sessionId, store: storeProp, children }) {
+		function LockedConversation(props) {
+			const { sessionId, store: storeProp, children } = props;
 			const store = useVaultStore(storeProp);
 			const snapshot = useVaultSnapshot(store);
 			const knownWorkspaceId = workspaceIdForSession(sessionId);
@@ -1170,17 +1184,17 @@ window.__ModuleLoader__.load({
 			const lastPromptedTarget = (0, react.useRef)();
 			if (promptedTarget !== void 0) lastPromptedTarget.current = promptedTarget;
 			const rememberedWorkspaceId = lastPromptedTarget.current?.id === sessionId ? lastPromptedTarget.current.workspaceId : void 0;
-			const workspaceId = knownWorkspaceId ?? rememberedWorkspaceId;
-			const target = promptedTarget ?? {
+			const authoritative = Object.prototype.hasOwnProperty.call(props, "workspaceId");
+			const workspaceId = authoritative ? props.workspaceId ?? void 0 : knownWorkspaceId ?? rememberedWorkspaceId;
+			const target = (!authoritative ? promptedTarget : void 0) ?? {
 				type: "session",
 				id: sessionId,
 				...workspaceId === void 0 ? {} : { workspaceId }
 			};
-			const hasProtectionConfig = snapshot !== void 0 && (snapshot.groups.length > 0 || snapshot.bindings.length > 0);
 			const resolution = snapshot === void 0 ? {
 				kind: "blocked",
 				reason: "Vault group locked"
-			} : !hasProtectionConfig && snapshot.prompt === null ? { kind: "plain" } : resolveVaultTarget(snapshot, target);
+			} : resolveVaultTarget(snapshot, target, { workspaceAbsent: authoritative && props.workspaceId === null });
 			if (!(resolution.kind !== "plain" && (snapshot?.host !== "ready" || resolution.kind !== "protected" || !store?.hasUnlockedGroup(resolution.groupId)))) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children });
 			const requestUnlock = () => {
 				if (store === void 0 || snapshot?.host !== "ready" || resolution.kind !== "protected") return;
@@ -1337,6 +1351,108 @@ window.__ModuleLoader__.load({
 			return typeof document === "undefined" ? dialog : (0, react_dom.createPortal)(dialog, document.body);
 		}
 		//#endregion
+		//#region src/client/dialogs/recovery-delivery.ts
+		function createRecoveryDelivery() {
+			let queue = [];
+			let active = true;
+			const listeners = /* @__PURE__ */ new Set();
+			const notify = () => {
+				for (const listener of listeners) listener();
+			};
+			return {
+				getSnapshot: () => queue[0] ?? null,
+				subscribe(listener) {
+					listeners.add(listener);
+					return () => {
+						listeners.delete(listener);
+					};
+				},
+				deliver(key) {
+					if (!active) return;
+					queue = [...queue, { key }];
+					notify();
+				},
+				acknowledge(delivery) {
+					if (queue[0] !== delivery) return;
+					queue = queue.slice(1);
+					notify();
+				},
+				dispose() {
+					active = false;
+					queue = [];
+					notify();
+					listeners.clear();
+				}
+			};
+		}
+		const deliveries = /* @__PURE__ */ new WeakMap();
+		function recoveryDeliveryFor(store) {
+			let delivery = deliveries.get(store);
+			if (delivery === void 0) {
+				delivery = createRecoveryDelivery();
+				deliveries.set(store, delivery);
+			}
+			return delivery;
+		}
+		//#endregion
+		//#region src/client/dialogs/VaultOverlays.tsx
+		function RecoveryOverlay({ store }) {
+			const delivery = recoveryDeliveryFor(store);
+			const pending = (0, react.useSyncExternalStore)(delivery.subscribe, delivery.getSnapshot, delivery.getSnapshot);
+			const confirm = (0, react.useRef)(null);
+			(0, react.useEffect)(() => {
+				if (pending === null) return;
+				const previous = document.activeElement;
+				confirm.current?.focus();
+				const warn = (event) => {
+					event.preventDefault();
+					event.returnValue = "";
+				};
+				window.addEventListener("beforeunload", warn);
+				return () => {
+					window.removeEventListener("beforeunload", warn);
+					if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+				};
+			}, [pending]);
+			if (pending === null) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UnlockDialog, { store });
+			return (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: "dsh-vault-dialog-backdrop",
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+					className: "dsh-vault-dialog",
+					role: "dialog",
+					"aria-modal": "true",
+					"aria-label": "请保存恢复密钥",
+					onKeyDown: (event) => {
+						if (event.key === "Escape" || event.key === "Tab") {
+							event.preventDefault();
+							event.stopPropagation();
+							confirm.current?.focus();
+						}
+					},
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", { children: "请保存恢复密钥" }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "保护已生效。请将恢复密钥保存在安全位置，确认后不再显示。" }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("output", {
+							className: "dsh-vault-recovery-key",
+							children: pending.key
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "刷新或关闭页面会丢失本次展示，服务器无法再次读取旧密钥。若未保存但仍记得密码，可在修改密码时轮换恢复密钥。" }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							ref: confirm,
+							type: "button",
+							className: "dsh-vault-button dsh-vault-button-primary",
+							onClick: () => delivery.acknowledge(pending),
+							children: "我已保存恢复密钥"
+						})
+					]
+				})
+			}), document.body);
+		}
+		function VaultOverlays({ store: explicit }) {
+			const store = useVaultStore(explicit);
+			return store === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RecoveryOverlay, { store });
+		}
+		//#endregion
 		//#region src/client/components/ProtectedLockIcon.tsx
 		function ProtectedLockIcon({ className }) {
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
@@ -1412,12 +1528,11 @@ window.__ModuleLoader__.load({
 			detail: "无需再次设置密码。请在工作区级别管理保护。",
 			blocksSubmit: true
 		};
-		function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId, sessionId, store: storeProp, onUnlock, onLock, presentation }) {
+		function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId, sessionId, store: storeProp, onUnlock, onLock }) {
 			const [dialogOpen, setDialogOpen] = (0, react.useState)(null);
 			const [password, setPassword] = (0, react.useState)("");
 			const [confirmation, setConfirmation] = (0, react.useState)("");
 			const [error, setError] = (0, react.useState)(null);
-			const [recoveryKey, setRecoveryKey] = (0, react.useState)(null);
 			const [pending, setPending] = (0, react.useState)(false);
 			const store = useVaultStore(storeProp);
 			const liveSnapshot = useVaultSnapshot(store);
@@ -1452,7 +1567,7 @@ window.__ModuleLoader__.load({
 			};
 			if (locked) return null;
 			if (!locked && target === void 0 && onLock === void 0) return null;
-			const groupNameBase = (presentation?.label?.trim() || `${target?.type === "workspace" ? "工作区" : "对话"}保护`).slice(0, 128);
+			const groupNameBase = target?.type === "workspace" ? "工作区保护" : "对话保护";
 			const groupName = (() => {
 				const names = new Set(snapshot?.groups.map((group) => group.name) ?? []);
 				if (!names.has(groupNameBase)) return groupNameBase;
@@ -1484,19 +1599,18 @@ window.__ModuleLoader__.load({
 					createdAt: now,
 					updatedAt: now
 				};
+				const delivery = recoveryDeliveryFor(store);
 				store.createGroup({
 					name: groupName,
 					password,
 					bindings: [bindingInput]
 				}).then((result) => {
 					if (result.ok) {
-						setRecoveryKey(result.value.recoveryKey);
+						delivery.deliver(result.value.recoveryKey);
+						setDialogOpen(null);
 						setPassword("");
 						setConfirmation("");
-					} else setError(result.error.code === "invalid-binding" ? inheritedWorkspaceProtectionError : result.error.code === "duplicate-name" ? { title: "该对话已有同名保护记录" } : result.error.code === "weak-password" ? { title: "密码不符合当前策略" } : {
-						title: "创建失败，请重试",
-						detail: "保险箱暂时无法创建保护，请稍后重试。"
-					});
+					} else setError(result.error.code === "invalid-binding" ? inheritedWorkspaceProtectionError : result.error.code === "duplicate-name" ? { title: "该对话已有同名保护记录" } : result.error.code === "weak-password" ? { title: "密码不符合当前策略" } : { title: vaultOperationError(result.error.code, "创建失败，请重试") });
 				}).catch(() => setError({
 					title: "保险箱暂时不可用",
 					detail: "请稍后重试。"
@@ -1585,7 +1699,7 @@ window.__ModuleLoader__.load({
 									children: "知道了"
 								})
 							})
-						] }) : recoveryKey === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", { children: "设置密码并上锁" }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "保存后将立即锁定当前对话。" }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
@@ -1637,22 +1751,6 @@ window.__ModuleLoader__.load({
 									children: "保存并上锁"
 								})]
 							})
-						] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", { children: "已上锁" }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "请保存这条恢复密钥，关闭后不会再次显示。" }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("output", {
-								className: "dsh-vault-recovery-key",
-								children: recoveryKey
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: "dsh-vault-button dsh-vault-button-primary",
-								onClick: () => {
-									setRecoveryKey(null);
-									setDialogOpen(null);
-								},
-								children: "完成"
-							})
 						] })
 					})
 				}), document.body) : null]
@@ -1665,7 +1763,6 @@ window.__ModuleLoader__.load({
 			const [password, setPassword] = (0, react.useState)("");
 			const [confirmation, setConfirmation] = (0, react.useState)("");
 			const [rotateRecovery, setRotateRecovery] = (0, react.useState)(false);
-			const [recoveryKey, setRecoveryKey] = (0, react.useState)(null);
 			const [error, setError] = (0, react.useState)(null);
 			const [pending, setPending] = (0, react.useState)(false);
 			const passwordPolicy = typeof store.getSnapshot === "function" ? store.getSnapshot().policy.passwordPolicy : {
@@ -1682,7 +1779,6 @@ window.__ModuleLoader__.load({
 			};
 			const close = () => {
 				clearSecrets();
-				setRecoveryKey(null);
 				setError(null);
 				onClose?.();
 			};
@@ -1698,6 +1794,7 @@ window.__ModuleLoader__.load({
 					return;
 				}
 				if (credential.length === 0 || password.length === 0 || pending) return;
+				const delivery = recoveryDeliveryFor(store);
 				setPending(true);
 				setError(null);
 				(mode === "change" ? store.changePassword({
@@ -1711,37 +1808,16 @@ window.__ModuleLoader__.load({
 					newPassword: password
 				})).then((result) => {
 					if (!result.ok) {
-						setError(result.error.code === "invalid-credentials" ? "凭据无效" : result.error.code === "weak-password" ? "密码不符合当前策略" : "操作失败，请刷新后重试");
+						setError(result.error.code === "invalid-credentials" ? "凭据无效" : result.error.code === "weak-password" ? "密码不符合当前策略" : vaultOperationError(result.error.code, "操作失败，请刷新后重试"));
 						return;
 					}
-					if (result.value.recoveryKey !== void 0) setRecoveryKey(result.value.recoveryKey);
-					else onClose?.();
+					if (result.value.recoveryKey !== void 0) delivery.deliver(result.value.recoveryKey);
+					onClose?.();
 				}).catch(() => setError("保险箱暂时不可用，请稍后重试")).finally(() => {
 					clearSecrets();
 					setPending(false);
 				});
 			};
-			if (recoveryKey !== null) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-				className: "dsh-vault-settings-panel",
-				"aria-labelledby": "dsh-vault-credential-recovery-title",
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-						id: "dsh-vault-credential-recovery-title",
-						children: "请保存新的恢复密钥"
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("output", {
-						className: "dsh-vault-recovery-key",
-						children: recoveryKey
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "关闭后将不再显示。" }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: "dsh-vault-button dsh-vault-button-primary",
-						onClick: close,
-						children: "完成"
-					})
-				]
-			});
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("form", {
 				className: "dsh-vault-settings-panel",
 				onSubmit: submit,
@@ -1822,11 +1898,16 @@ window.__ModuleLoader__.load({
 			const snapshot = useVaultSnapshot(store) ?? store.getSnapshot();
 			const [credentialAction, setCredentialAction] = (0, react.useState)(null);
 			const [deleteAction, setDeleteAction] = (0, react.useState)(null);
+			const groupName = (id) => {
+				const index = snapshot.groups.findIndex((group) => group.id === id);
+				const group = snapshot.groups[index];
+				return group !== void 0 && snapshot.host === "ready" && snapshot.unlockedGroupIds.has(id) ? group.name : "受保护密码组 " + (index + 1);
+			};
 			const [error, setError] = (0, react.useState)(null);
 			if (credentialAction !== null) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(GroupCredentials, {
 				mode: credentialAction.mode,
 				groupId: credentialAction.groupId,
-				groupName: credentialAction.groupName,
+				groupName: groupName(credentialAction.groupId),
 				store,
 				onClose: () => setCredentialAction(null)
 			});
@@ -1853,7 +1934,7 @@ window.__ModuleLoader__.load({
 						setError("配置已变化，已刷新，请重试");
 						return;
 					}
-					setError("删除失败，请重试");
+					setError(vaultOperationError(result.error.code, "删除失败，请重试"));
 				};
 				if (source === void 0) return null;
 				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -1862,7 +1943,7 @@ window.__ModuleLoader__.load({
 					children: [
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("h3", {
 							id: "dsh-vault-delete-title",
-							children: ["删除密码组：", deleteAction.groupName]
+							children: ["删除密码组：", groupName(deleteAction.groupId)]
 						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "必须迁移成员或解除全部保护，不能直接删除。" }),
 						targets.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
@@ -1875,7 +1956,7 @@ window.__ModuleLoader__.load({
 									moveToGroupId: group.id
 								}, [source.id, group.id]);
 							},
-							children: ["迁移到 ", group.name]
+							children: ["迁移到 ", groupName(group.id)]
 						}, group.id)),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 							type: "button",
@@ -1909,7 +1990,7 @@ window.__ModuleLoader__.load({
 				children: snapshot.groups.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "尚未创建密码组" }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
 					className: "dsh-vault-group-list",
 					children: snapshot.groups.map((group) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", { children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: group.name }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", { children: groupName(group.id) }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [group.memberCount, " 个保护对象"] }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: "dsh-vault-dialog-actions",
@@ -1917,7 +1998,7 @@ window.__ModuleLoader__.load({
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
 									className: "dsh-vault-button",
-									"aria-label": `锁定 ${group.name}`,
+									"aria-label": `锁定 ${groupName(group.id)}`,
 									onClick: () => {
 										store.lockGroup(group.id);
 									},
@@ -1926,33 +2007,28 @@ window.__ModuleLoader__.load({
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
 									className: "dsh-vault-button",
-									"aria-label": `修改密码 ${group.name}`,
+									"aria-label": `修改密码 ${groupName(group.id)}`,
 									onClick: () => setCredentialAction({
 										mode: "change",
-										groupId: group.id,
-										groupName: group.name
+										groupId: group.id
 									}),
 									children: "修改密码"
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
 									className: "dsh-vault-button",
-									"aria-label": `恢复 ${group.name}`,
+									"aria-label": `恢复 ${groupName(group.id)}`,
 									onClick: () => setCredentialAction({
 										mode: "recover",
-										groupId: group.id,
-										groupName: group.name
+										groupId: group.id
 									}),
 									children: "恢复"
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 									type: "button",
 									className: "dsh-vault-button",
-									"aria-label": "删除 " + group.name,
-									onClick: () => setDeleteAction({
-										groupId: group.id,
-										groupName: group.name
-									}),
+									"aria-label": "删除 " + groupName(group.id),
+									onClick: () => setDeleteAction({ groupId: group.id }),
 									children: "删除"
 								})
 							]
@@ -1963,14 +2039,66 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/settings/PolicyPanel.tsx
-		function PolicyPanel({ policy, onChange, onLockAll }) {
+		function PolicyPanel({ policy, onChange, onLockAll, pending = false, saveError = null }) {
 			const [value, setValue] = (0, react.useState)(policy);
+			const [numbers, setNumbers] = (0, react.useState)(() => numericDraft(policy));
+			const [error, setError] = (0, react.useState)(null);
+			const dirty = (0, react.useRef)(false);
+			const saving = (0, react.useRef)(false);
 			(0, react.useEffect)(() => {
-				setValue(policy);
+				if (!dirty.current && !saving.current) {
+					setValue(policy);
+					setNumbers(numericDraft(policy));
+				}
 			}, [policy]);
 			const update = (next) => {
+				dirty.current = true;
+				setError(null);
 				setValue(next);
-				onChange?.(next);
+			};
+			const updateNumber = (field, next) => {
+				dirty.current = true;
+				setError(null);
+				setNumbers((current) => ({
+					...current,
+					[field]: next
+				}));
+			};
+			const save = async () => {
+				if (pending || saving.current || onChange === void 0) return;
+				const minLength = Number(numbers.minLength);
+				const maxAttempts = Number(numbers.maxAttempts);
+				const cooldownSeconds = Number(numbers.cooldownSeconds);
+				if (numbers.minLength.trim() === "" || !Number.isSafeInteger(minLength) || minLength < 4 || minLength > 128) {
+					setError("密码最小长度必须为 4–128 的整数");
+					return;
+				}
+				if (numbers.maxAttempts.trim() === "" || !Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || numbers.cooldownSeconds.trim() === "" || !Number.isSafeInteger(cooldownSeconds) || cooldownSeconds < 1) {
+					setError("最大尝试次数和暂停时间必须为大于 0 的整数");
+					return;
+				}
+				const next = {
+					...value,
+					passwordPolicy: {
+						...value.passwordPolicy,
+						minLength
+					},
+					failedAttemptProtection: {
+						...value.failedAttemptProtection,
+						maxAttempts,
+						cooldownSeconds
+					}
+				};
+				saving.current = true;
+				setError(null);
+				try {
+					await onChange(next);
+					dirty.current = false;
+					setValue(next);
+					setNumbers(numericDraft(next));
+				} catch {} finally {
+					saving.current = false;
+				}
 			};
 			const protection = value.failedAttemptProtection;
 			const passwordPolicy = value.passwordPolicy;
@@ -1982,169 +2110,183 @@ window.__ModuleLoader__.load({
 				className: "dsh-vault-settings-panel",
 				"aria-label": "锁定策略",
 				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-field",
-						htmlFor: "dsh-vault-auto-lock",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "自动锁定" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
-							id: "dsh-vault-auto-lock",
-							value: value.autoLockMinutes,
-							onChange: (event) => update({
-								...value,
-								autoLockMinutes: Number(event.currentTarget.value)
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("fieldset", {
+						disabled: pending,
+						style: {
+							border: 0,
+							padding: 0,
+							margin: 0,
+							minWidth: 0
+						},
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-field",
+								htmlFor: "dsh-vault-auto-lock",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "自动锁定" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("select", {
+									id: "dsh-vault-auto-lock",
+									value: value.autoLockMinutes,
+									onChange: (event) => update({
+										...value,
+										autoLockMinutes: Number(event.currentTarget.value)
+									}),
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: "0",
+											children: "不自动锁定"
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: "15",
+											children: "15 分钟"
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: "30",
+											children: "30 分钟"
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
+											value: "60",
+											children: "60 分钟"
+										})
+									]
+								})]
 							}),
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: "0",
-									children: "不自动锁定"
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: "15",
-									children: "15 分钟"
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: "30",
-									children: "30 分钟"
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("option", {
-									value: "60",
-									children: "60 分钟"
-								})
-							]
-						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-checkbox",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							type: "checkbox",
-							checked: value.lockOnSystemSleep,
-							onChange: (event) => update({
-								...value,
-								lockOnSystemSleep: event.currentTarget.checked
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-checkbox",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: value.lockOnSystemSleep,
+									onChange: (event) => update({
+										...value,
+										lockOnSystemSleep: event.currentTarget.checked
+									})
+								}), "系统休眠时上锁"]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-checkbox",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									"aria-label": "失败尝试保护",
+									checked: protection.enabled,
+									onChange: (event) => update({
+										...value,
+										failedAttemptProtection: {
+											...protection,
+											enabled: event.currentTarget.checked
+										}
+									})
+								}), "失败尝试保护"]
+							}),
+							protection.enabled ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "dsh-vault-policy-fields",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: "dsh-vault-field",
+									htmlFor: "dsh-vault-max-attempts",
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "最大尝试次数" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										id: "dsh-vault-max-attempts",
+										type: "number",
+										min: "1",
+										value: numbers.maxAttempts,
+										onChange: (event) => updateNumber("maxAttempts", event.currentTarget.value)
+									})]
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+									className: "dsh-vault-field",
+									htmlFor: "dsh-vault-cooldown",
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "暂停时间（秒）" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+										id: "dsh-vault-cooldown",
+										type: "number",
+										min: "1",
+										value: numbers.cooldownSeconds,
+										onChange: (event) => updateNumber("cooldownSeconds", event.currentTarget.value)
+									})]
+								})]
+							}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: "dsh-vault-settings-warning",
+								role: "note",
+								children: "关闭后不会累计失败次数或进入暂停期"
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-field",
+								htmlFor: "dsh-vault-password-min-length",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "密码最小长度" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									id: "dsh-vault-password-min-length",
+									type: "number",
+									min: "4",
+									max: "128",
+									value: numbers.minLength,
+									onChange: (event) => updateNumber("minLength", event.currentTarget.value)
+								})]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-checkbox",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									"aria-label": "要求大写字母",
+									checked: passwordPolicy.requireUppercase,
+									onChange: (event) => updatePasswordPolicy({
+										...passwordPolicy,
+										requireUppercase: event.currentTarget.checked
+									})
+								}), "要求大写字母"]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-checkbox",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									"aria-label": "要求小写字母",
+									checked: passwordPolicy.requireLowercase,
+									onChange: (event) => updatePasswordPolicy({
+										...passwordPolicy,
+										requireLowercase: event.currentTarget.checked
+									})
+								}), "要求小写字母"]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-checkbox",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									"aria-label": "要求数字",
+									checked: passwordPolicy.requireNumber,
+									onChange: (event) => updatePasswordPolicy({
+										...passwordPolicy,
+										requireNumber: event.currentTarget.checked
+									})
+								}), "要求数字"]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+								className: "dsh-vault-checkbox",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									"aria-label": "要求符号",
+									checked: passwordPolicy.requireSymbol,
+									onChange: (event) => updatePasswordPolicy({
+										...passwordPolicy,
+										requireSymbol: event.currentTarget.checked
+									})
+								}), "要求符号"]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: "dsh-vault-settings-warning",
+								role: "note",
+								children: passwordPolicyError("示例密码", passwordPolicy) ?? "当前密码策略已满足最低要求"
 							})
-						}), "系统休眠时上锁"]
+						]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-checkbox",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							type: "checkbox",
-							"aria-label": "失败尝试保护",
-							checked: protection.enabled,
-							onChange: (event) => update({
-								...value,
-								failedAttemptProtection: {
-									...protection,
-									enabled: event.currentTarget.checked
-								}
-							})
-						}), "失败尝试保护"]
-					}),
-					protection.enabled ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: "dsh-vault-policy-fields",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-							className: "dsh-vault-field",
-							htmlFor: "dsh-vault-max-attempts",
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "最大尝试次数" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-								id: "dsh-vault-max-attempts",
-								type: "number",
-								min: "1",
-								value: protection.maxAttempts,
-								onChange: (event) => update({
-									...value,
-									failedAttemptProtection: {
-										...protection,
-										maxAttempts: Math.max(1, Number(event.currentTarget.value))
-									}
-								})
-							})]
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-							className: "dsh-vault-field",
-							htmlFor: "dsh-vault-cooldown",
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "暂停时间（秒）" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-								id: "dsh-vault-cooldown",
-								type: "number",
-								min: "1",
-								value: protection.cooldownSeconds,
-								onChange: (event) => update({
-									...value,
-									failedAttemptProtection: {
-										...protection,
-										cooldownSeconds: Math.max(1, Number(event.currentTarget.value))
-									}
-								})
-							})]
-						})]
-					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					(error ?? saveError) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: "dsh-vault-settings-warning",
-						role: "note",
-						children: "关闭后不会累计失败次数或进入暂停期"
+						role: "alert",
+						children: error ?? saveError
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-field",
-						htmlFor: "dsh-vault-password-min-length",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "密码最小长度" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							id: "dsh-vault-password-min-length",
-							type: "number",
-							min: "4",
-							max: "128",
-							value: passwordPolicy.minLength,
-							onChange: (event) => updatePasswordPolicy({
-								...passwordPolicy,
-								minLength: Math.min(128, Math.max(4, Number(event.currentTarget.value)))
-							})
-						})]
+					pending && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						role: "status",
+						children: "保存中，请稍候…"
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-checkbox",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							type: "checkbox",
-							"aria-label": "要求大写字母",
-							checked: passwordPolicy.requireUppercase,
-							onChange: (event) => updatePasswordPolicy({
-								...passwordPolicy,
-								requireUppercase: event.currentTarget.checked
-							})
-						}), "要求大写字母"]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-checkbox",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							type: "checkbox",
-							"aria-label": "要求小写字母",
-							checked: passwordPolicy.requireLowercase,
-							onChange: (event) => updatePasswordPolicy({
-								...passwordPolicy,
-								requireLowercase: event.currentTarget.checked
-							})
-						}), "要求小写字母"]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-checkbox",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							type: "checkbox",
-							"aria-label": "要求数字",
-							checked: passwordPolicy.requireNumber,
-							onChange: (event) => updatePasswordPolicy({
-								...passwordPolicy,
-								requireNumber: event.currentTarget.checked
-							})
-						}), "要求数字"]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-						className: "dsh-vault-checkbox",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							type: "checkbox",
-							"aria-label": "要求符号",
-							checked: passwordPolicy.requireSymbol,
-							onChange: (event) => updatePasswordPolicy({
-								...passwordPolicy,
-								requireSymbol: event.currentTarget.checked
-							})
-						}), "要求符号"]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-						className: "dsh-vault-settings-warning",
-						role: "note",
-						children: passwordPolicyError("示例密码", passwordPolicy) ?? "当前密码策略已满足最低要求"
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "dsh-vault-button dsh-vault-button-primary",
+						disabled: pending || onChange === void 0,
+						onClick: () => {
+							save();
+						},
+						children: pending ? "保存中…" : "保存策略"
 					}),
 					onLockAll !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: "dsh-vault-settings-heading dsh-vault-settings-heading-actions-only",
@@ -2158,8 +2300,58 @@ window.__ModuleLoader__.load({
 				]
 			});
 		}
+		function numericDraft(policy) {
+			return {
+				minLength: String(policy.passwordPolicy.minLength),
+				maxAttempts: String(policy.failedAttemptProtection.maxAttempts),
+				cooldownSeconds: String(policy.failedAttemptProtection.cooldownSeconds)
+			};
+		}
 		//#endregion
 		//#region src/client/settings/VaultSettingsCard.tsx
+		const policySaves = /* @__PURE__ */ new WeakMap();
+		const policyFields = [
+			"autoLockMinutes",
+			"lockOnSystemSleep",
+			"lockedNameVisibility",
+			"failedAttemptProtection",
+			"passwordPolicy"
+		];
+		var PolicyConflict = class extends Error {};
+		function mergeLeaves(baseline, draft, current) {
+			const merged = { ...current };
+			for (const field of Object.keys(baseline)) {
+				if (Object.is(draft[field], baseline[field])) continue;
+				if (!Object.is(current[field], baseline[field]) && !Object.is(current[field], draft[field])) throw new PolicyConflict(`策略字段 ${String(field)} 存在冲突，尚未写入。草稿已保留；请载入最新策略后重新编辑。`);
+				merged[field] = draft[field];
+			}
+			return merged;
+		}
+		function mergePolicy(baseline, draft, current) {
+			const { passwordPolicy: basePassword, failedAttemptProtection: baseAttempts, ...baseScalars } = baseline;
+			const { passwordPolicy: draftPassword, failedAttemptProtection: draftAttempts, ...draftScalars } = draft;
+			const { passwordPolicy: currentPassword, failedAttemptProtection: currentAttempts, ...currentScalars } = current;
+			return {
+				...mergeLeaves(baseScalars, draftScalars, currentScalars),
+				passwordPolicy: mergeLeaves(basePassword, draftPassword, currentPassword),
+				failedAttemptProtection: mergeLeaves(baseAttempts, draftAttempts, currentAttempts)
+			};
+		}
+		function PolicyDraft({ policy, pending, saveError, onSave, onLockAll }) {
+			const baseline = (0, react.useRef)(null);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				onChangeCapture: () => {
+					baseline.current ??= policy;
+				},
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PolicyPanel, {
+					policy,
+					pending,
+					saveError,
+					onLockAll,
+					...onSave === void 0 ? {} : { onChange: (draft) => onSave(draft, baseline.current ?? policy) }
+				})
+			});
+		}
 		function NativeChevron() {
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: "dsh-vault-settings-card-chevron",
@@ -2171,17 +2363,45 @@ window.__ModuleLoader__.load({
 			const liveSnapshot = useVaultSnapshot(store);
 			const [tab, setTab] = (0, react.useState)("policy");
 			const [expanded, setExpanded] = (0, react.useState)(false);
+			const [pending, setPending] = (0, react.useState)(false);
+			const [saveError, setSaveError] = (0, react.useState)(null);
+			const [conflict, setConflict] = (0, react.useState)(false);
+			const [draftVersion, setDraftVersion] = (0, react.useState)(0);
+			const saving = (0, react.useRef)(false);
 			if (store === void 0 || liveSnapshot === void 0) return null;
 			const snapshot = liveSnapshot;
-			const persistPolicy = (next) => {
-				if (policyScope === void 0) return;
-				const writes = [];
-				if (next.autoLockMinutes !== snapshot.policy.autoLockMinutes) writes.push(policyScope.set("autoLockMinutes", next.autoLockMinutes));
-				if (next.lockOnSystemSleep !== snapshot.policy.lockOnSystemSleep) writes.push(policyScope.set("lockOnSystemSleep", next.lockOnSystemSleep));
-				if (next.lockedNameVisibility !== snapshot.policy.lockedNameVisibility) writes.push(policyScope.set("lockedNameVisibility", next.lockedNameVisibility));
-				if (JSON.stringify(next.failedAttemptProtection) !== JSON.stringify(snapshot.policy.failedAttemptProtection)) writes.push(policyScope.set("failedAttemptProtection", next.failedAttemptProtection));
-				if (JSON.stringify(next.passwordPolicy) !== JSON.stringify(snapshot.policy.passwordPolicy)) writes.push(policyScope.set("passwordPolicy", next.passwordPolicy));
-				Promise.all(writes).then(() => store.refresh()).catch(() => store.refresh());
+			const persistPolicy = async (next, baseline) => {
+				if (policyScope === void 0 || saving.current) throw new Error("Policy save unavailable");
+				saving.current = true;
+				setPending(true);
+				setSaveError(null);
+				setConflict(false);
+				const operation = (policySaves.get(store) ?? Promise.resolve()).catch(() => void 0).then(async () => {
+					try {
+						if (!(await store.refresh()).ok) throw new Error("Policy refresh failed");
+						const current = store.getSnapshot().policy;
+						const merged = mergePolicy(baseline, next, current);
+						for (const field of policyFields) if (JSON.stringify(merged[field]) !== JSON.stringify(current[field])) await policyScope.set(field, merged[field]);
+						if (!(await store.refresh()).ok) throw new Error("Policy verification failed");
+					} catch (error) {
+						if (error instanceof PolicyConflict) throw error;
+						await store.refresh().catch(() => void 0);
+						throw new Error("Policy save failed");
+					}
+				});
+				policySaves.set(store, operation);
+				try {
+					await operation;
+					setDraftVersion((value) => value + 1);
+				} catch (error) {
+					setConflict(error instanceof PolicyConflict);
+					setSaveError(error instanceof PolicyConflict ? error.message : "保存未完成，部分设置可能已生效。请检查连接后重试；未保存的草稿已保留。");
+					throw new Error("Policy save failed");
+				} finally {
+					if (policySaves.get(store) === operation) policySaves.delete(store);
+					saving.current = false;
+					setPending(false);
+				}
 			};
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: `dsh-vault-settings-card${expanded ? " dsh-vault-settings-card-open" : ""}`,
@@ -2189,6 +2409,7 @@ window.__ModuleLoader__.load({
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 					type: "button",
 					className: "dsh-vault-settings-card-header",
+					disabled: pending,
 					"aria-expanded": expanded,
 					"aria-label": `${expanded ? "收起设置" : "展开设置"}: 保险箱`,
 					onClick: () => setExpanded((value) => !value),
@@ -2205,16 +2426,29 @@ window.__ModuleLoader__.load({
 							children: [["policy", "锁定策略"], ["groups", "密码组"]].map(([id, label]) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								role: "tab",
+								disabled: pending,
 								"aria-selected": tab === id,
 								onClick: () => setTab(id),
 								children: label
 							}, id))
 						}),
-						tab === "policy" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PolicyPanel, {
+						tab === "policy" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(PolicyDraft, {
 							policy: snapshot.policy,
-							onChange: persistPolicy,
+							pending,
+							saveError,
+							...policyScope === void 0 ? {} : { onSave: persistPolicy },
 							onLockAll: () => void store.lockAll()
-						}),
+						}, draftVersion), conflict && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: "dsh-vault-button",
+							disabled: pending,
+							onClick: () => {
+								setSaveError(null);
+								setConflict(false);
+								setDraftVersion((value) => value + 1);
+							},
+							children: "放弃草稿并载入最新策略"
+						})] }),
 						tab === "groups" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(GroupsPanel, { store })
 					]
 				}) : null]
@@ -2314,7 +2548,7 @@ window.__ModuleLoader__.load({
 					name: "shell.overlay",
 					id: "dsh-vault-unlock",
 					order: 40
-				}, UnlockDialog));
+				}, VaultOverlays));
 				const disposeDenied = ctx.slots.inject("conversation.access.denied", () => ctx.slots.register({ name: "conversation.access.denied" }, LockedConversation));
 				const disposeWorkspaceAccessory = ctx.slots.inject("sidebar.workspaces.workspace.accessory", () => ctx.slots.register({
 					name: "sidebar.workspaces.workspace.accessory",
@@ -2352,6 +2586,7 @@ window.__ModuleLoader__.load({
 					disposeSessionAccessory();
 					disposeSessionAction();
 					disposeSettings();
+					recoveryDeliveryFor(store).dispose();
 					unlock.detach();
 					activity.stop();
 				};

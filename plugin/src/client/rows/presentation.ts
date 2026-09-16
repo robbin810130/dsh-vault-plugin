@@ -20,10 +20,11 @@ export type VaultTranslate = (key: 'workspace' | 'session') => string
 const MAX_REMEMBERED_SESSIONS = 500
 const sessionWorkspaceIds = new Map<string, string>()
 
-export function rememberWorkspaceIdForSession(sessionId: string, workspaceId: string | undefined): void {
+export function rememberWorkspaceIdForSession(sessionId: string, workspaceId: string | null | undefined): void {
   if (workspaceId === undefined) return
   // Refresh recency, then evict the oldest entry so the map stays bounded.
   sessionWorkspaceIds.delete(sessionId)
+  if (workspaceId === null) return
   sessionWorkspaceIds.set(sessionId, workspaceId)
   if (sessionWorkspaceIds.size > MAX_REMEMBERED_SESSIONS) {
     const oldest = sessionWorkspaceIds.keys().next().value
@@ -37,7 +38,8 @@ export function workspaceIdForSession(sessionId: string): string | undefined {
 
 export interface WorkspaceRowDecorator {
   workspace?(id: string, base: WorkspaceRowPresentation): WorkspaceRowPresentation
-  session?(id: string, base: SessionRowPresentation, workspaceId?: string): SessionRowPresentation
+  /** Omitted context may use a remembered parent; explicit undefined invalidates it. null confirms an orphan. */
+  session?(id: string, base: SessionRowPresentation, workspaceId?: string | null): SessionRowPresentation
 }
 
 function conceal(kind: 'workspace' | 'session', t: VaultTranslate): WorkspaceRowPresentation | SessionRowPresentation {
@@ -56,18 +58,23 @@ function visible(store: VaultClientStore, type: 'workspace' | 'session', id: str
 export function createVaultRowDecorator(store: VaultClientStore, t: VaultTranslate): WorkspaceRowDecorator {
   return {
     workspace: (id, base) => {
-      const policy = store.getSnapshot().policy
+      const snapshot = store.getSnapshot()
+      if (snapshot.host !== 'ready') return conceal('workspace', t)
+      const policy = snapshot.policy
       if (visible(store, 'workspace', id) || policy.lockedNameVisibility !== 'all-hidden') return base
       return conceal('workspace', t) as WorkspaceRowPresentation
     },
-    session: (id, base, workspaceId) => {
-      rememberWorkspaceIdForSession(id, workspaceId)
+    session: (id, base, ...context: [workspaceId?: string | null]) => {
+      const workspaceId = context[0]
+      const authoritative = context.length > 0
+      rememberWorkspaceIdForSession(id, authoritative ? workspaceId ?? null : undefined)
       const snapshot = store.getSnapshot()
-      // DSH's row decorator API does not provide workspaceId. Without it we
-      // cannot safely resolve implicit workspace protection, so leave the
-      // native title untouched and let navigation access enforce the lock.
-      if (workspaceId === undefined && !snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)) return base
-      const resolution = resolveVaultTarget(snapshot, { type: 'session', id, ...(workspaceId === undefined ? {} : { workspaceId }) })
+      if (snapshot.host !== 'ready') return conceal('session', t)
+      // A current host lookup always wins, including unknown membership.
+      const parent = authoritative ? workspaceId ?? undefined : workspaceIdForSession(id)
+      const resolution = resolveVaultTarget(snapshot, {
+        type: 'session', id, ...(parent === undefined ? {} : { workspaceId: parent }),
+      }, { workspaceAbsent: workspaceId === null })
       if (resolution.kind === 'plain' || (resolution.kind === 'protected' && snapshot.host === 'ready' && store.hasUnlockedGroup(resolution.groupId))) return base
       if (snapshot.policy.lockedNameVisibility === 'all-visible') return base
       return conceal('session', t) as SessionRowPresentation

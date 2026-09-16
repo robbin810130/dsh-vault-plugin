@@ -1,3 +1,4 @@
+import { vaultOperationError } from '../i18n/errors.js'
 import { useState } from 'react'
 import type { BindingMutation, VaultTarget } from '../../shared/contracts.js'
 import type { VaultClientStore } from '../store-types.js'
@@ -7,24 +8,29 @@ import { GroupCredentials } from './GroupCredentials.js'
 interface CredentialAction {
   readonly mode: 'change' | 'recover'
   readonly groupId: string
-  readonly groupName: string
 }
 
 interface DeleteAction {
   readonly groupId: string
-  readonly groupName: string
 }
 
 export function GroupsPanel({ store }: { readonly store: VaultClientStore }) {
   const snapshot = useVaultSnapshot(store) ?? store.getSnapshot()
   const [credentialAction, setCredentialAction] = useState<CredentialAction | null>(null)
   const [deleteAction, setDeleteAction] = useState<DeleteAction | null>(null)
+  const groupName = (id: string): string => {
+    const index = snapshot.groups.findIndex(group => group.id === id)
+    const group = snapshot.groups[index]
+    return group !== undefined && snapshot.host === 'ready' && snapshot.unlockedGroupIds.has(id)
+      ? group.name
+      : '受保护密码组 ' + (index + 1)
+  }
   const [error, setError] = useState<string | null>(null)
   if (credentialAction !== null) return (
     <GroupCredentials
       mode={credentialAction.mode}
       groupId={credentialAction.groupId}
-      groupName={credentialAction.groupName}
+      groupName={groupName(credentialAction.groupId)}
       store={store}
       onClose={() => setCredentialAction(null)}
     />
@@ -51,16 +57,16 @@ export function GroupsPanel({ store }: { readonly store: VaultClientStore }) {
         setError('配置已变化，已刷新，请重试')
         return
       }
-      setError('删除失败，请重试')
+      setError(vaultOperationError(result.error.code, '删除失败，请重试'))
     }
     if (source === undefined) return null
     return (
       <section className="dsh-vault-settings-panel" aria-labelledby="dsh-vault-delete-title">
-        <h3 id="dsh-vault-delete-title">删除密码组：{deleteAction.groupName}</h3>
+        <h3 id="dsh-vault-delete-title">删除密码组：{groupName(deleteAction.groupId)}</h3>
         <p>必须迁移成员或解除全部保护，不能直接删除。</p>
         {targets.map(group => (
           <button key={group.id} type="button" className="dsh-vault-button" onClick={() => { void execute({ kind: 'delete-group', groupId: source.id, moveToGroupId: group.id }, [source.id, group.id]) }}>
-            迁移到 {group.name}
+            迁移到 {groupName(group.id)}
           </button>
         ))}
         <button type="button" className="dsh-vault-button" onClick={() => { void execute({ kind: 'delete-group', groupId: source.id, removeProtection: true }, [source.id]) }}>
@@ -78,13 +84,13 @@ export function GroupsPanel({ store }: { readonly store: VaultClientStore }) {
         <ul className="dsh-vault-group-list">
           {snapshot.groups.map(group => (
             <li key={group.id}>
-              <strong>{group.name}</strong>
+              <strong>{groupName(group.id)}</strong>
               <span>{group.memberCount} 个保护对象</span>
               <div className="dsh-vault-dialog-actions">
-                <button type="button" className="dsh-vault-button" aria-label={`锁定 ${group.name}`} onClick={() => { void store.lockGroup(group.id) }}>锁定</button>
-                <button type="button" className="dsh-vault-button" aria-label={`修改密码 ${group.name}`} onClick={() => setCredentialAction({ mode: 'change', groupId: group.id, groupName: group.name })}>修改密码</button>
-                <button type="button" className="dsh-vault-button" aria-label={`恢复 ${group.name}`} onClick={() => setCredentialAction({ mode: 'recover', groupId: group.id, groupName: group.name })}>恢复</button>
-                <button type="button" className="dsh-vault-button" aria-label={'删除 ' + group.name} onClick={() => setDeleteAction({ groupId: group.id, groupName: group.name })}>删除</button>
+                <button type="button" className="dsh-vault-button" aria-label={`锁定 ${groupName(group.id)}`} onClick={() => { void store.lockGroup(group.id) }}>锁定</button>
+                <button type="button" className="dsh-vault-button" aria-label={`修改密码 ${groupName(group.id)}`} onClick={() => setCredentialAction({ mode: 'change', groupId: group.id })}>修改密码</button>
+                <button type="button" className="dsh-vault-button" aria-label={`恢复 ${groupName(group.id)}`} onClick={() => setCredentialAction({ mode: 'recover', groupId: group.id })}>恢复</button>
+                <button type="button" className="dsh-vault-button" aria-label={'删除 ' + groupName(group.id)} onClick={() => setDeleteAction({ groupId: group.id })}>删除</button>
               </div>
             </li>
           ))}

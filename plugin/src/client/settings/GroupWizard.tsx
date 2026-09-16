@@ -1,3 +1,5 @@
+import { recoveryDeliveryFor } from '../dialogs/recovery-delivery.js'
+import { vaultOperationError } from '../i18n/errors.js'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { VaultClientStore } from '../store-types.js'
@@ -13,7 +15,6 @@ export function GroupWizard({ store, onClose }: GroupWizardProps) {
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const passwordPolicy = typeof store.getSnapshot === 'function'
     ? store.getSnapshot().policy.passwordPolicy
@@ -25,25 +26,17 @@ export function GroupWizard({ store, onClose }: GroupWizardProps) {
     const passwordError = passwordPolicyError(password, passwordPolicy)
     if (passwordError !== undefined) { setError(passwordError); return }
     if (name.trim().length === 0 || password.length === 0 || pending) return
+    const delivery = recoveryDeliveryFor(store)
     setPending(true)
     setError(null)
     void store.createGroup({ name: name.trim(), password, bindings: [] })
       .then(result => {
-        if (result.ok) setRecoveryKey(result.value.recoveryKey)
-        else setError(result.error.code === 'duplicate-name' ? '密码组名称已存在' : result.error.code === 'weak-password' ? '密码不符合当前策略' : '创建失败，请重试')
+        if (result.ok) { delivery.deliver(result.value.recoveryKey); onClose?.() }
+        else setError(result.error.code === 'duplicate-name' ? '密码组名称已存在' : result.error.code === 'weak-password' ? '密码不符合当前策略' : vaultOperationError(result.error.code, '创建失败，请重试'))
       })
       .catch(() => setError('保险箱暂时不可用，请稍后重试'))
       .finally(() => { setPending(false); setPassword(''); setConfirmation('') })
   }
-
-  if (recoveryKey !== null) return (
-    <section className="dsh-vault-settings-panel" aria-labelledby="dsh-vault-recovery-key-title">
-      <h3 id="dsh-vault-recovery-key-title">请保存恢复密钥</h3>
-      <output className="dsh-vault-recovery-key">{recoveryKey}</output>
-      <p>关闭后将不再显示。</p>
-      <button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => { setRecoveryKey(null); onClose?.() }}>完成</button>
-    </section>
-  )
 
   return (
     <form className="dsh-vault-settings-panel" onSubmit={submit}>

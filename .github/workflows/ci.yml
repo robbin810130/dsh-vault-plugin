@@ -28,5 +28,5 @@ jobs:
       - run: pnpm --dir plugin exec tsc -p tsconfig.client.json --noEmit
       - run: node --test tests/install-script.test.mjs
       - run: node scripts/package-release.mjs
-      - run: node --test tests/scripts/package-release.test.mjs
+      - run: node --test tests/scripts/*.test.mjs
       - run: git diff --check

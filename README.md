@@ -8,7 +8,7 @@ DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，
 
 ## DSH 0.1.5-rc.1 本机兼容修复
 
-2026-09-13 的版本限定补丁、构建入口和验证/回滚说明见 [兼容说明](compat/dsh-v0.1.5-rc.1/README.md)。GitHub v0.2.5 随附专用补丁；以下安装命令只安装插件，不会自动部署宿主补丁。
+版本限定补丁、构建入口和验证/回滚说明见 [兼容说明](compat/dsh-v0.1.5-rc.1/README.md)。GitHub Release 随附专用补丁；以下安装命令只安装插件，不会自动部署宿主补丁。
 
 ## 一条命令安装
 
@@ -35,7 +35,7 @@ dsh plugin --profile web add <downloaded-package>
 也可以直接使用 DSH 原生安装命令安装 GitHub 仓库：
 
 ```bash
-dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.2
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.6
 ```
 
 ## 功能概览
@@ -57,15 +57,15 @@ dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.2
 
 ## 兼容性
 
-- DSH：`v0.1.2-rc.1`（Host 设置 API 与客户端兼容层已适配）
+- 本轮目标 DSH：`v0.1.5-rc.1`（必须同时应用本版本随附的精确宿主补丁）
 - Node.js：`^22.19.0 || >=24.0.0`（由插件包声明）
 - 运行 profile：`web`
 
-当前版本完整支持 DSH `v0.1.2-rc.1`，但客户端需要先应用 [`compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch`](compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch) 并重新构建 DSH。补丁只针对记录的上游提交，未知 DSH 版本不得直接套用。
+历史 DSH `v0.1.2-rc.1` [补丁](compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch) 保留供旧版参考，不代表当前发布已重新完整验证该组合。补丁只针对记录的上游提交，未知 DSH 版本不得直接套用。
 
 ## 权限、隐私与风险边界
 
-- 插件会读取并写入本机 Vault 私有状态目录（默认 `~/.dsh/dsh-vault/`，或 `$XDG_STATE_HOME/dsh-vault/`），用于保存加密后的密码组元数据和锁定关系。
+- 插件会读取并写入本机 Vault 私有状态目录（默认 `$DSH_HOME/vault-lock/`，未设置 DSH_HOME 时为 `~/.dsh/vault-lock/`），保存加盐 scrypt 密码／恢复密钥验证器，以及明文组名、绑定和审计元数据；这些元数据未加密。显式 stateDir 或 DSH_VAULT_STATE_DIR 优先。
 - 插件会注入 DSH Web profile 的设置、Workspace、Session 和主内容区域 UI，以提供锁定/解锁交互。
 - 不依赖外部服务，不主动联网，不上传密码、恢复密钥或会话内容。
 - 当前版本保护的是 DSH 前台访问；不会加密原始 Workspace、Session 或项目源文件。不要把它当作磁盘加密或数据防泄漏产品。
@@ -77,9 +77,9 @@ dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.2
 
 本节明确当前版本**防什么、不防什么**，以及三个有意为之的设计权衡：
 
-- **防的是谁**：防的是"借用你这台机器、打开 DSH 网页的人"（同事、家人、维修场景下的旁观者）。密码组密码经 PBKDF2 派生密钥后加密存储，连续输错触发组级冷却。
+- **防的是谁**：防的是"借用你这台机器、打开 DSH 网页的人"（同事、家人、维修场景下的旁观者）。密码组密码仅保存加盐 scrypt 验证器，不保存可解密的密码；连续输错触发组级冷却。
 - **不防的是谁**：不防"已经能用你的系统账户执行代码的人"。本机同用户进程本来就能读取 Vault 状态文件（0600 权限只隔离其他系统用户），也能直接打开未加密的 Workspace/Session 源文件。这是 UI 层访问门禁，不是内容加密。
-- **快照接口刻意不做认证**：锁 UI 在渲染前必须知道"哪些 session/workspace 受保护"，因此快照只暴露组 ID、成员数和绑定拓扑，绝不包含密码、密钥、会话内容或原始名称（受锁定的条目名称按策略替换为占位符）。同一系统用户本就能读到 state.json，隐藏这些元数据并不能提升安全性，只会让锁定提示无法正常显示。
+- **快照不要求密码组解锁**：锁 UI 在渲染前必须知道"哪些 session/workspace 受保护"，因此快照暴露组 ID、组名、成员数、绑定拓扑及策略，不包含明文密码、恢复密钥或会话内容。历史组名可能包含用户自定义名称；前台按锁定状态隐藏，接口元数据不属于内容保密边界。DSH 自身的访问控制和本插件的密码组授权是两个不同层次。
 - **限流计数是内存态**：输错计数随 DSH 重启清零。持久化计数会让状态文件在每次尝试时都落盘（放大损坏与泄露面），而重启 DSH 本身就是需要物理或账户权限的操作，与威胁模型匹配。组级冷却保证攻击者轮换客户端标识无法绕过。
 
 ## 升级、卸载与回滚

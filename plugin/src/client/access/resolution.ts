@@ -33,6 +33,11 @@ function workspaceGroup(snapshot: VaultClientSnapshot, workspaceId: string | und
 }
 
 export function resolveVaultTarget(snapshot: VaultClientSnapshot, target: VaultTarget, context?: VaultResolutionContext): VaultProtectionResolution {
+  // An empty cold snapshot is not evidence that a target is unprotected.
+  if (snapshot.host !== 'ready') return {
+    kind: 'blocked',
+    reason: snapshot.host === 'offline' ? 'Vault host unavailable' : 'Vault protection loading',
+  }
   if (target.type === 'workspace') return workspaceGroup(snapshot, target.id)
 
   const sessionBindings = snapshot.bindings.filter(candidate => candidate.targetType === 'session' && candidate.targetId === target.id)

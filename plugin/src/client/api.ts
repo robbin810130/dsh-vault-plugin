@@ -19,6 +19,9 @@ export interface VaultApiClient {
 const ROUTE = '/dsh-vault/api'
 const HOST_ERROR_CODES = new Set([
   'body-too-large',
+  'busy',
+  'state-lock-busy',
+  'state-lock-recovery-required',
   'create-intent-refused',
   'cooldown',
   'duplicate-name',
@@ -237,16 +240,20 @@ function parseResult<T>(request: VaultApiRequest, value: unknown): VaultApiResul
     return { ok: true, value: parseSuccess(request, source.value) as T }
   }
   if (source.ok === false) {
-    exact(source, ['ok', 'error'])
-    const error = record(source.error)
-    exact(error, ['code', 'message', 'retryAt'])
-    const code = text(error.code, 64)
-    text(error.message, 512)
-    if (!HOST_ERROR_CODES.has(code)) throw new TypeError('Invalid Vault response')
-    const retryAt = error.retryAt === undefined ? undefined : finiteNumber(error.retryAt)
-    return failure(code, 'Vault operation failed', retryAt)
+    return parseError(source)
   }
   throw new TypeError('Invalid Vault response')
+}
+
+function parseError(source: JsonRecord): VaultApiResult<never> {
+  exact(source, ['ok', 'error'])
+  const error = record(source.error)
+  exact(error, ['code', 'message', 'retryAt'])
+  const code = text(error.code, 64)
+  text(error.message, 512)
+  if (!HOST_ERROR_CODES.has(code)) throw new TypeError('Invalid Vault response')
+  const retryAt = error.retryAt === undefined ? undefined : finiteNumber(error.retryAt)
+  return failure(code, 'Vault operation failed', retryAt)
 }
 
 export function createVaultApiClient(fetcher: typeof fetch = globalThis.fetch): VaultApiClient {
@@ -266,6 +273,7 @@ export function createVaultApiClient(fetcher: typeof fetch = globalThis.fetch): 
       if (!response.ok) return failure('host-unavailable', 'Vault host unavailable')
       try {
         const body = record(await response.json() as unknown)
+        if (body.ok === false) return parseError(body)
         if (body.ok !== true) return failure('invalid-response', 'Vault response refused')
         exact(body, ['ok', 'value'])
         return { ok: true, value: parseCreateIntent(body.value) }

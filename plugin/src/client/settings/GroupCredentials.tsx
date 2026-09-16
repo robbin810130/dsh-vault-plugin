@@ -1,3 +1,5 @@
+import { recoveryDeliveryFor } from '../dialogs/recovery-delivery.js'
+import { vaultOperationError } from '../i18n/errors.js'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { VaultClientStore } from '../store-types.js'
@@ -16,7 +18,6 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [rotateRecovery, setRotateRecovery] = useState(false)
-  const [recoveryKey, setRecoveryKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const passwordPolicy = typeof store.getSnapshot === 'function'
@@ -31,7 +32,6 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
 
   const close = (): void => {
     clearSecrets()
-    setRecoveryKey(null)
     setError(null)
     onClose?.()
   }
@@ -42,6 +42,7 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
     const passwordError = passwordPolicyError(password, passwordPolicy)
     if (passwordError !== undefined) { setError(passwordError); return }
     if (credential.length === 0 || password.length === 0 || pending) return
+    const delivery = recoveryDeliveryFor(store)
     setPending(true)
     setError(null)
     const request = mode === 'change'
@@ -50,11 +51,11 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
     void request
       .then(result => {
         if (!result.ok) {
-          setError(result.error.code === 'invalid-credentials' ? '凭据无效' : result.error.code === 'weak-password' ? '密码不符合当前策略' : '操作失败，请刷新后重试')
+          setError(result.error.code === 'invalid-credentials' ? '凭据无效' : result.error.code === 'weak-password' ? '密码不符合当前策略' : vaultOperationError(result.error.code, '操作失败，请刷新后重试'))
           return
         }
-        if (result.value.recoveryKey !== undefined) setRecoveryKey(result.value.recoveryKey)
-        else onClose?.()
+        if (result.value.recoveryKey !== undefined) delivery.deliver(result.value.recoveryKey)
+        onClose?.()
       })
       .catch(() => setError('保险箱暂时不可用，请稍后重试'))
       .finally(() => {
@@ -62,15 +63,6 @@ export function GroupCredentials({ mode, groupId, groupName, store, onClose }: G
         setPending(false)
       })
   }
-
-  if (recoveryKey !== null) return (
-    <section className="dsh-vault-settings-panel" aria-labelledby="dsh-vault-credential-recovery-title">
-      <h3 id="dsh-vault-credential-recovery-title">请保存新的恢复密钥</h3>
-      <output className="dsh-vault-recovery-key">{recoveryKey}</output>
-      <p>关闭后将不再显示。</p>
-      <button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={close}>完成</button>
-    </section>
-  )
 
   return (
     <form className="dsh-vault-settings-panel" onSubmit={submit}>

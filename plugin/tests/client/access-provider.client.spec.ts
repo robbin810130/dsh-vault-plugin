@@ -131,7 +131,9 @@ describe('Vault navigation access provider', () => {
 
     expect(provider.sessionState('s-implicit', 'w-locked')).toEqual({ kind: 'blocked', reason: 'Vault group locked' })
     expect(provider.sessionState('s-implicit', 'w-open')).toEqual({ kind: 'allow' })
-    expect(provider.sessionState('s-implicit').kind).toBe('blocked')
+    // Omitted context retains the last authoritative parent; explicit unknown does not.
+    expect(provider.sessionState('s-implicit').kind).toBe('allow')
+    expect(provider.sessionState('s-implicit', undefined).kind).toBe('blocked')
     // Fail closed: with workspace protection present and ownership unknown the
     // provider must claim the session so DSH cannot open it unchecked.
     expect(provider.matchesSession('s-implicit')).toBe(true)

@@ -256,7 +256,7 @@ describe('VaultStateRepository', () => {
         await fs.chmod(path, fileMode)
       },
       readFile: async (path, encoding) => {
-        stateTouches += 1
+        if (String(path) === join(dir, STATE_FILE) || String(path) === join(dir, BACKUP_FILE)) stateTouches += 1
         return fs.readFile(path, encoding)
       },
       unlink: async (path) => {
@@ -302,6 +302,7 @@ describe('VaultStateRepository', () => {
         const handle = await fs.open(path, flags, fileMode)
         const isStateTemp = String(path).includes('.state.json.tmp-')
         const isBackupTemp = String(path).includes('.state.json.bak.tmp-')
+        const isRecoveryTemp = String(path).includes('.state.recovery.json.tmp-')
         const isDirectory = String(path) === dir
         if (isStateTemp && flags === 'wx') calls.push('state-temp-open')
         if (isBackupTemp && flags === 'wx') calls.push('backup-temp-open')
@@ -314,6 +315,7 @@ describe('VaultStateRepository', () => {
             await handle.writeFile(data)
           },
           sync: async () => {
+            if (isRecoveryTemp) calls.push('recovery-sync')
             if (isStateTemp) calls.push('state-temp-sync')
             if (isBackupTemp && flags === 'r+') calls.push('backup-temp-sync')
             if (isDirectory) calls.push('directory-sync')
@@ -326,6 +328,14 @@ describe('VaultStateRepository', () => {
         calls.push('backup-copy')
         await fs.copyFile(source, destination)
       },
+      link: async (source, destination) => {
+        if (destination === join(dir, 'state.recovery.json')) calls.push('recovery-publish')
+        await fs.link(source, destination)
+      },
+      unlink: async path => {
+        if (path === join(dir, 'state.recovery.json')) calls.push('recovery-remove')
+        await fs.unlink(path)
+      },
       rename: async (source, destination) => {
         calls.push(String(destination) === join(dir, BACKUP_FILE) ? 'backup-rename' : 'state-rename')
         await fs.rename(source, destination)
@@ -336,6 +346,10 @@ describe('VaultStateRepository', () => {
     await repo.commit(0, stateAt(1))
 
     expect(calls).toEqual([
+      'recovery-sync',
+      'recovery-publish',
+      'directory-open',
+      'directory-sync',
       'state-temp-open',
       'state-temp-write',
       'state-temp-sync',
@@ -347,6 +361,9 @@ describe('VaultStateRepository', () => {
       'directory-open',
       'directory-sync',
       'backup-rename',
+      'directory-open',
+      'directory-sync',
+      'recovery-remove',
       'directory-open',
       'directory-sync',
     ])
@@ -391,7 +408,7 @@ describe('VaultStateRepository', () => {
             if (isRestoredState) restoredStateFileSyncs += 1
             if (isDirectory) {
               directorySyncs += 1
-              if (directorySyncs === 2) throw new Error('post-backup directory fsync failed')
+              if (directorySyncs === 3) throw new Error('post-backup directory fsync failed')
             }
             await handle.sync()
           },
@@ -406,6 +423,23 @@ describe('VaultStateRepository', () => {
     expect(restoredStateFileSyncs).toBe(1)
     expect(await readJson(join(dir, STATE_FILE))).toEqual(stateAt(0))
     expect(await new VaultStateRepository(dir).load()).toEqual(stateAt(0))
+  })
+
+  it('preserves both original generations after post-backup directory fsync failure', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    let syncs = 0
+    const faultingFs: RepositoryFileSystem = { ...fs, open: async (path, flags, fileMode) => {
+      const handle = await fs.open(path, flags, fileMode)
+      return { writeFile: data => handle.writeFile(data).then(() => undefined), close: () => handle.close(), sync: async () => {
+        if (path === dir && ++syncs === 3) throw new Error('injected durability failure')
+        await handle.sync()
+      } }
+    } }
+    await expect(new VaultStateRepository(dir, faultingFs).commit(1, stateAt(2))).rejects.toThrow('injected durability failure')
+    expect(await readJson(join(dir, STATE_FILE))).toEqual(stateAt(1))
+    expect(await readJson(join(dir, BACKUP_FILE))).toEqual(stateAt(0))
   })
 
   it('does not publish the staged backup when the main state rename fails', async () => {
@@ -439,6 +473,62 @@ describe('VaultStateRepository', () => {
     await repo.commit(1, stateAt(2))
     await expect(readJson(join(dir, BACKUP_FILE))).resolves.toEqual(stateAt(1))
     await expect(mode(join(dir, BACKUP_FILE))).resolves.toBe(0o600)
+    await expect(fs.access(join(dir, 'state.recovery.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not replace either generation if undo publication fails', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    const faultingFs: RepositoryFileSystem = { ...fs, link: async (source, destination) => {
+      if (destination === join(dir, 'state.recovery.json')) throw new Error('undo publication failed')
+      await fs.link(source, destination)
+    } }
+    await expect(new VaultStateRepository(dir, faultingFs).commit(1, stateAt(2))).rejects.toThrow('undo publication failed')
+    expect(await readJson(join(dir, STATE_FILE))).toEqual(stateAt(1))
+    expect(await readJson(join(dir, BACKUP_FILE))).toEqual(stateAt(0))
+    expect((await fs.readdir(dir)).filter(name => name.includes('.tmp-'))).toEqual([])
+  })
+
+  it('recovers both generations before another writer after undo removal fails', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    const faultingFs: RepositoryFileSystem = { ...fs, unlink: async path => {
+      if (path === join(dir, 'state.recovery.json')) throw new Error('undo removal failed')
+      await fs.unlink(path)
+    } }
+    await expect(new VaultStateRepository(dir, faultingFs).commit(1, stateAt(2))).rejects.toThrow('recovery record cleanup failed')
+    expect(await readJson(join(dir, STATE_FILE))).toEqual(stateAt(2))
+    await expect(new VaultStateRepository(dir).commit(1, stateAt(2))).resolves.toEqual({ ok: true, revision: 2 })
+    expect(await readJson(join(dir, BACKUP_FILE))).toEqual(stateAt(1))
+  })
+
+  it('keeps the committed pair when directory sync fails after undo removal', async () => {
+    const repo = new VaultStateRepository(dir)
+    await repo.load()
+    await repo.commit(0, stateAt(1))
+    let removed = false
+    const faultingFs: RepositoryFileSystem = { ...fs,
+      unlink: async path => {
+        await fs.unlink(path)
+        if (path === join(dir, 'state.recovery.json')) removed = true
+      },
+      open: async (path, flags, fileMode) => {
+        const handle = await fs.open(path, flags, fileMode)
+        return {
+          writeFile: data => handle.writeFile(data).then(() => undefined),
+          close: () => handle.close(),
+          sync: async () => {
+            if (path === dir && removed) throw new Error('commit outcome indeterminate')
+            await handle.sync()
+          },
+        }
+      },
+    }
+    await expect(new VaultStateRepository(dir, faultingFs).commit(1, stateAt(2))).rejects.toThrow('commit outcome indeterminate')
+    expect((await new VaultStateRepository(dir).load()).revision).toBe(2)
+    expect(await readJson(join(dir, BACKUP_FILE))).toEqual(stateAt(1))
   })
 
   it('refuses to initialize when state is missing but a backup exists', async () => {

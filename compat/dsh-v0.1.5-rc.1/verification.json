@@ -1,15 +1,21 @@
 {
-  "date": "2026-09-13",
+  "date": "2026-09-16",
+  "vaultVersion": "0.2.6",
   "hostTests": {
     "files": 85,
-    "passed": 1407
+    "passed": 1414
   },
   "pluginTests": {
-    "files": 25,
-    "passed": 261
+    "files": 32,
+    "passed": 362
   },
-  "isolatedBrowser": "passed",
-  "formalBrowser": "settings and readonly snapshot; no real lock mutations",
-  "typecheck": "not clean; see README",
-  "backup": "/Users/Robbin/.dsh/backups/vault-v015-20260913-132524"
+  "scriptTests": 11,
+  "pluginTypechecks": "host and client passed",
+  "hostTypecheck": "not clean; see README",
+  "patchVerification": "24 files, pristine forward/reverse and byte equality passed",
+  "isolatedBrowser": "candidate backend and four host bundles; draft save, workspace quicklock/recovery, inherited unlock, search concealment with synthetic transport fixture, reload relock, pending/failed first snapshot",
+  "viewport": "1440/390 no horizontal overflow; 390 expanded host sidebar crowds content, not mobile UX acceptance",
+  "formalBrowser": "read-only snapshot HTTP200 revision16 groups1 bindings1; no real credential or policy mutations",
+  "backup": "/Users/Robbin/.dsh/backups/vault-026-20260916-140201",
+  "artifactSHA256": "e93322ade982f72bf1c574532633de0c9a843b133e1365b09c21f49157550386"
 }

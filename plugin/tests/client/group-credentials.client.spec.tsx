@@ -3,12 +3,17 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GroupCredentials } from '../../src/client/settings/GroupCredentials.js'
+import { VaultOverlays } from '../../src/client/dialogs/VaultOverlays.js'
+import { createVaultClientStore } from '../../src/client/store.js'
+import { createVaultApiClient } from '../../src/client/api.js'
 import type { VaultClientStore } from '../../src/client/store.js'
 
 afterEach(() => cleanup())
 
 function credentialStore(overrides: Partial<VaultClientStore> = {}): VaultClientStore {
+  const baseline = createVaultClientStore(createVaultApiClient()).getSnapshot()
   return {
+    getSnapshot: () => baseline,
     clientInstanceId: 'client',
     changePassword: vi.fn(async () => ({
       ok: true,
@@ -25,7 +30,7 @@ function credentialStore(overrides: Partial<VaultClientStore> = {}): VaultClient
 describe('Vault group credentials', () => {
   it('changes a password and optionally rotates the recovery key', async () => {
     const store = credentialStore()
-    render(<GroupCredentials mode="change" groupId="group-a" groupName="研发组" store={store} />)
+    render(<><VaultOverlays store={store} /><GroupCredentials mode="change" groupId="group-a" groupName="研发组" store={store} /></>)
 
     fireEvent.change(screen.getByLabelText('当前密码'), { target: { value: 'old secret' } })
     fireEvent.change(screen.getByLabelText('新密码'), { target: { value: 'new secret' } })
@@ -43,7 +48,7 @@ describe('Vault group credentials', () => {
 
   it('recovers a group, replaces its password, and shows the new recovery key once', async () => {
     const store = credentialStore()
-    render(<GroupCredentials mode="recover" groupId="group-a" groupName="研发组" store={store} />)
+    render(<><VaultOverlays store={store} /><GroupCredentials mode="recover" groupId="group-a" groupName="研发组" store={store} /></>)
 
     fireEvent.change(screen.getByLabelText('恢复密钥'), { target: { value: 'OLD-RECOVERY-KEY' } })
     fireEvent.change(screen.getByLabelText('新密码'), { target: { value: 'recovered secret' } })
@@ -54,13 +59,13 @@ describe('Vault group credentials', () => {
       groupId: 'group-a', recoveryKey: 'OLD-RECOVERY-KEY', newPassword: 'recovered secret',
     }))
     expect(screen.getByText('NEW-RECOVERY-KEY')).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    fireEvent.click(screen.getByRole('button', { name: '我已保存恢复密钥' }))
     expect(screen.queryByText('NEW-RECOVERY-KEY')).toBeNull()
   })
 
   it('refuses mismatched password confirmation without sending secrets', () => {
     const store = credentialStore()
-    render(<GroupCredentials mode="change" groupId="group-a" groupName="研发组" store={store} />)
+    render(<><VaultOverlays store={store} /><GroupCredentials mode="change" groupId="group-a" groupName="研发组" store={store} /></>)
     fireEvent.change(screen.getByLabelText('当前密码'), { target: { value: 'old secret' } })
     fireEvent.change(screen.getByLabelText('新密码'), { target: { value: 'one' } })
     fireEvent.change(screen.getByLabelText('确认新密码'), { target: { value: 'two' } })

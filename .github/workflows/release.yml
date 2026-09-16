@@ -21,7 +21,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: plugin/pnpm-lock.yaml
       - run: pnpm --dir plugin install --frozen-lockfile
+      - run: node scripts/verify-release.mjs "${GITHUB_REF_NAME}"
       - run: node scripts/package-release.mjs
+      - run: pnpm --dir plugin exec vitest run
+      - run: pnpm --dir plugin exec tsc -p tsconfig.host.json --noEmit
+      - run: pnpm --dir plugin exec tsc -p tsconfig.client.json --noEmit
+      - run: node --test tests/install-script.test.mjs tests/scripts/*.test.mjs
+      - run: git diff --check
       - name: Add DSH compatibility patch asset
         run: |
           cp compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.2-rc.1.patch
@@ -39,4 +45,4 @@ jobs:
           artifacts/dsh-vault-plugin-dsh-v0.1.5-rc.1.patch
           artifacts/dsh-vault-compat-dsh-v0.1.5-rc.1.tgz
           artifacts/compatibility.sha256
-          --notes-file docs/releases/v0.2.5.md
+          --notes-file "docs/releases/${GITHUB_REF_NAME}.md"

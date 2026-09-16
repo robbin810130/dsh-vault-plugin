@@ -1,3 +1,4 @@
+import { vaultOperationError } from '../i18n/errors.js'
 import type { VaultTarget } from '../../shared/contracts.js'
 import { useSyncExternalStore } from 'react'
 import { resolveVaultTarget } from '../access/resolution.js'
@@ -96,5 +97,5 @@ export function unlockMessage(code?: string, retryAt?: number): string {
   if (code === 'host-unavailable' || code === 'invalid-response' || code === 'request-aborted') {
     return '保险箱暂时不可用，请稍后重试'
   }
-  return '解锁失败，请重试'
+  return vaultOperationError(code, '解锁失败，请重试')
 }

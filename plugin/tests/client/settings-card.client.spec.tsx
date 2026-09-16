@@ -72,6 +72,8 @@ describe('Vault settings card', () => {
     fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
 
     fireEvent.change(screen.getByLabelText('自动锁定'), { target: { value: '30' } })
+    expect(policyScope.set).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '保存策略' }))
 
     await vi.waitFor(() => {
       expect(policyScope.set).toHaveBeenCalledWith('autoLockMinutes', 30)

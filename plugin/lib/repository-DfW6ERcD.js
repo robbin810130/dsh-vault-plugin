@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 //#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/index.js
 /** Return true when a value is `null` or `undefined`. */
@@ -1062,6 +1062,30 @@ const STATE_TEMP_PREFIX = ".state.json.tmp-";
 const BACKUP_TEMP_PREFIX = ".state.json.bak.tmp-";
 const STATE_RESTORE_TEMP_PREFIX = ".state.json.restore.tmp-";
 const BACKUP_RESTORE_TEMP_PREFIX = ".state.json.bak.restore.tmp-";
+const RECOVERY_FILE = "state.recovery.json";
+const RECOVERY_TEMP_PREFIX = ".state.recovery.json.tmp-";
+var VaultStateLockError = class extends Error {
+	code;
+	constructor(code) {
+		super(code === "state-lock-busy" ? "Vault state lock is busy; refusing unsafe concurrent access" : "Vault state lock ownership is unknown; stop all Vault processes and recover the lock explicitly");
+		this.code = code;
+	}
+};
+function localOwner(source) {
+	try {
+		const owner = JSON.parse(source);
+		if (owner.version === 1 && Number.isSafeInteger(owner.pid) && owner.pid > 0 && owner.hostname === hostname() && typeof owner.token === "string" && owner.token.length > 0) return owner;
+	} catch {}
+	throw new VaultStateLockError("state-lock-recovery-required");
+}
+function isDead(owner) {
+	try {
+		process.kill(owner.pid, 0);
+		return false;
+	} catch (error) {
+		return hasCode(error, "ESRCH");
+	}
+}
 function hasCode(error, code) {
 	return error instanceof Error && "code" in error && error.code === code;
 }
@@ -1228,16 +1252,18 @@ var VaultStateRepository = class {
 	}
 	async #withStateLock(operation) {
 		await this.#ensureDirectory();
-		await this.#acquireStateLock();
+		const owner = await this.#acquireStateLock();
 		let result;
 		let operationError;
 		try {
+			await this.#recoverInterruptedPersist();
 			await this.#cleanupStaleTemps();
 			result = await operation();
 		} catch (error) {
 			operationError = error;
 		}
 		try {
+			if (await this.#readOptional(this.#lockPath) !== owner) throw new VaultStateLockError("state-lock-recovery-required");
 			await this.#unlinkWithRetries(this.#lockPath, "state lock");
 		} catch (cleanupError) {
 			if (operationError !== void 0) throw new AggregateError([operationError, cleanupError], "Vault state operation failed and state lock cleanup failed");
@@ -1247,20 +1273,56 @@ var VaultStateRepository = class {
 		return result;
 	}
 	async #acquireStateLock() {
-		for (let attempt = 1; attempt <= LOCK_RETRY_ATTEMPTS; attempt += 1) try {
-			const handle = await this.fileSystem.open(this.#lockPath, "wx", FILE_MODE);
-			try {
-				await handle.close();
+		const owner = JSON.stringify({
+			version: 1,
+			pid: process.pid,
+			hostname: hostname(),
+			token: randomUUID()
+		});
+		const candidate = join(this.stateDirectory, `.state-lock-owner-${process.pid}-${randomUUID()}`);
+		const handle = await this.fileSystem.open(candidate, "wx", FILE_MODE);
+		let acquired = false;
+		try {
+			await closeAfter(handle, async () => {
+				await handle.writeFile(owner);
+				await handle.sync();
+			});
+			for (let attempt = 1; attempt <= LOCK_RETRY_ATTEMPTS; attempt += 1) try {
+				await this.fileSystem.link(candidate, this.#lockPath);
+				acquired = true;
+				return owner;
 			} catch (error) {
-				await this.#unlinkWithRetries(this.#lockPath, "state lock");
+				if (!hasCode(error, "EEXIST")) throw error;
+				const current = await this.#readOptional(this.#lockPath);
+				if (current === void 0) continue;
+				if (isDead(localOwner(current))) await this.#reclaimDeadLock(current, candidate);
+				if (attempt === LOCK_RETRY_ATTEMPTS) throw new VaultStateLockError("state-lock-busy");
+				await delay(LOCK_RETRY_DELAY_MS);
+			}
+			throw new VaultStateLockError("state-lock-busy");
+		} finally {
+			try {
+				await this.#unlinkWithRetries(candidate, "lock owner candidate");
+			} catch (error) {
+				if (acquired) await this.#unlinkWithRetries(this.#lockPath, "state lock");
 				throw error;
 			}
-			return;
+		}
+	}
+	async #reclaimDeadLock(observed, candidate) {
+		const digest = createHash("sha256").update(observed).digest("hex");
+		const claim = join(this.stateDirectory, `.state-lock-reaped-${digest}`);
+		try {
+			await this.fileSystem.link(candidate, claim);
 		} catch (error) {
 			if (!hasCode(error, "EEXIST")) throw error;
-			if (attempt === LOCK_RETRY_ATTEMPTS) throw new Error("Vault state lock is busy; refusing unsafe concurrent access", { cause: error });
-			await delay(LOCK_RETRY_DELAY_MS);
+			if (await this.#readOptional(this.#lockPath) === observed) {
+				const reaper = await this.#readOptional(claim);
+				if (reaper !== void 0 && isDead(localOwner(reaper))) throw new VaultStateLockError("state-lock-recovery-required");
+			}
+			return;
 		}
+		if (await this.#readOptional(this.#lockPath) === observed && isDead(localOwner(observed))) await this.#unlinkWithRetries(this.#lockPath, "dead state lock");
 	}
 	async #loadFromDiskLocked() {
 		await this.#ensureDirectory();
@@ -1294,7 +1356,54 @@ var VaultStateRepository = class {
 		}
 	}
 	async #persist(next, currentExists) {
+		if (!currentExists) return this.#persistState(next, false);
+		const recoveryPath = join(this.stateDirectory, RECOVERY_FILE);
+		const tempPath = join(this.stateDirectory, `${RECOVERY_TEMP_PREFIX}${randomUUID()}`);
+		const record = JSON.stringify({
+			version: 1,
+			state: await this.fileSystem.readFile(this.#statePath, "utf8"),
+			backup: await this.#readOptional(this.#backupPath) ?? null
+		});
+		try {
+			const handle = await this.fileSystem.open(tempPath, "wx", FILE_MODE);
+			await closeAfter(handle, async () => {
+				await handle.writeFile(record);
+				await handle.sync();
+			});
+			await this.fileSystem.link(tempPath, recoveryPath);
+			await this.#syncDirectory();
+		} finally {
+			await this.#unlinkWithRetries(tempPath, "recovery temp");
+		}
+		await this.#persistState(next, true);
+		await this.#clearRecoveryRecord();
+	}
+	async #clearRecoveryRecord() {
+		await this.#unlinkWithRetries(join(this.stateDirectory, RECOVERY_FILE), "recovery record");
+		await this.#syncDirectory();
+	}
+	async #recoverInterruptedPersist() {
+		const source = await this.#readOptional(join(this.stateDirectory, RECOVERY_FILE));
+		if (source === void 0) return;
+		let record;
+		try {
+			record = JSON.parse(source);
+			if (record.version !== 1 || typeof record.state !== "string" || record.backup !== null && typeof record.backup !== "string") throw new Error("Invalid recovery record");
+			parseVaultState(JSON.parse(record.state));
+		} catch (error) {
+			throw new Error("Vault persistence recovery record is invalid; explicit recovery is required", { cause: error });
+		}
+		if (await this.#readOptional(this.#statePath) !== record.state || await this.#readOptional(this.#backupPath) !== (record.backup ?? void 0)) await this.#restoreStateFilesLocked(record.state, record.backup ?? void 0);
+		else {
+			await this.#syncFile(this.#statePath);
+			if (record.backup !== null) await this.#syncFile(this.#backupPath);
+			await this.#syncDirectory();
+		}
+		await this.#clearRecoveryRecord();
+	}
+	async #persistState(next, currentExists) {
 		await this.#ensureDirectory();
+		const backupBefore = currentExists ? await this.#readOptional(this.#backupPath) : void 0;
 		const suffix = `${process.pid}-${randomUUID()}`;
 		const stateTempPath = join(this.stateDirectory, `${STATE_TEMP_PREFIX}${suffix}`);
 		const backupTempPath = join(this.stateDirectory, `${BACKUP_TEMP_PREFIX}${suffix}`);
@@ -1335,6 +1444,17 @@ var VaultStateRepository = class {
 				await this.fileSystem.copyFile(this.#backupPath, this.#statePath);
 				await this.fileSystem.chmod(this.#statePath, FILE_MODE);
 				await this.#syncFile(this.#statePath);
+				if (backupBefore === void 0) await this.#unlinkWithRetries(this.#backupPath, "backup rollback");
+				else {
+					const restore = await this.fileSystem.open(backupTempPath, "wx", FILE_MODE);
+					backupTempExists = true;
+					await closeAfter(restore, async () => {
+						await restore.writeFile(backupBefore);
+						await restore.sync();
+					});
+					await this.fileSystem.rename(backupTempPath, this.#backupPath);
+					backupTempExists = false;
+				}
 				stateReplaced = false;
 				backupPublished = false;
 				await this.#syncDirectory();
@@ -1438,7 +1558,7 @@ var VaultStateRepository = class {
 		}
 	}
 	async #cleanupStaleTemps() {
-		const staleNames = (await this.fileSystem.readdir(this.stateDirectory)).filter((name) => name.startsWith(STATE_TEMP_PREFIX) || name.startsWith(BACKUP_TEMP_PREFIX) || name.startsWith(STATE_RESTORE_TEMP_PREFIX) || name.startsWith(BACKUP_RESTORE_TEMP_PREFIX));
+		const staleNames = (await this.fileSystem.readdir(this.stateDirectory)).filter((name) => name.startsWith(STATE_TEMP_PREFIX) || name.startsWith(BACKUP_TEMP_PREFIX) || name.startsWith(STATE_RESTORE_TEMP_PREFIX) || name.startsWith(BACKUP_RESTORE_TEMP_PREFIX) || name.startsWith(RECOVERY_TEMP_PREFIX));
 		if (staleNames.length === 0) return;
 		for (const name of staleNames) await this.#unlinkWithRetries(join(this.stateDirectory, name), "stale temp");
 		await this.#syncDirectory();
@@ -1456,6 +1576,6 @@ var VaultStateRepository = class {
 	}
 };
 //#endregion
-export { resolveStateDirectory as a, VaultPolicySchema as i, Config as n, ConfigSchema as r, VaultStateRepository as t };
+export { VaultPolicySchema as a, ConfigSchema as i, VaultStateRepository as n, resolveStateDirectory as o, Config as r, VaultStateLockError as t };
 
-//# sourceMappingURL=repository-BO9I8Swf.js.map
+//# sourceMappingURL=repository-DfW6ERcD.js.map

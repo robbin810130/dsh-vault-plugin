@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { VaultClientStore } from '../../src/client/store.js'
 import { LockedConversation } from '../../src/client/unlock/LockedConversation.js'
 import { UnlockDialog } from '../../src/client/unlock/UnlockDialog.js'
+import { rememberWorkspaceIdForSession } from '../../src/client/rows/presentation.js'
 
 afterEach(() => cleanup())
 
@@ -29,6 +30,40 @@ function store(overrides: Partial<VaultClientStore> = {}): VaultClientStore {
 }
 
 describe('Vault unlock surfaces', () => {
+  it('ignores stale row and prompt parents while host membership is pending, then enables inherited unlock', () => {
+    const snapshot = { ...store().getSnapshot(),
+      prompt: { groupId: 'group-a', target: { type: 'session' as const, id: 'pending-parent', workspaceId: 'old-parent' } },
+      bindings: [{ targetType: 'workspace' as const, targetId: 'new-parent', mode: 'direct' as const, passwordGroupId: 'group-a', createdAt: 'now', updatedAt: 'now' }] }
+    const current = store({ getSnapshot: () => snapshot })
+    rememberWorkspaceIdForSession('pending-parent', 'old-parent')
+    const view = render(<LockedConversation sessionId="pending-parent" workspaceId={undefined} store={current}><p>PRIVATE</p></LockedConversation>)
+    expect(screen.queryByText('PRIVATE')).toBeNull()
+    expect(screen.getByRole('button', { name: '解锁' })).toBeDisabled()
+    view.rerender(<LockedConversation sessionId="pending-parent" workspaceId="new-parent" store={current} />)
+    expect(screen.getByRole('button', { name: '解锁' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '解锁' }))
+    expect(current.requestUnlock).toHaveBeenCalledWith('group-a', { type: 'session', id: 'pending-parent', workspaceId: 'new-parent' })
+    view.rerender(<LockedConversation sessionId="pending-parent" workspaceId={null} store={current}><p>ORPHAN</p></LockedConversation>)
+    expect(screen.getByText('ORPHAN')).toBeTruthy()
+  })
+
+  it('unlocks a restored workspace-only session without sidebar or prompt history', () => {
+    const snapshot = { ...store().getSnapshot(), prompt: null,
+      bindings: [{ targetType: 'workspace' as const, targetId: 'restored-workspace', mode: 'direct' as const, passwordGroupId: 'group-a', createdAt: 'now', updatedAt: 'now' }] }
+    const current = store({ getSnapshot: () => snapshot })
+    render(<LockedConversation sessionId="restored-without-sidebar" workspaceId="restored-workspace" store={current} />)
+    expect(screen.getByRole('button', { name: '解锁' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '解锁' }))
+    expect(current.requestUnlock).toHaveBeenCalledWith('group-a', { type: 'session', id: 'restored-without-sidebar', workspaceId: 'restored-workspace' })
+  })
+
+  it.each(['loading', 'offline'] as const)('never mounts children from an empty %s snapshot', host => {
+    const snapshot = { ...store().getSnapshot(), host, groups: [], bindings: [], prompt: null }
+    render(<LockedConversation sessionId="cold-empty" store={store({ getSnapshot: () => snapshot })}><p>SECRET</p></LockedConversation>)
+    expect(screen.queryByText('SECRET')).toBeNull()
+    expect(screen.getByRole('button', { name: '解锁' })).toBeDisabled()
+  })
+
   it('renders an unbound conversation normally before any protection is configured', () => {
     const snapshot = {
       ...store().getSnapshot(),

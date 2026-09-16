@@ -6,7 +6,8 @@ import { createVaultRowDecorator } from './rows/presentation.js'
 import { createVaultClientStore } from './store.js'
 import { createVaultUnlockController } from './unlock/controller.js'
 import { LockedConversation } from './unlock/LockedConversation.js'
-import { UnlockDialog } from './unlock/UnlockDialog.js'
+import { VaultOverlays } from './dialogs/VaultOverlays.js'
+import { recoveryDeliveryFor } from './dialogs/recovery-delivery.js'
 import { VaultRowAccessory } from './rows/VaultRowAccessory.js'
 import { VaultRowAction } from './rows/VaultRowAction.js'
 import { VaultSettingsCard } from './settings/VaultSettingsCard.js'
@@ -43,7 +44,7 @@ export function apply(ctx: ClientContext): void {
     const disposeRows = ctx.workspaceRows.register(rows)
     const disposeUnlock = ctx.slots.inject('shell.overlay', () => ctx.slots.register(
       { name: 'shell.overlay', id: 'dsh-vault-unlock', order: 40 },
-      UnlockDialog,
+      VaultOverlays,
     ))
     const disposeDenied = ctx.slots.inject('conversation.access.denied', () => ctx.slots.register(
       { name: 'conversation.access.denied' },
@@ -80,6 +81,7 @@ export function apply(ctx: ClientContext): void {
       disposeSessionAccessory()
       disposeSessionAction()
       disposeSettings()
+      recoveryDeliveryFor(store).dispose()
       unlock.detach()
       activity.stop()
     }

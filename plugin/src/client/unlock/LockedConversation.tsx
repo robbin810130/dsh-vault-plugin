@@ -8,12 +8,15 @@ import { workspaceIdForSession } from '../rows/presentation.js'
 
 export interface LockedConversationProps {
   readonly sessionId: string
+  /** Explicit undefined means pending membership; null confirms no workspace. */
+  readonly workspaceId?: string | null | undefined
   readonly reason?: string
   readonly store?: VaultClientStore
   readonly children?: ReactNode
 }
 
-export function LockedConversation({ sessionId, store: storeProp, children }: LockedConversationProps) {
+export function LockedConversation(props: LockedConversationProps) {
+  const { sessionId, store: storeProp, children } = props
   const store = useVaultStore(storeProp)
   const snapshot = useVaultSnapshot(store)
   const knownWorkspaceId = workspaceIdForSession(sessionId)
@@ -25,14 +28,12 @@ export function LockedConversation({ sessionId, store: storeProp, children }: Lo
   const rememberedWorkspaceId = lastPromptedTarget.current?.id === sessionId
     ? lastPromptedTarget.current.workspaceId
     : undefined
-  const workspaceId = knownWorkspaceId ?? rememberedWorkspaceId
-  const target = promptedTarget ?? { type: 'session' as const, id: sessionId, ...(workspaceId === undefined ? {} : { workspaceId }) }
-  const hasProtectionConfig = snapshot !== undefined && (snapshot.groups.length > 0 || snapshot.bindings.length > 0)
+  const authoritative = Object.prototype.hasOwnProperty.call(props, 'workspaceId')
+  const workspaceId = authoritative ? props.workspaceId ?? undefined : knownWorkspaceId ?? rememberedWorkspaceId
+  const target = (!authoritative ? promptedTarget : undefined) ?? { type: 'session' as const, id: sessionId, ...(workspaceId === undefined ? {} : { workspaceId }) }
   const resolution = snapshot === undefined
     ? { kind: 'blocked' as const, reason: 'Vault group locked' }
-    : !hasProtectionConfig && snapshot.prompt === null
-      ? { kind: 'plain' as const }
-      : resolveVaultTarget(snapshot, target)
+    : resolveVaultTarget(snapshot, target, { workspaceAbsent: authoritative && props.workspaceId === null })
   const locked = resolution.kind !== 'plain'
     && (snapshot?.host !== 'ready' || resolution.kind !== 'protected' || !store?.hasUnlockedGroup(resolution.groupId))
 

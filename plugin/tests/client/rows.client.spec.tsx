@@ -118,7 +118,7 @@ describe('Vault row affordances', () => {
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
     fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'correct horse' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并上锁' }))
-    await vi.waitFor(() => expect(createGroup).toHaveBeenCalledWith(expect.objectContaining({ name: '我的对话', password: 'correct horse', bindings: [expect.objectContaining({ targetId: 'session-a', mode: 'direct' })] })))
+    await vi.waitFor(() => expect(createGroup).toHaveBeenCalledWith(expect.objectContaining({ name: '对话保护', password: 'correct horse', bindings: [expect.objectContaining({ targetId: 'session-a', mode: 'direct' })] })))
   })
 
   it('explains inherited workspace protection when a stale session lock dialog is refused', async () => {

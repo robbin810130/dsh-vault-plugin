@@ -18,7 +18,7 @@ export interface NavigationAccessProvider {
   workspaceState(id: string): NavigationAccessState
   sessionState(id: string, workspaceId?: string | null): NavigationAccessState
   requestWorkspace(id: string): Promise<NavigationDecision>
-  requestSession(id: string, workspaceId?: string): Promise<NavigationDecision>
+  requestSession(id: string, workspaceId?: string | null): Promise<NavigationDecision>
   subscribe(listener: () => void): () => void
   dispose(): void
 }
@@ -49,7 +49,9 @@ function decisionWithoutPrompt(store: VaultClientStore, target: VaultTarget): Pr
 
 export function createVaultAccessProvider(store: VaultClientStore): NavigationAccessProvider {
   const listeners = new Set<() => void>()
-  const sessionTarget = (id: string, workspaceId?: string | null): { target: VaultTarget; workspaceAbsent: boolean } => {
+  const sessionTarget = (id: string, ...context: [workspaceId?: string | null]): { target: VaultTarget; workspaceAbsent: boolean } => {
+    const workspaceId = context[0]
+    rememberWorkspaceIdForSession(id, context.length > 0 ? workspaceId ?? null : undefined)
     // null means the host confirmed this session has no parent workspace;
     // do not fall back to remembered context in that case.
     if (workspaceId === null) return { target: { type: 'session', id }, workspaceAbsent: true }
@@ -58,47 +60,24 @@ export function createVaultAccessProvider(store: VaultClientStore): NavigationAc
       ? { target: { type: 'session', id }, workspaceAbsent: false }
       : { target: { type: 'session', id, workspaceId: resolvedWorkspaceId }, workspaceAbsent: false }
   }
-  const matchesSession = (id: string, workspaceId?: string | null): boolean => {
-    const snapshot = store.getSnapshot()
-    if (typeof workspaceId === 'string') rememberWorkspaceIdForSession(id, workspaceId)
-    const explicit = snapshot.bindings.some(binding => binding.targetType === 'session' && binding.targetId === id)
-    if (explicit) {
-      const { target, workspaceAbsent } = sessionTarget(id, workspaceId)
-      return resolveVaultTarget(snapshot, target, { workspaceAbsent }).kind !== 'plain'
-    }
-    // Host-confirmed absence of a parent workspace: nothing to inherit.
-    if (workspaceId === null) return false
-    const rememberedWorkspaceId = workspaceId ?? workspaceIdForSession(id)
-    // The workspace browser remembers the owning workspace before this probe.
-    // Claim inherited sessions too, so ConversationRoot can render its locked
-    // placeholder after selection instead of opening protected content.
-    if (rememberedWorkspaceId === undefined) {
-      const workspaceBindings = snapshot.bindings.filter(binding => binding.targetType === 'workspace')
-      // Fail closed whenever any workspace protection exists: refusing to claim
-      // here would let DSH render a possibly-inherited session without checks.
-      if (workspaceBindings.length === 0) return false
-      const [workspaceBinding] = workspaceBindings
-      if (workspaceBinding === undefined) return false
-      return protectedResolution(store, { type: 'session', id, workspaceId: workspaceBinding.targetId }).kind !== 'plain'
-    }
-    return protectedResolution(store, { type: 'session', id, workspaceId: rememberedWorkspaceId }).kind !== 'plain'
+  const matchesSession = (id: string, ...context: [workspaceId?: string | null]): boolean => {
+    const { target, workspaceAbsent } = sessionTarget(id, ...context)
+    return resolveVaultTarget(store.getSnapshot(), target, { workspaceAbsent }).kind !== 'plain'
   }
   const unsubscribe = store.subscribe(() => {
     for (const listener of [...listeners]) listener()
   })
-  const requestSession = (id: string, workspaceId?: string): Promise<NavigationDecision> => {
-    rememberWorkspaceIdForSession(id, workspaceId)
-    const { target } = sessionTarget(id, workspaceId)
-    const resolution = protectedResolution(store, target)
-    if (resolution.kind === 'blocked') return Promise.resolve({ allow: true })
+  const requestSession = (id: string, ...context: [workspaceId?: string | null]): Promise<NavigationDecision> => {
+    sessionTarget(id, ...context)
+    // Selection may render the placeholder; sessionState still guards content.
     return Promise.resolve({ allow: true })
   }
   return {
     matchesWorkspace: id => protectedResolution(store, { type: 'workspace', id }).kind !== 'plain',
     matchesSession,
     workspaceState: id => targetState(store, { type: 'workspace', id }),
-    sessionState: (id, workspaceId) => {
-      const { target, workspaceAbsent } = sessionTarget(id, workspaceId)
+    sessionState: (id, ...context) => {
+      const { target, workspaceAbsent } = sessionTarget(id, ...context)
       return targetState(store, target, workspaceAbsent)
     },
     requestWorkspace: id => decisionWithoutPrompt(store, { type: 'workspace', id }),

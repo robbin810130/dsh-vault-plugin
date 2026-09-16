@@ -81,7 +81,7 @@ describe('Vault groups panel', () => {
     expect(screen.getByRole('heading', { name: '删除密码组：研发组' })).toBeVisible()
     expect(screen.getByText('必须迁移成员或解除全部保护，不能直接删除。')).toBeVisible()
 
-    fireEvent.click(screen.getByRole('button', { name: '迁移到 运营组' }))
+    fireEvent.click(screen.getByRole('button', { name: '迁移到 受保护密码组 2' }))
     await waitFor(() => expect(store.updateBindings).toHaveBeenCalledWith({ kind: 'delete-group', groupId: 'group-a', moveToGroupId: 'group-b' }))
   })
 })

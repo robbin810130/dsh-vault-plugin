@@ -1,4 +1,4 @@
-import { a as resolveStateDirectory, i as VaultPolicySchema, n as Config, r as ConfigSchema, t as VaultStateRepository } from "./repository-BO9I8Swf.js";
+import { a as VaultPolicySchema, i as ConfigSchema, n as VaultStateRepository, o as resolveStateDirectory, r as Config, t as VaultStateLockError } from "./repository-DfW6ERcD.js";
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { isIPv4, isIPv6 } from "node:net";
 import { isDeepStrictEqual } from "node:util";
@@ -628,6 +628,61 @@ var FailedAttemptStore = class {
 		return Number.isFinite(cooldownMs) && cooldownMs > 0 && Number.isFinite(deadline) && deadline > now ? deadline : null;
 	}
 };
+//#endregion
+//#region src/host/auth/credential-work.ts
+/** Shared by all credential routes, never keyed by a caller's chosen identity.
+* Bounds include running work. Revocation marks admitted jobs rather than
+* keeping an ever-growing generation map for arbitrary client identifiers.
+*/
+var CredentialWorkQueue = class {
+	jobs = /* @__PURE__ */ new Set();
+	waiting = [];
+	runningGroups = /* @__PURE__ */ new Set();
+	run(groupId, clientInstanceId, task, busy) {
+		if (this.jobs.size >= 64 || [...this.jobs].filter((job) => job.groupId === groupId).length >= 8) return Promise.resolve(busy);
+		return new Promise((resolve, reject) => {
+			const job = {
+				groupId,
+				clientInstanceId,
+				revoked: false,
+				start: () => {
+					(async () => {
+						try {
+							resolve(await task(job));
+						} catch (error) {
+							reject(error);
+						} finally {
+							this.jobs.delete(job);
+							this.runningGroups.delete(groupId);
+							this.drain();
+						}
+					})();
+				}
+			};
+			this.jobs.add(job);
+			this.waiting.push(job);
+			this.drain();
+		});
+	}
+	revokeGroup(groupId, clientInstanceId) {
+		for (const job of this.jobs) if (job.groupId === groupId && (clientInstanceId === void 0 || job.clientInstanceId === clientInstanceId)) job.revoked = true;
+	}
+	revokeClient(clientInstanceId) {
+		for (const job of this.jobs) if (job.clientInstanceId === clientInstanceId) job.revoked = true;
+	}
+	revokeAll() {
+		for (const job of this.jobs) job.revoked = true;
+	}
+	drain() {
+		while (this.runningGroups.size < 4) {
+			const index = this.waiting.findIndex((job) => !this.runningGroups.has(job.groupId));
+			if (index < 0) return;
+			const job = this.waiting.splice(index, 1)[0];
+			this.runningGroups.add(job.groupId);
+			job.start();
+		}
+	}
+};
 const defaults = {
 	monotonicNow: () => performance.now(),
 	wallNow: () => Date.now(),
@@ -857,6 +912,9 @@ function failed(code, retryAt) {
 		}
 	};
 }
+function isStateLockError(error) {
+	return error instanceof VaultStateLockError && (error.code === "state-lock-busy" || error.code === "state-lock-recovery-required");
+}
 function deepFreeze(value) {
 	if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
 		Object.freeze(value);
@@ -873,6 +931,7 @@ var VaultService = class {
 	#wallNow;
 	#state;
 	#lastTouch = /* @__PURE__ */ new Map();
+	#credentialWork = new CredentialWorkQueue();
 	constructor(dependencies) {
 		this.repository = dependencies.repository;
 		this.#policy = deepFreeze(dependencies.policy);
@@ -893,30 +952,40 @@ var VaultService = class {
 	}
 	async handle(request) {
 		try {
-			await this.state();
-			switch (request.action) {
-				case "snapshot": return {
-					ok: true,
-					value: await this.snapshot()
-				};
-				case "unlock": return await this.unlock(request.clientInstanceId, request.groupId, request.password);
-				case "grants-validate": return {
-					ok: true,
-					value: this.validateGrants(request.clientInstanceId, request.grants)
-				};
-				case "activity-touch": return {
-					ok: true,
-					value: this.touchActivity(request.clientInstanceId, request.grants)
-				};
-				case "lock-group": return this.lockGroup(request.clientInstanceId, request.groupId);
-				case "lock-all": return this.lockAll(request.clientInstanceId);
-				case "group-create": return await this.createGroup(request.clientInstanceId, request.expectedRevision, request.grants, request.input);
-				case "group-change-password": return await this.changePassword(request.expectedRevision, request.input);
-				case "group-recover": return await this.recoverGroup(request.expectedRevision, request.input);
-				case "bindings-update": return await this.updateBindings(request.clientInstanceId, request.expectedRevision, request.grants, request.input);
+			if (request.action === "unlock" || request.action === "group-change-password" || request.action === "group-recover") {
+				const groupId = request.action === "unlock" ? request.groupId : request.input.groupId;
+				return await this.#credentialWork.run(groupId, request.clientInstanceId, (work) => this.dispatch(request, work), failed("busy"));
 			}
-		} catch {
+			return await this.dispatch(request);
+		} catch (error) {
+			if (isStateLockError(error)) return failed(error.code);
 			return SAFE_ERROR;
+		}
+	}
+	async dispatch(request, work) {
+		if (work?.revoked) return failed("invalid-credentials");
+		await this.state();
+		if (work?.revoked) return failed("invalid-credentials");
+		switch (request.action) {
+			case "snapshot": return {
+				ok: true,
+				value: await this.snapshot()
+			};
+			case "unlock": return await this.unlock(request.clientInstanceId, request.groupId, request.password, work);
+			case "grants-validate": return {
+				ok: true,
+				value: this.validateGrants(request.clientInstanceId, request.grants)
+			};
+			case "activity-touch": return {
+				ok: true,
+				value: this.touchActivity(request.clientInstanceId, request.grants)
+			};
+			case "lock-group": return this.lockGroup(request.clientInstanceId, request.groupId);
+			case "lock-all": return this.lockAll(request.clientInstanceId);
+			case "group-create": return await this.createGroup(request.clientInstanceId, request.expectedRevision, request.grants, request.input);
+			case "group-change-password": return await this.changePassword(request.expectedRevision, request.input, work);
+			case "group-recover": return await this.recoverGroup(request.expectedRevision, request.input, work);
+			case "bindings-update": return await this.updateBindings(request.clientInstanceId, request.expectedRevision, request.grants, request.input);
 		}
 	}
 	validateGrants(clientInstanceId, proofs) {
@@ -954,6 +1023,7 @@ var VaultService = class {
 		};
 	}
 	lockGroup(clientInstanceId, groupId) {
+		this.#credentialWork.revokeGroup(groupId, clientInstanceId);
 		this.grants.revokeGroupForClient(groupId, clientInstanceId);
 		return {
 			ok: true,
@@ -961,6 +1031,7 @@ var VaultService = class {
 		};
 	}
 	lockAll(clientInstanceId) {
+		this.#credentialWork.revokeClient(clientInstanceId);
 		this.grants.revokeClient(clientInstanceId);
 		this.#lastTouch.delete(clientInstanceId);
 		return {
@@ -972,13 +1043,16 @@ var VaultService = class {
 		this.invalidateVolatileState();
 	}
 	invalidateVolatileState() {
+		this.#credentialWork.revokeAll();
 		this.grants.clear();
 		this.attempts.clear();
 		this.#lastTouch.clear();
 		this.#state = void 0;
 	}
-	async unlock(clientInstanceId, groupId, password) {
-		const group = (await this.state()).groups[groupId];
+	async unlock(clientInstanceId, groupId, password, work) {
+		const state = await this.state();
+		if (work.revoked) return failed("invalid-credentials");
+		const group = state.groups[groupId];
 		if (!group) return failed("invalid-credentials");
 		const availability = this.attempts.check(groupId, this.policy.failedAttemptProtection);
 		if (availability.kind === "cooldown") return failed("cooldown", availability.retryAt);
@@ -1000,6 +1074,8 @@ var VaultService = class {
 			});
 			return decision.kind === "cooldown" ? failed("cooldown", decision.retryAt) : failed("invalid-credentials");
 		}
+		const latest = await this.state();
+		if (work.revoked || latest.groups[groupId]?.credentialVersion !== group.credentialVersion) return failed("invalid-credentials");
 		this.attempts.recordSuccess(groupId);
 		try {
 			const grant = this.grants.issue(group.id, group.credentialVersion, clientInstanceId, this.ttlMs());
@@ -1079,7 +1155,7 @@ var VaultService = class {
 		const committed = await this.commit(expectedRevision, next);
 		if (committed === "conflict") return failed("revision-conflict");
 		if (committed === "failed") return failed("persistence-failed");
-		for (const groupId of affectedGroups) this.grants.revokeGroup(groupId);
+		for (const groupId of affectedGroups) this.revokeGroup(groupId);
 		await this.safeAudit({
 			action: "group-created",
 			groupId: id,
@@ -1095,8 +1171,9 @@ var VaultService = class {
 			}
 		};
 	}
-	async changePassword(expectedRevision, input) {
+	async changePassword(expectedRevision, input, work) {
 		const state = await this.state();
+		if (work.revoked) return failed("invalid-credentials");
 		if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== void 0) return failed("weak-password");
 		if (state.revision !== expectedRevision) return failed("revision-conflict");
 		const group = state.groups[input.groupId];
@@ -1113,6 +1190,7 @@ var VaultService = class {
 			const decision = this.attempts.recordFailure(group.id, this.policy.failedAttemptProtection);
 			return decision.kind === "cooldown" ? failed("cooldown", decision.retryAt) : failed("invalid-credentials");
 		}
+		if (work.revoked) return failed("invalid-credentials");
 		const now = this.#now();
 		const recoveryKey = input.rotateRecovery ? generateRecoveryKey() : void 0;
 		const nextGroup = {
@@ -1133,10 +1211,11 @@ var VaultService = class {
 				[group.id]: nextGroup
 			}
 		};
+		if (work.revoked) return failed("invalid-credentials");
 		const committed = await this.commit(expectedRevision, next);
 		if (committed === "conflict") return failed("revision-conflict");
 		if (committed === "failed") return failed("persistence-failed");
-		this.grants.revokeGroup(group.id);
+		this.revokeGroup(group.id);
 		this.attempts.recordSuccess(group.id);
 		await this.safeAudit({
 			action: "password-changed",
@@ -1153,8 +1232,9 @@ var VaultService = class {
 			}
 		};
 	}
-	async recoverGroup(expectedRevision, input) {
+	async recoverGroup(expectedRevision, input, work) {
 		const state = await this.state();
+		if (work.revoked) return failed("invalid-credentials");
 		if (passwordPolicyError(input.newPassword, this.policy.passwordPolicy) !== void 0) return failed("weak-password");
 		if (state.revision !== expectedRevision) return failed("revision-conflict");
 		const group = state.groups[input.groupId];
@@ -1171,6 +1251,7 @@ var VaultService = class {
 			const decision = this.attempts.recordFailure(group.id, this.policy.failedAttemptProtection);
 			return decision.kind === "cooldown" ? failed("cooldown", decision.retryAt) : failed("invalid-credentials");
 		}
+		if (work.revoked) return failed("invalid-credentials");
 		const now = this.#now();
 		const recoveryKey = generateRecoveryKey();
 		const nextGroup = {
@@ -1192,10 +1273,11 @@ var VaultService = class {
 				[group.id]: nextGroup
 			}
 		};
+		if (work.revoked) return failed("invalid-credentials");
 		const committed = await this.commit(expectedRevision, next);
 		if (committed === "conflict") return failed("revision-conflict");
 		if (committed === "failed") return failed("persistence-failed");
-		this.grants.revokeGroup(group.id);
+		this.revokeGroup(group.id);
 		this.attempts.recordSuccess(group.id);
 		await this.safeAudit({
 			action: "group-recovered",
@@ -1224,7 +1306,7 @@ var VaultService = class {
 		const commitResult = await this.commit(expectedRevision, committed);
 		if (commitResult === "conflict") return failed("revision-conflict");
 		if (commitResult === "failed") return failed("persistence-failed");
-		for (const groupId of affectedGroups) this.grants.revokeGroup(groupId);
+		for (const groupId of affectedGroups) this.revokeGroup(groupId);
 		if (mutation.kind === "delete-group") {
 			this.attempts.resetGroup(mutation.groupId);
 			if (mutation.moveToGroupId !== void 0) await this.safeAudit({
@@ -1279,6 +1361,10 @@ var VaultService = class {
 		}
 		return affected;
 	}
+	revokeGroup(groupId) {
+		this.#credentialWork.revokeGroup(groupId);
+		this.grants.revokeGroup(groupId);
+	}
 	async authorizeCredential(group, input) {
 		if (input.currentPassword !== void 0) return verifySecret(input.currentPassword, group.password);
 		if (input.recoveryKey !== void 0) return verifySecret(input.recoveryKey, group.recovery);
@@ -1312,6 +1398,7 @@ var VaultService = class {
 		return loaded;
 	}
 	reconcileExternalState(previous, next) {
+		this.#credentialWork.revokeAll();
 		this.grants.clear();
 		const groupIds = /* @__PURE__ */ new Set([...Object.keys(previous.groups), ...Object.keys(next.groups)]);
 		for (const groupId of groupIds) {
@@ -1319,7 +1406,7 @@ var VaultService = class {
 			const nextGroup = next.groups[groupId];
 			const previousBindings = previous.bindings.filter((binding) => binding.passwordGroupId === groupId);
 			const nextBindings = next.bindings.filter((binding) => binding.passwordGroupId === groupId);
-			if (nextGroup === void 0 || previousGroup?.credentialVersion !== nextGroup.credentialVersion || JSON.stringify(previousBindings) !== JSON.stringify(nextBindings)) this.grants.revokeGroup(groupId);
+			if (nextGroup === void 0 || previousGroup?.credentialVersion !== nextGroup.credentialVersion || JSON.stringify(previousBindings) !== JSON.stringify(nextBindings)) this.revokeGroup(groupId);
 		}
 	}
 	async commit(expectedRevision, next) {
@@ -1331,7 +1418,8 @@ var VaultService = class {
 			}
 			this.#state = next;
 			return "ok";
-		} catch {
+		} catch (error) {
+			if (isStateLockError(error)) throw error;
 			return "failed";
 		}
 	}

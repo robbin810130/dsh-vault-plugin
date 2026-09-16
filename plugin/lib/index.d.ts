@@ -394,6 +394,7 @@ interface RepositoryFileSystem {
   readFile(path: string, encoding: 'utf8'): Promise<string>;
   readdir(path: string): Promise<string[]>;
   copyFile(source: string, destination: string): Promise<void>;
+  link(source: string, destination: string): Promise<void>;
   rename(source: string, destination: string): Promise<void>;
   unlink(path: string): Promise<void>;
   truncate(path: string, length: number): Promise<void>;
@@ -440,6 +441,7 @@ declare class VaultService {
   setPolicy(policy: VaultPolicy): void;
   snapshot(): Promise<VaultSnapshot>;
   handle(request: VaultApiRequest): Promise<ServiceResult>;
+  private dispatch;
   validateGrants(clientInstanceId: string, proofs: readonly GrantProof[]): {
     readonly valid: boolean;
   };
@@ -458,6 +460,7 @@ declare class VaultService {
   private updateBindings;
   private authorizeAffectedGroups;
   private bindingAffectedGroups;
+  private revokeGroup;
   private authorizeCredential;
   private ttlMs;
   private state;

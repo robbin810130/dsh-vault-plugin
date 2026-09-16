@@ -20,6 +20,9 @@ export type { ChangePasswordResult, UnlockPromptState, VaultClientSnapshot, Vaul
 
 const SAFE_ERROR_CODES = new Set([
   'body-too-large',
+  'busy',
+  'state-lock-busy',
+  'state-lock-recovery-required',
   'cooldown',
   'duplicate-name',
   'host-unavailable',
@@ -356,7 +359,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
       return response
     }
     this.#grants.clear()
-    if (!this.#acceptSnapshot(response.value.snapshot, [])) return this.#invalidResponse()
+    this.#reconcileCredentialSnapshot(response.value.snapshot)
     return response
   }
 
@@ -372,9 +375,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
       return response
     }
     this.#grants.delete(input.groupId)
-    if (!this.#acceptSnapshot(response.value.snapshot, this.#validLocalGroupIds(response.value.snapshot))) {
-      return this.#invalidResponse()
-    }
+    this.#reconcileCredentialSnapshot(response.value.snapshot)
     return response
   }
 
@@ -390,9 +391,7 @@ class VaultClientStoreImplementation implements VaultClientStore {
       return response
     }
     this.#grants.delete(input.groupId)
-    if (!this.#acceptSnapshot(response.value.snapshot, this.#validLocalGroupIds(response.value.snapshot))) {
-      return this.#invalidResponse()
-    }
+    this.#reconcileCredentialSnapshot(response.value.snapshot)
     return response
   }
 
@@ -451,6 +450,16 @@ class VaultClientStoreImplementation implements VaultClientStore {
       valid.push(groupId)
     }
     return valid
+  }
+
+  #reconcileCredentialSnapshot(snapshot: VaultSnapshot): void {
+    // The API has validated the committed result. Reconciliation must not erase
+    // its one-time recovery key merely because another response arrived first.
+    if (snapshot.revision < this.#snapshot.revision) {
+      this.#publish(this.#snapshot.host, this.#validLocalGroupIds())
+      return
+    }
+    if (!this.#acceptSnapshot(snapshot, this.#validLocalGroupIds(snapshot))) this.#markOffline()
   }
 
   #acceptSnapshot(snapshot: VaultSnapshot, unlockedGroupIds: Iterable<string>, prompt: UnlockPromptState | null = this.#snapshot.prompt): boolean {

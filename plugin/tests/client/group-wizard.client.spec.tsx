@@ -3,12 +3,17 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GroupWizard } from '../../src/client/settings/GroupWizard.js'
+import { VaultOverlays } from '../../src/client/dialogs/VaultOverlays.js'
+import { createVaultClientStore } from '../../src/client/store.js'
+import { createVaultApiClient } from '../../src/client/api.js'
 import type { VaultClientStore } from '../../src/client/store.js'
 
 afterEach(() => cleanup())
 
 function wizardStore(overrides: Partial<VaultClientStore> = {}): VaultClientStore {
+  const baseline = createVaultClientStore(createVaultApiClient()).getSnapshot()
   return {
+    getSnapshot: () => baseline,
     clientInstanceId: 'client',
     createGroup: vi.fn(async () => ({
       ok: true,
@@ -24,7 +29,7 @@ function wizardStore(overrides: Partial<VaultClientStore> = {}): VaultClientStor
 describe('Vault group wizard', () => {
   it('requires matching passwords before creating a group', async () => {
     const current = wizardStore()
-    render(<GroupWizard store={current} />)
+    render(<><VaultOverlays store={current} /><GroupWizard store={current} /></>)
 
     fireEvent.change(screen.getByLabelText('密码组名称'), { target: { value: '研发组' } })
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
@@ -37,7 +42,7 @@ describe('Vault group wizard', () => {
 
   it('rejects passwords shorter than the Host minimum', () => {
     const current = wizardStore()
-    render(<GroupWizard store={current} />)
+    render(<><VaultOverlays store={current} /><GroupWizard store={current} /></>)
     fireEvent.change(screen.getByLabelText('密码组名称'), { target: { value: '研发组' } })
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'short' } })
     fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'short' } })
@@ -47,7 +52,7 @@ describe('Vault group wizard', () => {
 
   it('shows a one-time recovery key only after successful creation', async () => {
     const current = wizardStore()
-    render(<GroupWizard store={current} />)
+    render(<><VaultOverlays store={current} /><GroupWizard store={current} /></>)
 
     fireEvent.change(screen.getByLabelText('密码组名称'), { target: { value: '研发组' } })
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
