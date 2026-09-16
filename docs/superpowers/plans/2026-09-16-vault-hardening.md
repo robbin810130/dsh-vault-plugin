@@ -21,6 +21,6 @@
 - [x] Access F04/F05: loading and first-failure provider claims plus blocked state, conservative presentation; authoritative nullable workspace context through pinned search row seam.
 - [x] Integration: run node node_modules/vitest/vitest.mjs run and both TypeScript projects from plugin; node --test tests/install-script.test.mjs tests/scripts/*.test.mjs from root. Review all diffs and cross-domain interactions.
 - [x] Runtime: rebuild plugin and affected host bundles; isolated temporary DSH_HOME Chrome tests for recovery delivery, policy save, inheritance/search, reload/lock/offline. Back up installed files and state, deploy exact artifacts, restart sole LaunchAgent, compare hashes and read-only live snapshot.
-- [ ] Release: version0.2.6 manifests, accurate release notes/compatibility boundaries, tag test gate, commit/push/tag/Release, independently download and verify SHA-256. F09 and broader F11–F13 operations remain next phase unless required for this safe release.
+- [x] Release: version0.2.6 manifests, accurate release notes/compatibility boundaries, tag test gate, commit/push/tag/Release, independently download and verify SHA-256. F09 and broader F11–F13 operations remain next phase unless required for this safe release.
 
 Each code slice first adds a failing behavior regression, runs it against baseline, then implements the smallest fix and reruns focused tests. Worker write scopes are disjoint; main owns repository/integration/release. Existing report remains preserved.
