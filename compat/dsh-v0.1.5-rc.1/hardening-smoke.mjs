@@ -9,16 +9,16 @@ const profile = join(home, 'profiles/web')
 const installed = '/Users/Robbin/.dsh/profiles/web/node_modules'
 const modules = join(profile, 'node_modules')
 await mkdir(modules, {recursive:true})
-await writeFile(join(profile,'package.json'),JSON.stringify({name:'vault-smoke',private:true,dsh:{profile:{bundles:['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','@robbin810130/dsh-vault-plugin']}}}))
+await writeFile(join(profile,'package.json'),JSON.stringify({name:'vault-smoke',private:true,dsh:{profile:{bundles:['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','dsh-vault-plugin']}}}))
 for(const name of ['cordis.yml','cordis.patch.yml']) await writeFile(join(profile,name),'[]\n')
 for(const entry of await readdir(installed)) {
-  if(entry!=='@robbin810130') await symlink(join(installed,entry),join(modules,entry))
+  if(entry!=='@robbin810130' && entry!=='dsh-vault-plugin') await symlink(join(installed,entry),join(modules,entry))
 }
 await mkdir(join(modules,'@robbin810130'))
-for(const entry of await readdir(join(installed,'@robbin810130'))) {
+for(const entry of await readdir(join(installed,'@robbin810130')).catch(error => { if(error.code==='ENOENT') return []; throw error })) {
   if(entry!=='dsh-vault-plugin') await symlink(join(installed,'@robbin810130',entry),join(modules,'@robbin810130',entry))
 }
-const candidate = join(modules,'@robbin810130/dsh-vault-plugin')
+const candidate = join(modules,'dsh-vault-plugin')
 await mkdir(candidate)
 for(const entry of ['package.json','lib','cordis.patch.yml','README.md','LICENSE']) await cp(resolve(root,'../../plugin',entry),join(candidate,entry),{recursive:true})
 const child = spawn(process.execPath,['/opt/homebrew/lib/node_modules/@deepseek-ai/dsh/lib/bin.js','web','--no-open','--port','3180'],{env:{...process.env,DSH_HOME:home},stdio:['ignore','pipe','pipe']})
@@ -43,7 +43,7 @@ try {
       const name=Object.keys(paths).find(n=>entry.includes('/'+n+'/'))
       if(name){observed.add(name);return readFile(resolve(root,'packages',paths[name],'lib/client.js'),'utf8')}
       const pkg=entry.replace(/[/]client\.js$/,'')
-      if(pkg==='@robbin810130/dsh-vault-plugin')return readFile(join(candidate,'lib/client.js'),'utf8')
+      if(pkg==='dsh-vault-plugin')return readFile(join(candidate,'lib/client.js'),'utf8')
       try{return await readFile('/opt/homebrew/lib/node_modules/@deepseek-ai/dsh/node_modules/'+pkg+'/lib/client.js','utf8')}
       catch{return readFile(join(installed,pkg,'lib/client.js'),'utf8')}
     }))).join('\n;\n')

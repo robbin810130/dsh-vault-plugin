@@ -31,13 +31,13 @@ test('release package emits a reproducible checksum sidecar', () => {
 
 test('release package exposes package.json to the DSH client roster scanner', () => {
   const temp = mkdtempSync(join(tmpdir(), 'dsh-vault-release-'))
-  const packageRoot = join(temp, 'profile', 'node_modules', '@robbin810130', 'dsh-vault-plugin')
+  const packageRoot = join(temp, 'profile', 'node_modules', 'dsh-vault-plugin')
   mkdirSync(packageRoot, { recursive: true })
   try {
     execFileSync('tar', ['-xzf', artifact, '-C', packageRoot, '--strip-components=1'])
     const require = createRequire(pathToFileURL(join(temp, 'profile', 'cordis.yml')))
     assert.equal(
-      require.resolve('@robbin810130/dsh-vault-plugin/package.json'),
+      require.resolve('dsh-vault-plugin/package.json'),
       realpathSync(join(packageRoot, 'package.json')),
     )
   } finally {

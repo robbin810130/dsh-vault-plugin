@@ -1,4 +1,4 @@
-# DSH Vault Plugin
+# dsh-vault-plugin
 
 DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，自动创建并绑定密码组，并在主区域通过密码解锁受保护内容。
 
@@ -9,6 +9,21 @@ DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，
 ## DSH 0.1.5-rc.1 本机兼容修复
 
 版本限定补丁、构建入口和验证/回滚说明见 [兼容说明](compat/dsh-v0.1.5-rc.1/README.md)。GitHub Release 随附专用补丁；以下安装命令只安装插件，不会自动部署宿主补丁。
+
+## 从旧 scoped 包迁移
+
+0.2.7 的实际包名改为 `dsh-vault-plugin`，GitHub 仓库地址不变；本次不是 npm 注册表发布。
+
+**已安装 `@robbin810130/dsh-vault-plugin` 时，不能直接覆盖安装或同时加载新旧两份插件。** 先停止 DSH，备份整个 web profile 和插件状态目录，再按顺序执行：
+
+```bash
+dsh plugin --profile web remove @robbin810130/dsh-vault-plugin
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.7
+```
+
+确认 profile 仅有一个新包及一个 bundle 后再启动。保留原节点 ID、设置和状态/备份目录；Vault 密码、策略和绑定不重置。安装失败时保持停服并还原 profile 备份，不删除 Vault 数据。Vault 一键安装器不自动移除旧包。已有 Vault0.2.6 配套的 DSH0.1.5-rc.1 宿主补丁无需重打。
+
+依赖管理器可能重新生成其他插件的目录。若其他插件把运行数据写在 node_modules 下，须在停服备份后、启动前从备份恢复该数据目录，并校验其余插件文件未变。
 
 ## 一条命令安装
 
@@ -35,7 +50,7 @@ dsh plugin --profile web add <downloaded-package>
 也可以直接使用 DSH 原生安装命令安装 GitHub 仓库：
 
 ```bash
-dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.6
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.7
 ```
 
 ## 功能概览
@@ -93,7 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/robbin810130/dsh-vault-plugin/main/
 卸载：
 
 ```bash
-dsh plugin --profile web remove @robbin810130/dsh-vault-plugin
+dsh plugin --profile web remove dsh-vault-plugin
 ```
 
 详细的本地打包、备份、回滚和紧急解除保护流程见 [`docs/install.md`](docs/install.md)。卸载不会删除原始 DSH Workspace/Session；回滚前不要擅自删除 Vault 状态目录。

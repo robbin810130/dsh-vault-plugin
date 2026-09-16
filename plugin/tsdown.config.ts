@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { transform } from 'lightningcss'
 import { defineConfig } from 'tsdown'
 
-const PLUGIN_ID = '@robbin810130/dsh-vault-plugin'
+const PLUGIN_ID = 'dsh-vault-plugin'
 const CLIENT_CSS_PREFIX = '\0dsh-vault-css:'
 const CLIENT_CSS_SUFFIX = '.mjs'
 const CLIENT_EXTERNALS = new Set([

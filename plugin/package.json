@@ -1,6 +1,6 @@
 {
-  "name": "@robbin810130/dsh-vault-plugin",
-  "version": "0.2.6",
+  "name": "dsh-vault-plugin",
+  "version": "0.2.7",
   "type": "module",
   "bin": {
     "dsh-vault": "./lib/cli.js"

@@ -1,6 +1,6 @@
 # DSH Vault 安装、升级与回滚
 
-目标 DSH 版本：0.1.1-rc.2。
+当前目标：DSH 0.1.5-rc.1，Vault 0.2.7（需要与 0.2.6 相同的精确宿主补丁）。旧 scoped 包必须先停服迁移，见仓库 README；不要同时加载新旧包。
 
 ## 1. 生成并校验发布包
 
@@ -15,7 +15,7 @@
 
 ## 2. 安装到 DSH Web profile
 
-在已安装 DSH 0.1.1-rc.2 的机器上执行：
+在已安装 DSH 0.1.5-rc.1 的机器上执行：
 
     dsh plugin --profile web add ./artifacts/dsh-vault-plugin.tgz
     dsh web --dump-config
@@ -35,9 +35,9 @@
 
     cp -a "$DSH_HOME/vault-lock" "$DSH_HOME/vault-lock.backup-$(date +%Y%m%d-%H%M%S)"
 
-若使用源码安装的 DSH，先应用仓库内针对 0.1.1-rc.2 固定版本的补丁；回滚时恢复补丁前源码/构建产物，再移除插件：
+若使用源码安装的 DSH，先应用仓库内针对 0.1.5-rc.1 固定版本的补丁；回滚时恢复补丁前源码/构建产物，再移除插件：
 
-    dsh plugin --profile web remove @robbin810130/dsh-vault-plugin
+    dsh plugin --profile web remove dsh-vault-plugin
 
 回滚前不要删除 vault-lock，除非已确认不再需要恢复密码组。插件卸载后，DSH 原始 Workspace/Session 仍按原生方式可用。
 

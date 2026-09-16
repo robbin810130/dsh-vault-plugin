@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
-const PLUGIN_ID = '@robbin810130/dsh-vault-plugin'
+const PLUGIN_ID = 'dsh-vault-plugin'
 
 const CLIENT_MANIFEST = {
   platform: 'web',

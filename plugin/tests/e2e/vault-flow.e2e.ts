@@ -24,7 +24,7 @@ async function openVaultGroups(page: Page): Promise<void> {
 test('loads the installed Vault client in a real DSH web profile', async ({ page, dsh }) => {
   await page.goto(dsh.origin)
   await expect(page.getByText('Failed to load plugins')).toHaveCount(0)
-  await expect(page.locator('style[data-plugin="@robbin810130/dsh-vault-plugin"]')).toHaveCount(1)
+  await expect(page.locator('style[data-plugin="dsh-vault-plugin"]')).toHaveCount(1)
 })
 
 test('startup-restored native navigation cannot reveal a locked session title', async ({ page, dsh }) => {
