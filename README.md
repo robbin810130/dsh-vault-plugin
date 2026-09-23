@@ -1,5 +1,7 @@
 # dsh-vault-plugin
 
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/robbin810130/dsh-vault-plugin)
+
 DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，自动创建并绑定密码组，并在主区域通过密码解锁受保护内容。
 
 这是社区插件，不隶属于 DeepSeek AI 或 DeepSeek Harness 官方团队。
