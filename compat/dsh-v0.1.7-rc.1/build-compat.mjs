@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { validateSource, verifyGeneratedBundles, verifySourceTree, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
+import { normalizeBundleSourcePaths, validateSource, verifyGeneratedBundles, verifySourceTree, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
 
 const exec = promisify(execFile)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -53,6 +53,7 @@ try {
     'packages/client/ui-conversation/lib/client.js',
     'packages/client/ui-conversation/lib/client.js.map',
   ]
+  await normalizeBundleSourcePaths(source, source, bundles.filter(path => path.endsWith('.js')))
   for (const relativePath of bundles) {
     const destination = join(outputPath, relativePath)
     await mkdir(dirname(destination), { recursive: true })

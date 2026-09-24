@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
-import { validateSource, verifyGeneratedBundles, verifySourceTree, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
+import { normalizeBundleSourcePaths, validateSource, verifyGeneratedBundles, verifySourceTree, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
 
 const roots = []
 
@@ -69,4 +69,14 @@ test('accepts only the reviewed generated browser bundle bytes', async () => {
   await assert.doesNotReject(verifyGeneratedBundles(root, { [bundle]: expected }))
   await writeFile(join(root, bundle), 'export const patched = false\n')
   await assert.rejects(verifyGeneratedBundles(root, { [bundle]: expected }), /generated bundle mismatch/)
+})
+
+test('normalizes temporary source roots embedded in generated browser bundles', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-v017-normalize-'))
+  roots.push(root)
+  const bundle = 'client.js'
+  const sourceRoot = '/tmp/dsh-v017-compat-random/source'
+  await writeFile(join(root, bundle), `//#region ${sourceRoot}/packages/client/ui-workspace/src/client/index.ts`)
+  await normalizeBundleSourcePaths(root, sourceRoot, [bundle])
+  assert.equal(await readFile(join(root, bundle), 'utf8'), '//#region /dsh-source/packages/client/ui-workspace/src/client/index.ts')
 })

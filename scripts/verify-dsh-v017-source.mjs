@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -36,6 +36,24 @@ export async function verifySourceTree(root, expectedTree) {
   const { stdout } = await exec('git', ['write-tree'], { cwd: root })
   const actual = stdout.trim()
   if (actual !== expectedTree) throw new Error(`DSH source tree mismatch: expected ${expectedTree}, got ${actual}`)
+}
+
+export async function normalizeBundleSourcePaths(root, sourceRoot, bundlePaths) {
+  const resolvedRoot = resolve(root)
+  const normalizedRoot = resolve(sourceRoot)
+  let replacements = 0
+  for (const relativePath of bundlePaths) {
+    const absolutePath = resolve(resolvedRoot, relativePath)
+    if (!absolutePath.startsWith(`${resolvedRoot}/`)) throw new Error(`invalid DSH bundle path: ${relativePath}`)
+    const content = await readFile(absolutePath, 'utf8')
+    const normalized = content.split(normalizedRoot).join('/dsh-source')
+    if (normalized !== content) {
+      replacements += content.split(normalizedRoot).length - 1
+      await writeFile(absolutePath, normalized)
+    }
+  }
+  if (replacements === 0) throw new Error(`DSH bundles do not contain the staging source root: ${normalizedRoot}`)
+  return replacements
 }
 
 export async function verifyGeneratedBundles(root, expectedBundles) {
