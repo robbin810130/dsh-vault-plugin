@@ -2,7 +2,7 @@ import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
-//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/index.js
+//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.5/node_modules/@deepseek-ai/cosmokit/lib/index.js
 /** Return true when a value is `null` or `undefined`. */
 function isNullable(value) {
 	return value === null || value === void 0;
@@ -25,6 +25,43 @@ function pick(source, keys, forced) {
 	const result = {};
 	for (const key of keys) if (forced || source[key] !== void 0) result[key] = source[key];
 	return result;
+}
+/** Shared config references used by schema validators and plugin runtimes. */
+const write = Symbol.for("cosmokit.volatile.write");
+function snapshot(value, ancestors = /* @__PURE__ */ new Set()) {
+	if (typeof value === "function") throw new TypeError("volatile config cannot contain functions");
+	if (value === null || typeof value !== "object") return value;
+	if (ancestors.has(value)) throw new TypeError("volatile config cannot contain cycles");
+	ancestors.add(value);
+	try {
+		if (Array.isArray(value)) return Object.freeze(value.map((item) => snapshot(item, ancestors)));
+		if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new TypeError("volatile config objects must be plain objects or arrays");
+		return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, snapshot(item, ancestors)])));
+	} finally {
+		ancestors.delete(value);
+	}
+}
+/**
+* Create a detached reference containing an immutable copy of the supplied data.
+* @param value - validated config data; class instances and functions are unsupported.
+* @returns a reference whose value is updated only by its owning runtime.
+*/
+function createVolatile(value) {
+	let current = snapshot(value);
+	return Object.freeze({
+		get: () => current,
+		[write]: (value) => {
+			current = value;
+		}
+	});
+}
+/**
+* Identify references across ESM/CJS copies of the shared library.
+* @param value - a parsed config value.
+* @returns whether the value implements the shared reference protocol.
+*/
+function isVolatile(value) {
+	return typeof value === "object" && value !== null && write in value;
 }
 /** Test values using `instanceof` with a `toStringTag` fallback. */
 function is(type, value) {
@@ -106,26 +143,47 @@ function clone(source, refs = /* @__PURE__ */ new Map()) {
 	}
 	return result;
 }
-/** Deeply compare arrays, dates, regexps, buffers, and plain object fields. */
+/**
+* Compare values recursively, treating two volatile references as equal regardless of value.
+* Strict comparison distinguishes null/undefined, treats opaque objects by identity,
+* compares URLs by normalized href, treats array holes as undefined, and considers distinct cyclic structures unequal.
+* @param a - first value.
+* @param b - second value.
+* @param strict - whether to require strict data equality outside volatile references.
+* @returns whether the values compare equal.
+*/
 function deepEqual(a, b, strict) {
-	if (a === b) return true;
-	if (!strict && isNullable(a) && isNullable(b)) return true;
-	if (typeof a !== typeof b) return false;
-	if (typeof a !== "object") return false;
-	if (!a || !b) return false;
-	function check(test, then) {
-		return test(a) ? test(b) ? then(a, b) : false : test(b) ? false : void 0;
+	const ancestors = /* @__PURE__ */ new Set();
+	function compare(a, b) {
+		if (a === b) return true;
+		if (isVolatile(a) || isVolatile(b)) return isVolatile(a) && isVolatile(b);
+		if (!strict && isNullable(a) && isNullable(b)) return true;
+		if (typeof a !== typeof b || typeof a !== "object" || !a || !b) return false;
+		if (ancestors.has(a)) return false;
+		function check(test, then) {
+			return test(a) ? test(b) ? then(a, b) : false : test(b) ? false : void 0;
+		}
+		ancestors.add(a);
+		try {
+			return check(Array.isArray, (a, b) => {
+				if (a.length !== b.length) return false;
+				for (let index = 0; index < a.length; index++) if (!compare(a[index], b[index])) return false;
+				return true;
+			}) ?? check(is("Date"), (a, b) => a.valueOf() === b.valueOf()) ?? check(is("URL"), (a, b) => a.href === b.href) ?? check(is("RegExp"), (a, b) => a.source === b.source && a.flags === b.flags) ?? check(isArrayBufferLike, (a, b) => {
+				if (a.byteLength !== b.byteLength) return false;
+				const viewA = new Uint8Array(a);
+				const viewB = new Uint8Array(b);
+				for (let i = 0; i < viewA.length; i++) if (viewA[i] !== viewB[i]) return false;
+				return true;
+			}) ?? ((!strict || [a, b].every((value) => Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) && Object.keys({
+				...a,
+				...b
+			}).every((key) => compare(a[key], b[key])));
+		} finally {
+			ancestors.delete(a);
+		}
 	}
-	return check(Array.isArray, (a, b) => a.length === b.length && a.every((item, index) => deepEqual(item, b[index]))) ?? check(is("Date"), (a, b) => a.valueOf() === b.valueOf()) ?? check(is("RegExp"), (a, b) => a.source === b.source && a.flags === b.flags) ?? check(isArrayBufferLike, (a, b) => {
-		if (a.byteLength !== b.byteLength) return false;
-		const viewA = new Uint8Array(a);
-		const viewB = new Uint8Array(b);
-		for (let i = 0; i < viewA.length; i++) if (viewA[i] !== viewB[i]) return false;
-		return true;
-	}) ?? Object.keys({
-		...a,
-		...b
-	}).every((key) => deepEqual(a[key], b[key], strict));
+	return compare(a, b);
 }
 /** Time constants plus parsing and formatting helpers. */
 var Time;
@@ -198,7 +256,7 @@ var Time;
 	Time.template = template;
 })(Time || (Time = {}));
 //#endregion
-//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.2/node_modules/@deepseek-ai/schemastery/lib/index.mjs
+//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.4/node_modules/@deepseek-ai/schemastery/lib/index.mjs
 const kSchema = Symbol.for("schemastery");
 const kValidationError = Symbol.for("ValidationError");
 globalThis.__schemastery_index__ ??= 0;
@@ -374,6 +432,7 @@ Schema.prototype.pattern = function pattern(regexp) {
 	return schema;
 };
 Schema.prototype.simplify = function simplify(value) {
+	if (isVolatile(value)) value = value.get();
 	if (deepEqual(value, this.meta.default, this.type === "dict")) return null;
 	if (isNullable(value)) return value;
 	if (this.type === "object" || this.type === "dict") {
@@ -430,12 +489,49 @@ for (const key of [
 	};
 	return schema;
 } });
+Schema.prototype.volatile = function volatile() {
+	if (this.meta.volatile) throw new TypeError("volatile schema is already wrapped");
+	return this.extra("volatile", true);
+};
 const resolvers = {};
+const checkedVolatile = Symbol("checked-volatile-schema");
+function validateVolatileSchema(schema, path = [], blocked = false, seen = /* @__PURE__ */ new Map()) {
+	const states = seen.get(schema) ?? /* @__PURE__ */ new Set();
+	if (states.has(blocked)) return;
+	states.add(blocked);
+	seen.set(schema, states);
+	if (schema.meta?.volatile && blocked) throw new ValidationError("volatile fields require a fixed object path without an enclosing volatile field", { path });
+	const nested = blocked || !!schema.meta?.volatile;
+	if (schema.dict) for (const [key, child] of Object.entries(schema.dict)) validateVolatileSchema(child, [...path, key], nested, seen);
+	if (schema.sKey) validateVolatileSchema(schema.sKey, [...path, "<key>"], true, seen);
+	if (schema.inner && (schema.type !== "lazy" || schema.inner[kSchema])) validateVolatileSchema(schema.inner, [...path, "*"], true, seen);
+	if (schema.list) for (let index = 0; index < schema.list.length; index++) validateVolatileSchema(schema.list[index], [...path, String(index)], true, seen);
+}
 Schema.extend = function extend(type, resolve) {
 	resolvers[type] = resolve;
 };
 Schema.resolve = function resolve(data, schema, options = {}, strict = false) {
 	if (!schema) return [data];
+	if (!options[checkedVolatile]) {
+		validateVolatileSchema(schema, options.path);
+		options = {
+			...options,
+			[checkedVolatile]: true
+		};
+	}
+	if (schema.meta?.volatile) {
+		const inner = Schema(schema);
+		inner.meta = {
+			...schema.meta,
+			volatile: false
+		};
+		const [value, adapted] = Schema.resolve(data, inner, options, strict);
+		try {
+			return [createVolatile(value), adapted];
+		} catch (error) {
+			throw new ValidationError(error instanceof Error ? error.message : String(error), options);
+		}
+	}
 	if (options.ignore?.(data, schema)) return [data];
 	if (isNullable(data) && schema.type !== "lazy") {
 		if (schema.meta.required) throw new ValidationError(`missing required value`, options);
@@ -538,6 +634,7 @@ Schema.extend("lazy", (data, schema, options, strict) => {
 			...schema.meta,
 			...schema.inner.meta
 		};
+		validateVolatileSchema(schema.inner, options.path, true);
 	}
 	return Schema.resolve(data, schema.inner, options, strict);
 });
@@ -637,7 +734,7 @@ function property(data, key, schema, options) {
 	} catch (e) {
 		if (!options?.autofix) throw e;
 		delete data[key];
-		return schema.meta.default;
+		return schema.meta.volatile ? createVolatile(schema.meta.default) : schema.meta.default;
 	}
 }
 Schema.extend("array", (data, { inner, meta }, options) => {
@@ -797,8 +894,6 @@ const AbsolutePathSchema = Schema.transform(Schema.string(), (value, options) =>
 	if (!isAbsolute(value)) throw new Schema.ValidationError("expected an absolute path", options);
 	return value;
 });
-const ConfigSchema = Schema.object({ stateDir: AbsolutePathSchema });
-const Config = ConfigSchema;
 function resolveStateDirectory(stateDir, environment = process.env) {
 	const supplied = [
 		["explicit state directory", stateDir],
@@ -811,6 +906,32 @@ function resolveStateDirectory(stateDir, environment = process.env) {
 	if (environment.DSH_HOME !== void 0) return join(environment.DSH_HOME, "vault-lock");
 	return join(homedir(), ".dsh", "vault-lock");
 }
+const VaultPolicyFields = {
+	autoLockMinutes: Schema.union([
+		0,
+		15,
+		30,
+		60
+	]).default(15).volatile(),
+	lockOnSystemSleep: Schema.boolean().default(true).volatile(),
+	lockedNameVisibility: Schema.union([
+		"workspace-visible-session-hidden",
+		"all-visible",
+		"all-hidden"
+	]).default("workspace-visible-session-hidden").volatile(),
+	failedAttemptProtection: Schema.object({
+		enabled: Schema.boolean().default(true),
+		maxAttempts: Schema.number().step(1).min(1).default(3),
+		cooldownSeconds: Schema.number().step(1).min(1).default(300)
+	}).volatile(),
+	passwordPolicy: Schema.object({
+		minLength: Schema.number().step(1).min(4).max(128).default(8),
+		requireUppercase: Schema.boolean().default(false),
+		requireLowercase: Schema.boolean().default(false),
+		requireNumber: Schema.boolean().default(false),
+		requireSymbol: Schema.boolean().default(false)
+	}).volatile()
+};
 const VaultPolicySchema = Schema.object({
 	autoLockMinutes: Schema.union([
 		0,
@@ -837,6 +958,24 @@ const VaultPolicySchema = Schema.object({
 		requireSymbol: Schema.boolean().default(false)
 	})
 });
+function current(value) {
+	return typeof value === "object" && value !== null && "get" in value && typeof value.get === "function" ? value.get() : value;
+}
+/** Read the current volatile settings snapshot into the business policy shape. */
+function vaultPolicyFromConfig(config) {
+	return VaultPolicySchema(Object.fromEntries([
+		["autoLockMinutes", current(config.autoLockMinutes)],
+		["lockOnSystemSleep", current(config.lockOnSystemSleep)],
+		["lockedNameVisibility", current(config.lockedNameVisibility)],
+		["failedAttemptProtection", current(config.failedAttemptProtection)],
+		["passwordPolicy", current(config.passwordPolicy)]
+	].filter(([, value]) => value !== void 0)));
+}
+const ConfigSchema = Schema.object({
+	stateDir: AbsolutePathSchema,
+	...VaultPolicyFields
+});
+const Config = ConfigSchema;
 //#endregion
 //#region src/host/state/schema.ts
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
@@ -1576,6 +1715,6 @@ var VaultStateRepository = class {
 	}
 };
 //#endregion
-export { VaultPolicySchema as a, ConfigSchema as i, VaultStateRepository as n, resolveStateDirectory as o, Config as r, VaultStateLockError as t };
+export { VaultPolicySchema as a, ConfigSchema as i, VaultStateRepository as n, resolveStateDirectory as o, Config as r, vaultPolicyFromConfig as s, VaultStateLockError as t };
 
-//# sourceMappingURL=repository-DfW6ERcD.js.map
+//# sourceMappingURL=repository-hdu-BLb_.js.map

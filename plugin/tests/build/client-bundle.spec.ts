@@ -76,7 +76,7 @@ describe('DSH client artifact', () => {
     const declarations = await readFile(new URL('../../lib/client.d.ts', import.meta.url), 'utf8')
 
     expect(declarations).toContain(
-      'declare const inject: readonly ["slots", "locale", "settingsScope", "navigationAccess", "workspaceRows"];',
+      'declare const inject: readonly ["slots", "locale", "configForms", "sessions", "workspaces"];',
     )
     expect(declarations).toContain('declare function apply(ctx: ClientContext): void;')
   })

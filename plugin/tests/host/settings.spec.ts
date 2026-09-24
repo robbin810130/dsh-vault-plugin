@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { VaultPolicySchema, type VaultPolicy } from '../../src/config.js'
-import { DEFAULT_VAULT_POLICY, createVaultPolicySettings, installVaultPolicySettings } from '../../src/host/settings.js'
+import { ConfigSchema, VaultPolicySchema } from '../../src/config.js'
+import { applyVaultPolicyConfig, DEFAULT_VAULT_POLICY, createVaultPolicySettings } from '../../src/host/settings.js'
 import { VaultService } from '../../src/host/service.js'
 import { emptyVaultState } from '../../src/host/state/schema.js'
 
@@ -38,8 +38,7 @@ describe('DSH Vault policy settings', () => {
     } as never)).toThrow()
   })
 
-  it('registers through the DSH 0.1.2 settings service', () => {
-    const calls: Array<{ namespace: string; entry: VaultPolicy }> = []
+  it('applies the policy from the DSH 0.1.7 plugin config', () => {
     const service = new VaultService({
       repository: {
         load: async () => emptyVaultState(),
@@ -48,26 +47,8 @@ describe('DSH Vault policy settings', () => {
       },
       policy: DEFAULT_VAULT_POLICY,
     })
-    const ctx = {
-      settings: {
-        installSection: (
-          _owner: unknown,
-          namespace: string,
-          _schema: unknown,
-          entry: VaultPolicy,
-          hooks: { setSource: (source: () => VaultPolicy) => void; onChange: () => void },
-        ) => {
-          calls.push({ namespace, entry })
-          hooks.setSource(() => entry)
-          hooks.onChange()
-        },
-      },
-    }
-
-    installVaultPolicySettings(ctx as never, service)
-
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.namespace).toBe('dsh-vault')
-    expect(service.policy).toEqual(DEFAULT_VAULT_POLICY)
+    const policy = VaultPolicySchema({ autoLockMinutes: 30 })
+    applyVaultPolicyConfig(service, ConfigSchema({ autoLockMinutes: 30 }))
+    expect(service.policy).toEqual(policy)
   })
 })

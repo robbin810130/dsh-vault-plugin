@@ -5,10 +5,6 @@ import type { PasswordPolicy, VaultPolicy } from './shared/contracts.js'
 
 export type { VaultPolicy } from './shared/contracts.js'
 
-export interface Config {
-  readonly stateDir?: string
-}
-
 interface VaultPolicyInput {
   readonly autoLockMinutes?: 15 | 30 | 60 | 0
   readonly lockOnSystemSleep?: boolean
@@ -32,12 +28,6 @@ const AbsolutePathSchema = z.transform(z.string(), (value, options) => {
   return value
 })
 
-export const ConfigSchema: z<Config> = z.object({
-  stateDir: AbsolutePathSchema,
-})
-
-export const Config = ConfigSchema
-
 export function resolveStateDirectory(
   stateDir?: string,
   environment: NodeJS.ProcessEnv = process.env,
@@ -59,13 +49,33 @@ export function resolveStateDirectory(
   return join(homedir(), '.dsh', 'vault-lock')
 }
 
-export const VaultPolicySchema: z<VaultPolicyInput, VaultPolicy> = z.object({
-  autoLockMinutes: z.union([0, 15, 30, 60]).default(15),
-  lockOnSystemSleep: z.boolean().default(true),
+const VaultPolicyFields = {
+  autoLockMinutes: z.union([0, 15, 30, 60]).default(15).volatile(),
+  lockOnSystemSleep: z.boolean().default(true).volatile(),
   lockedNameVisibility: z.union([
     'workspace-visible-session-hidden',
     'all-visible',
     'all-hidden',
+  ]).default('workspace-visible-session-hidden').volatile(),
+  failedAttemptProtection: z.object({
+    enabled: z.boolean().default(true),
+    maxAttempts: z.number().step(1).min(1).default(3),
+    cooldownSeconds: z.number().step(1).min(1).default(300),
+  }).volatile(),
+  passwordPolicy: z.object({
+    minLength: z.number().step(1).min(4).max(128).default(8),
+    requireUppercase: z.boolean().default(false),
+    requireLowercase: z.boolean().default(false),
+    requireNumber: z.boolean().default(false),
+    requireSymbol: z.boolean().default(false),
+  }).volatile(),
+}
+
+export const VaultPolicySchema: z<VaultPolicyInput, VaultPolicy> = z.object({
+  autoLockMinutes: z.union([0, 15, 30, 60]).default(15),
+  lockOnSystemSleep: z.boolean().default(true),
+  lockedNameVisibility: z.union([
+    'workspace-visible-session-hidden', 'all-visible', 'all-hidden',
   ]).default('workspace-visible-session-hidden'),
   failedAttemptProtection: z.object({
     enabled: z.boolean().default(true),
@@ -80,5 +90,30 @@ export const VaultPolicySchema: z<VaultPolicyInput, VaultPolicy> = z.object({
     requireSymbol: z.boolean().default(false),
   }),
 })
+
+function current<T>(value: T | { get(): T | undefined } | undefined): T | undefined {
+  return typeof value === 'object' && value !== null && 'get' in value && typeof value.get === 'function'
+    ? value.get()
+    : value as T | undefined
+}
+
+/** Read the current volatile settings snapshot into the business policy shape. */
+export function vaultPolicyFromConfig(config: Config): VaultPolicy {
+  return VaultPolicySchema(Object.fromEntries([
+    ['autoLockMinutes', current(config.autoLockMinutes)],
+    ['lockOnSystemSleep', current(config.lockOnSystemSleep)],
+    ['lockedNameVisibility', current(config.lockedNameVisibility)],
+    ['failedAttemptProtection', current(config.failedAttemptProtection)],
+    ['passwordPolicy', current(config.passwordPolicy)],
+  ].filter(([, value]) => value !== undefined)) as VaultPolicyInput)
+}
+
+export const ConfigSchema = z.object({
+  stateDir: AbsolutePathSchema,
+  ...VaultPolicyFields,
+})
+
+export type Config = Schemastery.TypeT<typeof ConfigSchema>
+export const Config = ConfigSchema
 
 export type { PasswordPolicy }

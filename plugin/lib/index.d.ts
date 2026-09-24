@@ -1,7 +1,7 @@
 import { _ as VaultApiResult, a as BindingMutation, b as VaultTarget, c as GrantProof, d as ProtectionBinding, f as RecoverGroupInput, g as VaultApiRequest, h as UnlockResult, i as ActivityTouchResult, l as GrantValidationResult, m as RedactedPasswordGroup, n as CommitResult, o as ChangePasswordInput, p as RecoveryKeyResult, r as VaultState, s as CreateGroupInput, t as AuditEvent, u as PasswordPolicy, v as VaultPolicy, y as VaultSnapshot } from "./model-CirJ7a2o.js";
 import { Context } from "@deepseek-ai/cordis";
 import { WebServer } from "@deepseek-ai/dsh-host-webserver";
-//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/types/types.d.ts
+//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.5/node_modules/@deepseek-ai/cosmokit/lib/types/types.d.ts
 declare function isArrayBufferLike(value: any): value is ArrayBufferLike;
 declare function isArrayBufferSource(value: any): value is Binary.Source;
 /** Binary source detection and base64/hex conversion helpers. */
@@ -16,9 +16,19 @@ declare namespace Binary {
   function fromHex(source: string): ArrayBuffer;
 }
 //#endregion
-//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/types/misc.d.ts
+//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.5/node_modules/@deepseek-ai/cosmokit/lib/types/misc.d.ts
 /** String/symbol keyed dictionary type. */
 type Dict<T = any, K extends string | symbol = string> = { [key in K]: T; };
+//#endregion
+//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.5/node_modules/@deepseek-ai/cosmokit/lib/types/volatile.d.ts
+/** Shared config references used by schema validators and plugin runtimes. */
+/** Recursively readonly data returned by a volatile config reference. */
+type VolatileSnapshot<T> = T extends object ? { readonly [K in keyof T]: VolatileSnapshot<T[K]>; } : T;
+/** A stable reference; keep the reference, or capture its value for one operation only. */
+interface Volatile<T> {
+  /** @returns the current immutable snapshot, including undefined for an absent value. */
+  get(): VolatileSnapshot<T>;
+}
 //#endregion
 //#region node_modules/.pnpm/@standard-schema+spec@1.1.0/node_modules/@standard-schema/spec/dist/index.d.ts
 /** The Standard Typed interface. This is a base type extended by other specs. */
@@ -97,14 +107,14 @@ declare namespace StandardSchemaV1 {
   type InferOutput<Schema extends StandardTypedV1> = StandardTypedV1.InferOutput<Schema>;
 }
 //#endregion
-//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.2/node_modules/@deepseek-ai/schemastery/lib/types/index.d.ts
+//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.4/node_modules/@deepseek-ai/schemastery/lib/types/index.d.ts
 declare const kSchema: unique symbol;
 declare global {
   namespace Schemastery {
     /** Convert primitive constructors, constants, and existing schemas into a schema type. */
-    type From<X> = X extends string | number | boolean ? Schema<X> : X extends Schema ? X : X extends typeof String ? Schema<string> : X extends typeof Number ? Schema<number> : X extends typeof Boolean ? Schema<boolean> : X extends typeof Function ? Schema<Function, (...args: any[]) => any> : X extends Constructor<infer S> ? Schema<S> : never;
-    type TypeS1<X> = X extends Schema<infer S, unknown> ? S : never;
-    type Inverse<X> = X extends Schema<any, infer Y> ? (arg: Y) => void : never;
+    type From<X> = X extends string | number | boolean ? Schema<X> : X extends Schema<any, any, SchemaMode> ? X : X extends typeof String ? Schema<string> : X extends typeof Number ? Schema<number> : X extends typeof Boolean ? Schema<boolean> : X extends typeof Function ? Schema<Function, (...args: any[]) => any> : X extends Constructor<infer S> ? Schema<S> : never;
+    type TypeS1<X> = X extends Schema<infer S, infer _T, infer _M> ? S : never;
+    type Inverse<X> = X extends Schema<infer _S, infer T, infer M> ? (arg: SchemaOutput<T, M>) => void : never;
     /** Input type accepted by a schema-like value. */
     type TypeS<X> = TypeS1<From<X>>;
     /** Output type returned by a schema-like value after validation. */
@@ -112,7 +122,7 @@ declare global {
     /** Resolver callback used by custom schema types registered with `Schema.extend()`. */
     type Resolve = (data: any, schema: Schema, options: Options, strict?: boolean) => [any, any?];
     /** Input type accepted by one schema in an intersection. */
-    type IntersectS<X> = From<X> extends Schema<infer S, unknown> ? S : never;
+    type IntersectS<X> = From<X> extends Schema<infer S, infer _T, infer _M> ? S : never;
     /** Output type returned by one schema in an intersection. */
     type IntersectT<X> = Inverse<From<X>> extends ((arg: infer T) => void) ? T : never;
     type TupleS<X extends readonly any[]> = X extends readonly [infer L, ...infer R] ? [TypeS<L>?, ...TupleS<R>] : any[];
@@ -167,8 +177,8 @@ declare global {
       dict<X, Y extends Schema<any, string> = Schema<string>>(inner: X, sKey?: Y): Schema<Dict<TypeS<X>, TypeS<Y>>, Dict<TypeT<X>, TypeT<Y>>>;
       /** Accept tuple arrays where each index matches the corresponding schema. */
       tuple<const X extends readonly any[]>(list: X): Schema<TupleS<X>, TupleT<X>>;
-      /** Accept plain objects whose declared properties match the schema dictionary. */
-      object<X extends Dict>(dict: X): Schema<ObjectS<X>, ObjectT<X>>;
+      /** Accept plain objects; infer fields from the dictionary, not the enclosing schema's output type. */
+      object<X extends Dict>(dict: X): Schema<ObjectS<NoInfer<X>>, ObjectT<NoInfer<X>>>;
       /** Accept values matching at least one schema in `list`. */
       union<const X>(list: readonly X[]): Schema<TypeS<X>, TypeT<X>>;
       /** Accept values matching every schema in `list`, merging object outputs. */
@@ -176,7 +186,7 @@ declare global {
       /** Validate with `inner`, then convert the result with `callback`. */
       transform<X, T>(inner: X, callback: (value: TypeS<X>, options: Schemastery.Options) => T, preserve?: boolean): Schema<TypeS<X>, T>;
       /** Defer construction of a recursive schema until validation or serialization. */
-      lazy<X extends Schema>(callback: () => X): X;
+      lazy<X extends Schema<any, any, SchemaMode>>(callback: () => X): X;
       ValidationError: typeof ValidationError;
     }
     /** Runtime validation options shared by all schema calls. */
@@ -192,6 +202,8 @@ declare global {
     interface Meta<T = any> {
       default?: T extends {} ? Partial<T> : T;
       required?: boolean;
+      /** Parse this node as a stable config reference; its type and UI metadata remain unchanged. */
+      volatile?: boolean;
       disabled?: boolean;
       collapse?: boolean;
       badges?: {
@@ -215,9 +227,9 @@ declare global {
     }
   }
   /** Callable schema instance that validates input and returns normalized output. */
-  interface Schemastery<S = any, T = S> {
-    (data?: S | null, options?: Schemastery.Options): T;
-    new (data?: S | null, options?: Schemastery.Options): T;
+  interface Schemastery<S = any, T = S, Mode extends SchemaMode = 'plain'> {
+    (data?: S | null, options?: Schemastery.Options): SchemaOutput<T, Mode>;
+    new (data?: S | null, options?: Schemastery.Options): SchemaOutput<T, Mode>;
     [kSchema]: true;
     uid: number;
     meta: Schemastery.Meta<T>;
@@ -237,49 +249,54 @@ declare global {
     /** Format this schema as a compact TypeScript-like type string. */
     toString(inline?: boolean): string;
     /** Serialize this schema, preserving shared and recursive references. */
-    toJSON(): Schema<S, T>;
+    toJSON(): Schema<S, T, Mode>;
     /** Mark nullable input as invalid unless a default supplies a fallback. */
-    required(value?: boolean): Schema<S, T>;
+    required<R extends boolean = true>(value?: R): Schema<S, T, SetRequired<Mode, R>>;
+    /**
+     * Parse this config field as a stable reference containing immutable data.
+     * @returns a schema whose output supports get(), including when the field is absent.
+     */
+    volatile(): Schema<NoInfer<S>, NoInfer<T>, Mode extends 'defined' | 'volatile-defined' ? 'volatile-defined' : 'volatile'>;
     /** Hide this schema node from UI renderers. */
-    hidden(value?: boolean): Schema<S, T>;
+    hidden(value?: boolean): Schema<S, T, Mode>;
     /** Return the default value instead of throwing when validation fails. */
-    loose(value?: boolean): Schema<S, T>;
+    loose(value?: boolean): Schema<S, T, Mode>;
     /** Attach a renderer role and optional role-specific metadata. */
-    role(text: string, extra?: any): Schema<S, T>;
+    role(text: string, extra?: any): Schema<S, T, Mode>;
     /** Attach an external documentation link. */
-    link(link: string): Schema<S, T>;
+    link(link: string): Schema<S, T, Mode>;
     /** Set the fallback value used for nullable input. */
-    default(value: T): Schema<S, T>;
+    default(value: T | NoInfer<Partial<S>>): Schema<S, T, SetRequired<Mode, true>>;
     /** Attach an auxiliary comment for documentation or form UIs. */
-    comment(text: string): Schema<S, T>;
+    comment(text: string): Schema<S, T, Mode>;
     /** Attach a localized or plain description for documentation or form UIs. */
-    description(text: string): Schema<S, T>;
+    description(text: string): Schema<S, T, Mode>;
     /** Mark this schema node as disabled for form UIs. */
-    disabled(value?: boolean): Schema<S, T>;
+    disabled(value?: boolean): Schema<S, T, Mode>;
     /** Request collapsed rendering for nested form UIs. */
-    collapse(value?: boolean): Schema<S, T>;
+    collapse(value?: boolean): Schema<S, T, Mode>;
     /** Add a deprecated badge to this schema node. */
-    deprecated(): Schema<S, T>;
+    deprecated(): Schema<S, T, Mode>;
     /** Add an experimental badge to this schema node. */
-    experimental(): Schema<S, T>;
+    experimental(): Schema<S, T, Mode>;
     /** Require strings to match a regular expression. */
-    pattern(regexp: RegExp): Schema<S, T>;
+    pattern(regexp: RegExp): Schema<S, T, Mode>;
     /** Set an inclusive maximum for numbers or collection lengths. */
-    max(value: number): Schema<S, T>;
+    max(value: number): Schema<S, T, Mode>;
     /** Set an inclusive minimum for numbers or collection lengths. */
-    min(value: number): Schema<S, T>;
+    min(value: number): Schema<S, T, Mode>;
     /** Set the numeric increment constraint. */
-    step(value: number): Schema<S, T>;
+    step(value: number): Schema<S, T, Mode>;
     /** Add or replace an object property schema. */
-    set(key: string, value: Schema): Schema<S, T>;
+    set(key: string, value: Schema): Schema<S, T, Mode>;
     /** Append a tuple, union, or intersection member schema. */
-    push(value: Schema): Schema<S, T>;
+    push(value: Schema): Schema<S, T, Mode>;
     /** Remove values equal to schema defaults from normalized output. */
     simplify(value?: any): any;
     /** Return a schema clone with descriptions merged from locale messages. */
-    i18n(messages: Dict): Schema<S, T>;
+    i18n(messages: Dict): Schema<S, T, Mode>;
     /** Attach arbitrary metadata consumed by form renderers and downstream tools. */
-    extra<K extends keyof Schemastery.Meta>(key: K, value: Schemastery.Meta[K]): Schema<S, T>;
+    extra<K extends keyof Schemastery.Meta>(key: K, value: Schemastery.Meta[K]): Schema<S, T, Mode>;
   }
 }
 declare class ValidationError extends TypeError {
@@ -288,13 +305,13 @@ declare class ValidationError extends TypeError {
   constructor(message: string, options: Schemastery.Options);
   static is(error: any): error is ValidationError;
 }
-type Schema<S = any, T = S> = Schemastery<S, T>;
+type SchemaMode = 'plain' | 'defined' | 'volatile' | 'volatile-defined';
+type SchemaOutput<T, M extends SchemaMode> = M extends 'volatile' ? Volatile<T | undefined> : M extends 'volatile-defined' ? Volatile<T> : T;
+type SetRequired<M extends SchemaMode, R extends boolean> = M extends 'volatile' | 'volatile-defined' ? R extends true ? 'volatile-defined' : 'volatile' : R extends true ? 'defined' : 'plain';
+type Schema<S = any, T = S, Mode extends SchemaMode = 'plain'> = Schemastery<S, T, Mode>;
 declare const Schema: Schemastery.Static;
 //#endregion
 //#region src/config.d.ts
-interface Config {
-  readonly stateDir?: string;
-}
 interface VaultPolicyInput {
   readonly autoLockMinutes?: 15 | 30 | 60 | 0;
   readonly lockOnSystemSleep?: boolean;
@@ -312,10 +329,121 @@ interface VaultPolicyInput {
     readonly requireSymbol?: boolean;
   };
 }
-declare const ConfigSchema: Schema<Config>;
-declare const Config: Schema<Config>;
 declare function resolveStateDirectory(stateDir?: string, environment?: NodeJS.ProcessEnv): string;
 declare const VaultPolicySchema: Schema<VaultPolicyInput, VaultPolicy>;
+/** Read the current volatile settings snapshot into the business policy shape. */
+declare function vaultPolicyFromConfig(config: Config): VaultPolicy;
+declare const ConfigSchema: Schema<Schemastery.ObjectS<NoInfer<{
+  autoLockMinutes: Schema<0 | 15 | 30 | 60, 0 | 15 | 30 | 60, "volatile-defined">;
+  lockOnSystemSleep: Schema<boolean, boolean, "volatile-defined">;
+  lockedNameVisibility: Schema<"workspace-visible-session-hidden" | "all-visible" | "all-hidden", "workspace-visible-session-hidden" | "all-visible" | "all-hidden", "volatile-defined">;
+  failedAttemptProtection: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, "volatile">;
+  passwordPolicy: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, "volatile">;
+  stateDir: Schema<string, string, "plain">;
+}>>, Schemastery.ObjectT<NoInfer<{
+  autoLockMinutes: Schema<0 | 15 | 30 | 60, 0 | 15 | 30 | 60, "volatile-defined">;
+  lockOnSystemSleep: Schema<boolean, boolean, "volatile-defined">;
+  lockedNameVisibility: Schema<"workspace-visible-session-hidden" | "all-visible" | "all-hidden", "workspace-visible-session-hidden" | "all-visible" | "all-hidden", "volatile-defined">;
+  failedAttemptProtection: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, "volatile">;
+  passwordPolicy: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, "volatile">;
+  stateDir: Schema<string, string, "plain">;
+}>>, "plain">;
+type Config = Schemastery.TypeT<typeof ConfigSchema>;
+declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
+  autoLockMinutes: Schema<0 | 15 | 30 | 60, 0 | 15 | 30 | 60, "volatile-defined">;
+  lockOnSystemSleep: Schema<boolean, boolean, "volatile-defined">;
+  lockedNameVisibility: Schema<"workspace-visible-session-hidden" | "all-visible" | "all-hidden", "workspace-visible-session-hidden" | "all-visible" | "all-hidden", "volatile-defined">;
+  failedAttemptProtection: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, "volatile">;
+  passwordPolicy: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, "volatile">;
+  stateDir: Schema<string, string, "plain">;
+}>>, Schemastery.ObjectT<NoInfer<{
+  autoLockMinutes: Schema<0 | 15 | 30 | 60, 0 | 15 | 30 | 60, "volatile-defined">;
+  lockOnSystemSleep: Schema<boolean, boolean, "volatile-defined">;
+  lockedNameVisibility: Schema<"workspace-visible-session-hidden" | "all-visible" | "all-hidden", "workspace-visible-session-hidden" | "all-visible" | "all-hidden", "volatile-defined">;
+  failedAttemptProtection: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    enabled: Schema<boolean, boolean, "defined">;
+    maxAttempts: Schema<number, number, "defined">;
+    cooldownSeconds: Schema<number, number, "defined">;
+  }>>>, "volatile">;
+  passwordPolicy: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
+    minLength: Schema<number, number, "defined">;
+    requireUppercase: Schema<boolean, boolean, "defined">;
+    requireLowercase: Schema<boolean, boolean, "defined">;
+    requireNumber: Schema<boolean, boolean, "defined">;
+    requireSymbol: Schema<boolean, boolean, "defined">;
+  }>>>, "volatile">;
+  stateDir: Schema<string, string, "plain">;
+}>>, "plain">;
 //#endregion
 //#region src/host/auth/attempts.d.ts
 type FailedAttemptPolicy = VaultPolicy['failedAttemptProtection'];
@@ -478,7 +606,7 @@ interface VaultPolicySettingsController {
   readonly onChange: (policy: VaultPolicy) => void;
 }
 declare function createVaultPolicySettings(service: VaultService): VaultPolicySettingsController;
-declare function installVaultPolicySettings(ctx: Context, service: VaultService, entry?: VaultPolicy): void;
+declare function applyVaultPolicyConfig(service: VaultService, entry: Config): void;
 //#endregion
 //#region src/index.d.ts
 declare module '@deepseek-ai/cordis' {
@@ -486,13 +614,16 @@ declare module '@deepseek-ai/cordis' {
     readonly vault: VaultService;
     webServer: WebServer;
   }
+  interface Events {
+    'app-boot/config-reload': () => void;
+  }
 }
-declare const inject: readonly ["webServer", "settings"];
+declare const inject: readonly ["webServer"];
 declare const name = "dsh-vault";
 declare function apply(ctx: Context, config: Config): void;
 declare namespace apply {
-  var inject: readonly ["webServer", "settings"];
+  var inject: readonly ["webServer"];
 }
 //#endregion
-export { ActivityTouchResult, BindingMutation, ChangePasswordInput, Config, ConfigSchema, CreateGroupInput, DEFAULT_VAULT_POLICY, GrantProof, GrantValidationResult, PasswordPolicy, ProtectionBinding, RecoverGroupInput, RecoveryKeyResult, RedactedPasswordGroup, UnlockResult, VaultApiRequest, VaultApiResult, VaultPolicy, VaultPolicySchema, VaultPolicySettingsController, VaultSnapshot, VaultTarget, apply, createVaultPolicySettings, inject, installVaultPolicySettings, name, resolveStateDirectory };
+export { ActivityTouchResult, BindingMutation, ChangePasswordInput, Config, ConfigSchema, CreateGroupInput, DEFAULT_VAULT_POLICY, GrantProof, GrantValidationResult, PasswordPolicy, ProtectionBinding, RecoverGroupInput, RecoveryKeyResult, RedactedPasswordGroup, UnlockResult, VaultApiRequest, VaultApiResult, VaultPolicy, VaultPolicySchema, VaultPolicySettingsController, VaultSnapshot, VaultTarget, apply, applyVaultPolicyConfig, createVaultPolicySettings, inject, name, resolveStateDirectory, vaultPolicyFromConfig };
 //# sourceMappingURL=index.d.ts.map

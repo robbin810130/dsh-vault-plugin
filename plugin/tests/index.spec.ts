@@ -14,7 +14,7 @@ describe('Vault plugin Cordis integration', () => {
 
   it('declares webServer injection and activates only after the dependency is available', async () => {
     expect(vaultPlugin.name).toBe('dsh-vault')
-    expect(vaultPlugin.inject).toEqual(['webServer', 'settings'])
+    expect(vaultPlugin.inject).toEqual(['webServer'])
     root = await mkdtemp(join(tmpdir(), 'dsh-vault-plugin-'))
     const registrations: unknown[] = []
     const ctx = new Context()
@@ -29,24 +29,11 @@ describe('Vault plugin Cordis integration', () => {
         return () => undefined
       },
     } as never)
-    const disposeSettings = ctx.provide('settings', {
-      installSection: (
-        _owner: unknown,
-        _namespace: string,
-        _schema: unknown,
-        entry: unknown,
-        hooks: { setSource: (source: () => unknown) => void; onChange: () => void },
-      ) => {
-        hooks.setSource(() => entry)
-        hooks.onChange()
-      },
-    } as never)
     await fiber
     expect(registrations).toHaveLength(1)
     expect((registrations[0] as { path: string }).path).toBe('/dsh-vault/api')
 
     await fiber.dispose()
     disposeWebServer()
-    disposeSettings()
   })
 })

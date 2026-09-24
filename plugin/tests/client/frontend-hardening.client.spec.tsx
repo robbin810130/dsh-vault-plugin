@@ -62,8 +62,8 @@ afterEach(() => { cleanup(); disposers.forEach(dispose => dispose()); disposers 
 function mountShell(fetcher: typeof fetch) {
   vi.stubGlobal('fetch', fetcher)
   const overlays: ComponentType[] = []
-  apply({ locale: {}, settingsScope: { bind: () => ({ set: async () => undefined }) },
-    navigationAccess: { register: () => () => undefined }, workspaceRows: { register: () => () => undefined },
+  apply({ locale: {}, configForms: { get: () => ({ getSnapshot: () => ({ status: 'ready', revision: 1 }), mutate: async () => true }), whileServed: (_ids, register) => register() },
+    sessions: { openingAccess: { register: () => () => undefined } }, workspaces: { list: { getSnapshot: () => ({ items: [] }) } },
     slots: { inject: (_name: string, factory: () => unknown) => factory(), register: (config: { name: string }, component: ComponentType) => {
       if (config.name === 'shell.overlay') overlays.push(component)
       return () => undefined

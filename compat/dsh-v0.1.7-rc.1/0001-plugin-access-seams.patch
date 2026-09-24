@@ -1,0 +1,130 @@
+diff --git a/packages/api/session-controller/src/client/contract/sessions.ts b/packages/api/session-controller/src/client/contract/sessions.ts
+index 8f016ab..6d3e9c0 100644
+--- a/packages/api/session-controller/src/client/contract/sessions.ts
++++ b/packages/api/session-controller/src/client/contract/sessions.ts
+@@ -38,6 +38,14 @@ export interface SessionRetainOptions {
+   readonly signal?: AbortSignal | undefined
+ }
+ 
++/** A policy that must settle before the Client requests a Session's opening history. */
++export type SessionOpeningGate = (sessionId: SessionId) => void | Promise<void>
++
++/** Extension face for synchronous registration of asynchronous opening policies. */
++export interface SessionOpeningAccess {
++  register(gate: SessionOpeningGate): () => void
++}
++
+ /** Local ownership counts, independent of catalog membership and never persisted. */
+ export interface SessionRetainInfo {
+   readonly referenceCount: number
+@@ -47,6 +55,8 @@ export interface SessionRetainInfo {
+ 
+ /** The sessions-service face injected as `ctx.sessions`. */
+ export interface ISessions {
++  /** Fail-closed policies run before any retained Session requests opening history. */
++  readonly openingAccess: SessionOpeningAccess
+   /** Host catalog and local reference-source counts; navigation belongs to view owners. */
+   readonly list: ObservableSnapshot<SessionListState>
+   /**
+diff --git a/packages/api/session-controller/src/client/index.ts b/packages/api/session-controller/src/client/index.ts
+index b9600f3..4f6f537 100644
+--- a/packages/api/session-controller/src/client/index.ts
++++ b/packages/api/session-controller/src/client/index.ts
+@@ -50,7 +50,7 @@ export type {
+   SubmissionHandle,
+ } from './contract/session.ts'
+ export type {
+-  ISessions, SessionReference, SessionRetainInfo, SessionRetainOptions, SessionTarget,
++  ISessions, SessionOpeningAccess, SessionOpeningGate, SessionReference, SessionRetainInfo, SessionRetainOptions, SessionTarget,
+ } from './contract/sessions.ts'
+ export { MutableSessionEventSource } from './contract/events.ts'
+ export type {
+diff --git a/packages/api/session-controller/src/client/sessions/service.ts b/packages/api/session-controller/src/client/sessions/service.ts
+index 48d8f6a..8cf7a78 100644
+--- a/packages/api/session-controller/src/client/sessions/service.ts
++++ b/packages/api/session-controller/src/client/sessions/service.ts
+@@ -13,7 +13,7 @@ import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protoc
+ import type { SessionEventSource } from '../contract/events.ts'
+ import type { SessionFace } from '../contract/session.ts'
+ import type {
+-  AgentContext, ISessions, SessionReference, SessionRetainInfo, SessionRetainOptions, SessionTarget,
++  AgentContext, ISessions, SessionOpeningAccess, SessionOpeningGate, SessionReference, SessionRetainInfo, SessionRetainOptions, SessionTarget,
+ } from '../contract/sessions.ts'
+ import type { SessionReferenceSource } from '../index.ts'
+ import { createScope, scopeIdentityOf, scopeOf as scopeTagOf } from '../scope.ts'
+@@ -236,6 +236,17 @@ export class ClientSessions implements ISessions {
+    * reports the same number.
+    */
+   readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
++  readonly openingAccess: SessionOpeningAccess = {
++    register: (gate) => {
++      this.openingGates.add(gate)
++      let active = true
++      return () => {
++        if (!active) return
++        active = false
++        this.openingGates.delete(gate)
++      }
++    },
++  }
+   /** Catalog metadata and local reference-source projection. */
+   readonly list: SnapshotStore<SessionListState>
+   /** The object-layer instance cluster and frame dispatch entry. */
+@@ -245,6 +256,7 @@ export class ClientSessions implements ISessions {
+   private readonly retainObservers = new Map<SessionId, RetentionObserver>()
+   private readonly scopeDrops = new Set<Promise<void>>()
+   private closed = false
++  private readonly openingGates = new Set<SessionOpeningGate>()
+ 
+   /**
+    * @param ctx - client root context (scope fibers mount under it).
+@@ -286,7 +298,11 @@ export class ClientSessions implements ISessions {
+     const id = this.manager.resolveTarget(target)
+     const reference = this.retainScope(id, source)
+     try {
+-      reference.attachOpening(this.manager.get(id).open(), signal)
++      const opening = Promise.resolve().then(async () => {
++        for (const gate of [...this.openingGates]) await gate(id)
++        await this.manager.get(id).open()
++      })
++      reference.attachOpening(opening, signal)
+       return reference
+     } catch (error) {
+       reference.release()
+diff --git a/packages/api/session-controller/tests/sessions-service.client.spec.ts b/packages/api/session-controller/tests/sessions-service.client.spec.ts
+index ef3012c..0cd530b 100644
+--- a/packages/api/session-controller/tests/sessions-service.client.spec.ts
++++ b/packages/api/session-controller/tests/sessions-service.client.spec.ts
+@@ -725,6 +725,32 @@ describe('borrow-only bindings', () => {
+   })
+ })
+ 
++describe('opening access gate', () => {
++  it('blocks the first history request when an opening gate denies a session', async ({ bench }) => {
++    const b = bench()
++    await feedList(b, [{ id: 'private' }])
++    const dispose = b.svc.openingAccess.register(async (sessionId) => {
++      if (sessionId === sid('private')) throw new Error('Vault group locked')
++    })
++
++    using reference = b.svc.retain(sid('private'), { source: 'mainView' })
++    await expect(reference.ready).rejects.toThrow('Vault group locked')
++    expect(b.mock.log.requests(FOLLOW)).toHaveLength(0)
++    dispose()
++  })
++
++  it('fails closed when an opening gate rejects unexpectedly', async ({ bench }) => {
++    const b = bench()
++    await feedList(b, [{ id: 'private' }])
++    const dispose = b.svc.openingAccess.register(async () => { throw new Error('access provider failed') })
++
++    using reference = b.svc.retain(sid('private'), { source: 'mainView' })
++    await expect(reference.ready).rejects.toThrow('access provider failed')
++    expect(b.mock.log.requests(FOLLOW)).toHaveLength(0)
++    dispose()
++  })
++})
++
+ describe('catalog-addressed navigation', () => {
+   it('retains a projected child independently of its parent and shares its history generation', async ({ bench }) => {
+     const b = bench()

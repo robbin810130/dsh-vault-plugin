@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare pinned upstream for compatibility patch tests
+      - name: Prepare pinned DSH 0.1.2 source for legacy patch tests
         uses: actions/checkout@v4
         with:
           repository: deepseek-ai/deepseek-harness
@@ -35,12 +35,20 @@ jobs:
       - run: pnpm --dir plugin exec tsc -p tsconfig.client.json --noEmit
       - run: node --test tests/install-script.test.mjs tests/scripts/*.test.mjs
       - run: git diff --check
-      - name: Add DSH compatibility patch asset
+      - name: Build pinned DSH 0.1.7 compatibility bundles
         run: |
+          mkdir -p .cache artifacts/dsh-v017-bundles
+          curl --fail --location --retry 3 \
+            https://codeload.github.com/deepseek-ai/deepseek-harness/tar.gz/refs/tags/dsh-v0.1.7-rc.1 \
+            --output .cache/dsh-v0.1.7-rc.1-source.tar.gz
+          node compat/dsh-v0.1.7-rc.1/build-compat.mjs artifacts/dsh-v017-bundles .cache/dsh-v0.1.7-rc.1-source.tar.gz
           cp compat/dsh-v0.1.2-rc.1/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.2-rc.1.patch
           cp compat/dsh-v0.1.5-rc.1/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.5-rc.1.patch
+          cp compat/dsh-v0.1.7-rc.1/0001-plugin-access-seams.patch artifacts/dsh-vault-plugin-dsh-v0.1.7-rc.1.patch
           tar -czf artifacts/dsh-vault-compat-dsh-v0.1.5-rc.1.tgz -C compat dsh-v0.1.5-rc.1
-          cd artifacts && sha256sum *.patch dsh-vault-compat-*.tgz > compatibility.sha256
+          tar -czf artifacts/dsh-vault-compat-dsh-v0.1.7-rc.1.tgz -C compat dsh-v0.1.7-rc.1
+          tar -czf artifacts/dsh-vault-client-bundles-dsh-v0.1.7-rc.1.tgz -C artifacts/dsh-v017-bundles .
+          cd artifacts && shasum -a 256 *.patch dsh-vault-compat-*.tgz dsh-vault-client-bundles-*.tgz > compatibility.sha256
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,6 +58,9 @@ jobs:
           artifacts/dsh-vault-plugin.tgz.sha256
           artifacts/dsh-vault-plugin-dsh-v0.1.2-rc.1.patch
           artifacts/dsh-vault-plugin-dsh-v0.1.5-rc.1.patch
+          artifacts/dsh-vault-plugin-dsh-v0.1.7-rc.1.patch
           artifacts/dsh-vault-compat-dsh-v0.1.5-rc.1.tgz
+          artifacts/dsh-vault-compat-dsh-v0.1.7-rc.1.tgz
+          artifacts/dsh-vault-client-bundles-dsh-v0.1.7-rc.1.tgz
           artifacts/compatibility.sha256
           --notes-file "docs/releases/${GITHUB_REF_NAME}.md"

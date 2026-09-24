@@ -1,6 +1,6 @@
 {
   "name": "dsh-vault-plugin",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "DSH 保险箱插件：项目与对话的前台隐私锁",
   "type": "module",
   "bin": {
@@ -45,7 +45,9 @@
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-settings-plugins",
         "@deepseek-ai/dsh-client-ui-workspace",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-ui-settings"
       ],
       "external": [
         "@deepseek-ai/cordis",
@@ -58,12 +60,15 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.2"
+    "@deepseek-ai/schemastery": "^3.18.4"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-host-webserver": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-settings": "^0.1.2-rc.1"
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.7-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.7-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-api-session-controller": ">=0.1.7-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-api-workspace-controller": ">=0.1.7-rc.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.7-rc.1 <0.2.0"
   },
   "repository": {
     "type": "git",

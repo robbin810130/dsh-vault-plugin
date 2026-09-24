@@ -1,4 +1,4 @@
-import { a as VaultPolicySchema, i as ConfigSchema, n as VaultStateRepository, o as resolveStateDirectory, r as Config, t as VaultStateLockError } from "./repository-DfW6ERcD.js";
+import { a as VaultPolicySchema, i as ConfigSchema, n as VaultStateRepository, o as resolveStateDirectory, r as Config, s as vaultPolicyFromConfig, t as VaultStateLockError } from "./repository-hdu-BLb_.js";
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { isIPv4, isIPv6 } from "node:net";
 import { isDeepStrictEqual } from "node:util";
@@ -1457,20 +1457,12 @@ const DEFAULT_VAULT_POLICY = Object.freeze(VaultPolicySchema({}));
 function createVaultPolicySettings(service) {
 	return { onChange: (policy) => service.setPolicy(policy) };
 }
-function installVaultPolicySettings(ctx, service, entry = DEFAULT_VAULT_POLICY) {
-	let source = () => entry;
-	const controller = createVaultPolicySettings(service);
-	ctx.settings.installSection(ctx, "dsh-vault", VaultPolicySchema, entry, {
-		setSource: (current) => {
-			source = current;
-		},
-		onChange: () => controller.onChange(source())
-	});
-	controller.onChange(source());
+function applyVaultPolicyConfig(service, entry) {
+	createVaultPolicySettings(service).onChange(vaultPolicyFromConfig(entry));
 }
 //#endregion
 //#region src/index.ts
-const inject = ["webServer", "settings"];
+const inject = ["webServer"];
 const name = "dsh-vault";
 function apply(ctx, config) {
 	const stateDirectory = resolveStateDirectory(config.stateDir);
@@ -1478,8 +1470,11 @@ function apply(ctx, config) {
 		repository: new VaultStateRepository(stateDirectory),
 		policy: DEFAULT_VAULT_POLICY
 	});
-	installVaultPolicySettings(ctx, service);
+	applyVaultPolicyConfig(service, config);
 	ctx.provide("vault", service);
+	ctx.inject(["settings"], (child) => {
+		child.effect(() => child.settings.configure({ auto: false }, ctx.fiber));
+	});
 	ctx.effect(() => {
 		const disposeRoute = ctx.webServer.register({
 			kind: "exact",
@@ -1494,6 +1489,6 @@ function apply(ctx, config) {
 }
 apply.inject = inject;
 //#endregion
-export { Config, ConfigSchema, DEFAULT_VAULT_POLICY, VaultPolicySchema, apply, createVaultPolicySettings, inject, installVaultPolicySettings, name, resolveStateDirectory };
+export { Config, ConfigSchema, DEFAULT_VAULT_POLICY, VaultPolicySchema, apply, applyVaultPolicyConfig, createVaultPolicySettings, inject, name, resolveStateDirectory, vaultPolicyFromConfig };
 
 //# sourceMappingURL=index.js.map

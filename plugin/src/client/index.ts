@@ -1,19 +1,25 @@
 import './styles.css'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { createVaultApiClient } from './api.js'
 import { createVaultAccessProvider } from './access/provider.js'
-import { createVaultRowDecorator } from './rows/presentation.js'
 import { createVaultClientStore } from './store.js'
 import { createVaultUnlockController } from './unlock/controller.js'
-import { LockedConversation } from './unlock/LockedConversation.js'
 import { VaultOverlays } from './dialogs/VaultOverlays.js'
 import { recoveryDeliveryFor } from './dialogs/recovery-delivery.js'
-import { VaultRowAccessory } from './rows/VaultRowAccessory.js'
 import { VaultRowAction } from './rows/VaultRowAction.js'
 import { VaultSettingsCard } from './settings/VaultSettingsCard.js'
 import { createActivityMonitor } from './activity/monitor.js'
 
-export const inject = ['slots', 'locale', 'settingsScope', 'navigationAccess', 'workspaceRows'] as const
+export const inject = ['slots', 'locale', 'configForms', 'sessions', 'workspaces'] as const
+
+declare module '@deepseek-ai/dsh-api-session-controller/client' {
+  interface ISessions {
+    readonly openingAccess: { register(gate: (sessionId: string) => void | Promise<void>): () => void }
+  }
+}
 
 interface ClientContext extends Context {
   readonly slots: {
@@ -21,64 +27,50 @@ interface ClientContext extends Context {
     register(config: Record<string, unknown>, component: unknown): unknown
   }
   readonly locale: { t?: (key: string) => string }
-  readonly navigationAccess: { register(provider: unknown): () => void }
-  readonly workspaceRows: { register(decorator: unknown): () => void }
-  readonly settingsScope: { bind(spec: { namespace: string }): { set(field: string, value: unknown): Promise<void> } }
+  readonly sessions: Context['sessions']
+  readonly workspaces: Context['workspaces']
+  readonly configForms: Context['configForms']
 }
 
 export function apply(ctx: ClientContext): void {
   const store = createVaultClientStore(createVaultApiClient())
   const unlock = createVaultUnlockController(store)
   const activity = createActivityMonitor(store)
-  const policyScope = ctx.settingsScope.bind({ namespace: 'dsh-vault' })
+  const form = ctx.configForms.get('dsh-vault')
+  const policyScope = {
+    set: async (field: string, value: unknown): Promise<void> => {
+      const { revision } = form.getSnapshot()
+      const accepted = await form.mutate([{ op: 'set', path: [field], value }], revision)
+      if (!accepted) throw new Error('Vault policy update was rejected')
+    },
+  }
   unlock.attach()
   activity.start()
   void store.refresh()
   ctx.effect(() => {
-    const translate = (key: 'workspace' | 'session'): string => key === 'session'
-      ? '已加密对话'
-      : ctx.locale.t?.('dsh-vault.protected-workspace') ?? '已加密工作区'
     const access = createVaultAccessProvider(store)
-    const rows = createVaultRowDecorator(store, translate)
-    const disposeAccess = ctx.navigationAccess.register(access)
-    const disposeRows = ctx.workspaceRows.register(rows)
+    const disposeAccess = ctx.sessions.openingAccess.register(async (sessionId) => {
+      const workspaceId = ctx.workspaces.list.getSnapshot().items
+        .find(workspace => workspace.sessionIds.some(id => String(id) === sessionId))?.workspaceId ?? null
+      const state = access.sessionState(sessionId, workspaceId)
+      if (state.kind === 'blocked') throw new Error(state.reason)
+    })
     const disposeUnlock = ctx.slots.inject('shell.overlay', () => ctx.slots.register(
       { name: 'shell.overlay', id: 'dsh-vault-unlock', order: 40 },
       VaultOverlays,
     ))
-    const disposeDenied = ctx.slots.inject('conversation.access.denied', () => ctx.slots.register(
-      { name: 'conversation.access.denied' },
-      LockedConversation,
-    ))
-    const disposeWorkspaceAccessory = ctx.slots.inject('sidebar.workspaces.workspace.accessory', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.workspace.accessory', id: 'dsh-vault-workspace-accessory' },
-      VaultRowAccessory,
-    ))
-    const disposeWorkspaceAction = ctx.slots.inject('sidebar.workspaces.workspace.action', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.workspace.action', id: 'dsh-vault-workspace-action' },
+    const disposeSessionAction = ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register(
+      { name: 'sidebar.workspaces.session.row.action', id: 'dsh-vault-session-action', order: 400, inject: () => ({ store }) },
       VaultRowAction,
     ))
-    const disposeSessionAccessory = ctx.slots.inject('sidebar.workspaces.session.accessory', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.session.accessory', id: 'dsh-vault-session-accessory' },
-      VaultRowAccessory,
-    ))
-    const disposeSessionAction = ctx.slots.inject('sidebar.workspaces.session.action', () => ctx.slots.register(
-      { name: 'sidebar.workspaces.session.action', id: 'dsh-vault-session-action' },
-      VaultRowAction,
-    ))
-    const disposeSettings = ctx.slots.inject('settings.plugin.item', () => ctx.slots.register(
-      { name: 'settings.plugin.item', key: 'dsh-vault', locale: 'settings.dshVault', inject: () => ({ store, policyScope }) },
+    const disposeSettings = ctx.configForms.whileServed(['dsh-vault'], () => ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register(
+      { name: 'settings.plugins.tab', id: 'dsh-vault', order: 90, label: '保险箱', inject: () => ({ store, policyScope }) },
       VaultSettingsCard,
-    ))
+    )))
     return () => {
       ;(access as { dispose?: () => void }).dispose?.()
       disposeAccess()
-      disposeRows()
       disposeUnlock()
-      disposeDenied()
-      disposeWorkspaceAccessory()
-      disposeWorkspaceAction()
-      disposeSessionAccessory()
       disposeSessionAction()
       disposeSettings()
       recoveryDeliveryFor(store).dispose()

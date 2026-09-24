@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { ConfigSchema, resolveStateDirectory, VaultPolicySchema } from '../src/config.js'
+import { ConfigSchema, resolveStateDirectory, VaultPolicySchema, vaultPolicyFromConfig } from '../src/config.js'
 
 describe('VaultPolicySchema', () => {
   it('normalizes the documented policy defaults', () => {
@@ -26,13 +26,23 @@ describe('VaultPolicySchema', () => {
 
 describe('ConfigSchema', () => {
   it('accepts omitted state directory so the resolver can use DSH defaults', () => {
-    expect(ConfigSchema({})).toEqual({})
+    expect(vaultPolicyFromConfig(ConfigSchema({}))).toEqual(VaultPolicySchema({}))
   })
 
   it('accepts an absolute explicit state directory', () => {
-    expect(ConfigSchema({ stateDir: '/var/lib/dsh/vault-lock' })).toEqual({
-      stateDir: '/var/lib/dsh/vault-lock',
-    })
+    const config = ConfigSchema({ stateDir: '/var/lib/dsh/vault-lock' })
+    expect(config.stateDir).toBe('/var/lib/dsh/vault-lock')
+    expect(vaultPolicyFromConfig(config)).toEqual(VaultPolicySchema({}))
+  })
+
+  it('accepts validated non-sensitive policy through the DSH plugin config form', () => {
+    expect(vaultPolicyFromConfig(ConfigSchema({ autoLockMinutes: 30 })))
+      .toEqual({ ...VaultPolicySchema({}), autoLockMinutes: 30 })
+  })
+
+  it('round-trips legacy top-level policy fields through volatile config refs', () => {
+    const config = ConfigSchema({ autoLockMinutes: 0, failedAttemptProtection: { cooldownSeconds: 1 } })
+    expect(vaultPolicyFromConfig(config)).toMatchObject({ autoLockMinutes: 0, failedAttemptProtection: { cooldownSeconds: 1 } })
   })
 
   it('rejects a non-absolute explicit state directory', () => {

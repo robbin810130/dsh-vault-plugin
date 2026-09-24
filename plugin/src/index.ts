@@ -1,10 +1,11 @@
+import type {} from '@deepseek-ai/dsh-settings'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type { Config as VaultConfig } from './config.js'
 import { resolveStateDirectory } from './config.js'
 import { createVaultApiHandler } from './host/api/handler.js'
 import { VaultService } from './host/service.js'
-import { DEFAULT_VAULT_POLICY, installVaultPolicySettings } from './host/settings.js'
+import { DEFAULT_VAULT_POLICY, applyVaultPolicyConfig } from './host/settings.js'
 import { VaultStateRepository } from './host/state/repository.js'
 
 declare module '@deepseek-ai/cordis' {
@@ -12,13 +13,16 @@ declare module '@deepseek-ai/cordis' {
     readonly vault: VaultService
     webServer: WebServer
   }
+  interface Events {
+    'app-boot/config-reload': () => void
+  }
 }
 
 export * from './config.js'
 export * from './shared/contracts.js'
 export * from './host/settings.js'
 
-export const inject = ['webServer', 'settings'] as const
+export const inject = ['webServer'] as const
 export const name = 'dsh-vault'
 
 export function apply(ctx: Context, config: VaultConfig): void {
@@ -27,8 +31,9 @@ export function apply(ctx: Context, config: VaultConfig): void {
     repository: new VaultStateRepository(stateDirectory),
     policy: DEFAULT_VAULT_POLICY,
   })
-  installVaultPolicySettings(ctx, service)
+  applyVaultPolicyConfig(service, config)
   ctx.provide('vault', service)
+  ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
   ctx.effect(() => {
     const disposeRoute = ctx.webServer.register({
       kind: 'exact',

@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-24T05:00:13.367Z",
+  "version": "0.1.7-rc.1",
+  "upstreamCommit": "46a7f68b0922371ce7144b668b90e377d8e799f4",
+  "sourceArchiveSHA256": "86d94df24da0001f459138c0f3e231656d13140cf5511ea3725ce4be539ad8be",
+  "patchSHA256": "cafe6bb58f5fb3f9e8ac40c2c5dca191abea303fd71c5383fce2e98e98f0c860",
+  "bundles": {
+    "packages/api/session-controller/lib/client.js": "a5fbc1af65e36e4327cd577189c506c9033a0bccc077e3f04101046df7f0d2ab",
+    "packages/api/session-controller/lib/client.js.map": "4e8088cd3d75dc926c6cf17b76aefe8465e356e87f8cdf8e43e0d3c55fa1ed75",
+    "packages/client/ui-workspace/lib/client.js": "591d946d102106d63e2470d2842d3350d400a608a6ee0e2612b62f04d5cb37d0",
+    "packages/client/ui-workspace/lib/client.js.map": "89e6d7b47e5869b37e61ea6c258389d4af5bb1fc2c6c2b0cc529f2ef1e0b91b8",
+    "packages/client/ui-layout/lib/client.js": "71f3df6ecb8637bd3488e147272f77199af037570972d15b14c637e5706a85a0",
+    "packages/client/ui-layout/lib/client.js.map": "1d6c3d06407ed98ee5c1cc6db284d91125931455b9058e2225f1d1768f730c8f",
+    "packages/client/ui-conversation/lib/client.js": "cc78b210a5f9884e1b43490018b0c79841e91a6495e2999742713273ca4d1c39",
+    "packages/client/ui-conversation/lib/client.js.map": "3b424fadf0dc47d57da07a84ec90e49e4d01575838f074aa6274443b29bde442"
+  }
+}
