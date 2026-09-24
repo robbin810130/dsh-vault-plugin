@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
-import { validateSource, verifySourceArchive, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
+import { validateSource, verifyGeneratedBundles, verifySourceTree, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
 
 const roots = []
 
@@ -20,7 +20,7 @@ async function sourceFixture() {
     manifest: {
       version: '0.1.7-rc.1',
       upstreamCommit: '46a7f68b0922371ce7144b668b90e377d8e799f4',
-      sourceArchiveSHA256: 'a'.repeat(64),
+      upstreamTree: '55a4a1b1e7df3324c3c2a7f6fa27e61fedbb7278',
       files: { 'packages/client/ui-workspace/src/client/navigation.ts': await import('node:crypto').then(({ createHash }) => createHash('sha256').update(content).digest('hex')) },
     },
   }
@@ -40,6 +40,7 @@ test('rejects a different DSH version or commit', async () => {
   const fixture = await sourceFixture()
   await assert.rejects(validateSource(fixture.root, { ...fixture.manifest, version: '0.1.8' }), /version/)
   await assert.rejects(validateSource(fixture.root, { ...fixture.manifest, upstreamCommit: 'wrong' }), /commit/)
+  await assert.rejects(validateSource(fixture.root, { ...fixture.manifest, upstreamTree: 'wrong' }), /tree/)
 })
 
 test('rejects source bundle drift before applying a compatibility patch', async () => {
@@ -48,13 +49,24 @@ test('rejects source bundle drift before applying a compatibility patch', async 
   await assert.rejects(verifyTargetFiles(fixture.root, fixture.manifest.files), /hash mismatch/)
 })
 
-test('accepts only the byte-identical pinned source archive', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-v017-archive-'))
+test('rejects a source archive whose complete Git tree differs from the pinned upstream tree', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-v017-tree-'))
   roots.push(root)
-  const archive = join(root, 'upstream.tar.gz')
-  const bytes = Buffer.from('official source archive fixture')
-  await writeFile(archive, bytes)
-  const hash = createHash('sha256').update(bytes).digest('hex')
-  await assert.doesNotReject(verifySourceArchive(archive, hash))
-  await assert.rejects(verifySourceArchive(archive, '0'.repeat(64)), /archive hash mismatch/)
+  await writeFile(join(root, 'a.txt'), 'a\n')
+  const pinnedTree = '08585692ce06452da6f82ae66b90d98b55536fca'
+  await assert.doesNotReject(verifySourceTree(root, pinnedTree))
+  await writeFile(join(root, 'unexpected.txt'), 'drift\n')
+  await assert.rejects(verifySourceTree(root, pinnedTree), /source tree mismatch/)
+})
+
+test('accepts only the reviewed generated browser bundle bytes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-v017-bundles-'))
+  roots.push(root)
+  const bundle = 'packages/client/ui-workspace/lib/client.js'
+  await mkdir(join(root, 'packages/client/ui-workspace/lib'), { recursive: true })
+  await writeFile(join(root, bundle), 'export const patched = true\n')
+  const expected = createHash('sha256').update('export const patched = true\n').digest('hex')
+  await assert.doesNotReject(verifyGeneratedBundles(root, { [bundle]: expected }))
+  await writeFile(join(root, bundle), 'export const patched = false\n')
+  await assert.rejects(verifyGeneratedBundles(root, { [bundle]: expected }), /generated bundle mismatch/)
 })

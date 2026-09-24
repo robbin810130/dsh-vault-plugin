@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { validateSource, verifySourceArchive, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
+import { validateSource, verifyGeneratedBundles, verifySourceTree, verifyTargetFiles } from '../../scripts/verify-dsh-v017-source.mjs'
 
 const exec = promisify(execFile)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -24,7 +24,7 @@ async function hashFile(path) {
   return createHash('sha256').update(await readFile(path)).digest('hex')
 }
 
-await verifySourceArchive(archivePath, manifest.sourceArchiveSHA256)
+const baseline = JSON.parse(await readFile(join(compatDir, 'verification.json'), 'utf8'))
 const patchHash = await hashFile(patchPath)
 if (patchHash !== manifest.patchSHA256) throw new Error(`DSH patch hash mismatch: ${patchHash}`)
 
@@ -33,9 +33,9 @@ const source = join(staging, 'source')
 try {
   await mkdir(source)
   await run('tar', ['-xzf', archivePath, '--strip-components=1', '-C', source], staging)
+  await verifySourceTree(source, manifest.upstreamTree)
   await validateSource(source, manifest)
   await verifyTargetFiles(source, manifest.files)
-  await run('git', ['init', '-q'], source)
   await run('git', ['apply', '--check', patchPath], source)
   await run('git', ['apply', patchPath], source)
   await cp(builderPath, join(source, 'build-vault-client.mts'))
@@ -58,11 +58,12 @@ try {
     await mkdir(dirname(destination), { recursive: true })
     await cp(join(source, relativePath), destination)
   }
+  await verifyGeneratedBundles(source, baseline.bundles)
   const record = {
     date: new Date().toISOString(),
     version: manifest.version,
     upstreamCommit: manifest.upstreamCommit,
-    sourceArchiveSHA256: manifest.sourceArchiveSHA256,
+    upstreamTree: manifest.upstreamTree,
     patchSHA256: patchHash,
     bundles: Object.fromEntries(await Promise.all(bundles.map(async path => [path, await hashFile(join(outputPath, path))]))),
   }

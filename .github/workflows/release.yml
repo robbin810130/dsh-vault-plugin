@@ -49,6 +49,13 @@ jobs:
           tar -czf artifacts/dsh-vault-compat-dsh-v0.1.7-rc.1.tgz -C compat dsh-v0.1.7-rc.1
           tar -czf artifacts/dsh-vault-client-bundles-dsh-v0.1.7-rc.1.tgz -C artifacts/dsh-v017-bundles .
           cd artifacts && shasum -a 256 *.patch dsh-vault-compat-*.tgz dsh-vault-client-bundles-*.tgz > compatibility.sha256
+      - name: Retain generated DSH bundles for build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-v017-compat-build
+          path: artifacts/dsh-v017-bundles
+          if-no-files-found: ignore
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
