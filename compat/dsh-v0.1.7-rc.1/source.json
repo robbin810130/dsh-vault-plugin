@@ -3,11 +3,12 @@
   "tag": "dsh-v0.1.7-rc.1",
   "upstreamCommit": "46a7f68b0922371ce7144b668b90e377d8e799f4",
   "upstreamTree": "55a4a1b1e7df3324c3c2a7f6fa27e61fedbb7278",
-  "patchSHA256": "cafe6bb58f5fb3f9e8ac40c2c5dca191abea303fd71c5383fce2e98e98f0c860",
+  "patchSHA256": "aa258174a2fb6cb0421f0582e5fcefe96cea83629f2406ada7bd290e32e61c4f",
   "files": {
     "packages/api/session-controller/src/client/contract/sessions.ts": "082745c4204535e99dd7ce1111834df67e0f73b8cbd5ddeec41ca6dddfc2b6de",
     "packages/api/session-controller/src/client/index.ts": "d90c6dcb93af854c6789240556e0f483be142e9bfadbf1b50eeb10bd7cf09c53",
     "packages/api/session-controller/src/client/sessions/service.ts": "9c6e0730aa36ee821cf2781894694d290990167c7246816b86cb309876518d71",
-    "packages/api/session-controller/tests/sessions-service.client.spec.ts": "2eaf10fa54ccfeb08e10b70ec69cb8e732162fa5deac6abe9782b32ce1278573"
+    "packages/api/session-controller/tests/sessions-service.client.spec.ts": "2eaf10fa54ccfeb08e10b70ec69cb8e732162fa5deac6abe9782b32ce1278573",
+    "packages/client/tsdown.client.ts": "dc19a59c2f24c10c943131ce2a1809bb423375d14521425eb17b14ee83aa288d"
   }
 }
