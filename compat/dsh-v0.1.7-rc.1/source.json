@@ -3,12 +3,16 @@
   "tag": "dsh-v0.1.7-rc.1",
   "upstreamCommit": "46a7f68b0922371ce7144b668b90e377d8e799f4",
   "upstreamTree": "55a4a1b1e7df3324c3c2a7f6fa27e61fedbb7278",
-  "patchSHA256": "802be5af9035fd6e6d4bdd41a4d38d4ba1df89e6d0e9dce933d694ce5889fd3d",
+  "patchSHA256": "1bf0c901cd5f47cb65108b310adc62dbe26b389ec2b5f28ba5f0d257d1452897",
   "files": {
     "packages/api/session-controller/src/client/contract/sessions.ts": "082745c4204535e99dd7ce1111834df67e0f73b8cbd5ddeec41ca6dddfc2b6de",
     "packages/api/session-controller/src/client/index.ts": "d90c6dcb93af854c6789240556e0f483be142e9bfadbf1b50eeb10bd7cf09c53",
     "packages/api/session-controller/src/client/sessions/service.ts": "9c6e0730aa36ee821cf2781894694d290990167c7246816b86cb309876518d71",
     "packages/api/session-controller/tests/sessions-service.client.spec.ts": "2eaf10fa54ccfeb08e10b70ec69cb8e732162fa5deac6abe9782b32ce1278573",
-    "packages/client/tsdown.client.ts": "dc19a59c2f24c10c943131ce2a1809bb423375d14521425eb17b14ee83aa288d"
+    "packages/client/tsdown.client.ts": "dc19a59c2f24c10c943131ce2a1809bb423375d14521425eb17b14ee83aa288d",
+    "packages/client/ui-workspace/src/client/contract/slots.ts": "f955bc55a1381c8931a21f61591ff7935a98d00b18981230cf94a07338d1fc41",
+    "packages/client/ui-workspace/src/client/rows/Rows.tsx": "2b2f59907bbaf167d96db1af267ac5778a35313d0a8f4199c9666e93485b2a53",
+    "packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx": "613f5346b11930820a783e2fc4e12c0f90c6a723681ebe2a8d4fb38e2305816e",
+    "packages/client/ui-workspace/src/client/index.ts": "47270afa9844b80b819c0c41a9cb5dde71268607c9b8b199072bb1aff412a424"
   }
 }

@@ -10,6 +10,7 @@ import { createVaultUnlockController } from './unlock/controller.js'
 import { VaultOverlays } from './dialogs/VaultOverlays.js'
 import { recoveryDeliveryFor } from './dialogs/recovery-delivery.js'
 import { VaultRowAction } from './rows/VaultRowAction.js'
+import { VaultRowAccessory } from './rows/VaultRowAccessory.js'
 import { VaultSettingsCard } from './settings/VaultSettingsCard.js'
 import { createActivityMonitor } from './activity/monitor.js'
 
@@ -63,6 +64,14 @@ export function apply(ctx: ClientContext): void {
       { name: 'sidebar.workspaces.session.row.action', id: 'dsh-vault-session-action', order: 400, inject: () => ({ store }) },
       VaultRowAction,
     ))
+    const disposeWorkspaceAccessory = ctx.slots.inject('sidebar.workspaces.workspace.row.accessory', () => ctx.slots.register(
+      { name: 'sidebar.workspaces.workspace.row.accessory', id: 'dsh-vault-workspace-accessory', order: 400, inject: () => ({ store }) },
+      VaultRowAccessory,
+    ))
+    const disposeWorkspaceAction = ctx.slots.inject('sidebar.workspaces.workspace.row.action', () => ctx.slots.register(
+      { name: 'sidebar.workspaces.workspace.row.action', id: 'dsh-vault-workspace-action', order: 400, inject: () => ({ store }) },
+      VaultRowAction,
+    ))
     const disposeSettings = ctx.configForms.whileServed(['dsh-vault'], () => ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register(
       { name: 'settings.plugins.tab', id: 'dsh-vault', order: 90, label: '保险箱', inject: () => ({ store, policyScope }) },
       VaultSettingsCard,
@@ -72,6 +81,8 @@ export function apply(ctx: ClientContext): void {
       disposeAccess()
       disposeUnlock()
       disposeSessionAction()
+      disposeWorkspaceAccessory()
+      disposeWorkspaceAction()
       disposeSettings()
       recoveryDeliveryFor(store).dispose()
       unlock.detach()

@@ -8,9 +8,9 @@ DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，
 
 > **安全边界（一期）**：插件只控制 DSH 前台访问，不加密原始 Workspace、Session 或项目源文件的持久化数据。落盘加密属于二期，不应把本插件当作磁盘加密或数据防泄漏产品。
 
-## DSH 0.1.5-rc.1 本机兼容修复
+## DSH 0.1.7-rc.1 本机兼容修复
 
-版本限定补丁、构建入口和验证/回滚说明见 [兼容说明](compat/dsh-v0.1.5-rc.1/README.md)。GitHub Release 随附专用补丁；以下安装命令只安装插件，不会自动部署宿主补丁。
+版本限定补丁、构建入口和验证/回滚说明见 [兼容说明](compat/dsh-v0.1.7-rc.1/README.md)。补丁为 Workspace 行提供 Vault accessory/action 扩展槽；GitHub Release 随附专用补丁。
 
 ## 从旧 scoped 包迁移
 
@@ -20,10 +20,10 @@ DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，
 
 ```bash
 dsh plugin --profile web remove @robbin810130/dsh-vault-plugin
-dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.7
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.9
 ```
 
-确认 profile 仅有一个新包及一个 bundle 后再启动。保留原节点 ID、设置和状态/备份目录；Vault 密码、策略和绑定不重置。安装失败时保持停服并还原 profile 备份，不删除 Vault 数据。Vault 一键安装器不自动移除旧包。已有 Vault0.2.6 配套的 DSH0.1.5-rc.1 宿主补丁无需重打。
+确认 profile 仅有一个新包及一个 bundle 后再启动。保留原节点 ID、设置和状态/备份目录；Vault 密码、策略和绑定不重置。安装失败时保持停服并还原 profile 备份，不删除 Vault 数据。Vault 一键安装器不自动移除旧包。如果当前安装的是旧版 scoped 包，先按上面流程迁移。DSH `0.1.7-rc.1` 的 Workspace 行扩展属于宿主客户端兼容包；只在 DSH 界面里重装 Vault 插件不会更新宿主客户端，兼容说明中列有配套补丁与客户端 bundle。
 
 依赖管理器可能重新生成其他插件的目录。若其他插件把运行数据写在 node_modules 下，须在停服备份后、启动前从备份恢复该数据目录，并校验其余插件文件未变。
 
@@ -47,12 +47,12 @@ irm https://raw.githubusercontent.com/robbin810130/dsh-vault-plugin/main/install
 dsh plugin --profile web add <downloaded-package>
 ```
 
-安装完成后重启 DSH Web profile。安装器不会直接改写 DSH 配置，也不会上传密码、恢复密钥或 Vault 状态。
+安装完成后重启 DSH Web profile。DSH `0.1.7-rc.1` 还须按 [兼容说明](compat/dsh-v0.1.7-rc.1/README.md)部署随版本发布的宿主客户端 bundle；单独安装插件不会改写 DSH 全局客户端。安装器不会上传密码、恢复密钥或 Vault 状态。
 
 也可以直接使用 DSH 原生安装命令安装 GitHub 仓库：
 
 ```bash
-dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.7
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.9
 ```
 
 ## 功能概览
@@ -74,7 +74,7 @@ dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.7
 
 ## 兼容性
 
-- 本轮目标 DSH：`v0.1.5-rc.1`（必须同时应用本版本随附的精确宿主补丁）
+- 本轮目标 DSH：`v0.1.7-rc.1`（必须同时应用本版本随附的精确宿主补丁）
 - Node.js：`^22.19.0 || >=24.0.0`（由插件包声明）
 - 运行 profile：`web`
 

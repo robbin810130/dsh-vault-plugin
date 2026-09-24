@@ -147,3 +147,190 @@ index 99e647d..40fa2a5 100644
            code: source,
            cssModules: { pattern: '[hash]_[local]' },
            minify: true,
+
+diff --git a/packages/client/ui-workspace/src/client/contract/slots.ts b/packages/client/ui-workspace/src/client/contract/slots.ts
+index 6469d28..72ecc24 100644
+--- a/packages/client/ui-workspace/src/client/contract/slots.ts
++++ b/packages/client/ui-workspace/src/client/contract/slots.ts
+@@ -64,6 +64,14 @@ export interface DirectoryFlowOwnerProps {
+   onError: (message: string) => void
+ }
+ 
++/** Owner share of one Workspace row action occurrence: the row the action belongs to. */
++export interface WorkspaceRowOwnerProps {
++  /** Workspace the row shows. */
++  workspaceId: WorkspaceId
++  /** Workspace display title. */
++  displayTitle: string
++}
++
+ /** Owner share of one Session row action occurrence: the row the action belongs to. */
+ export interface SessionRowOwnerProps {
+   /** Session the row shows. */
+@@ -146,6 +154,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+      * handling to keep the row from opening.
+      */
+     'sidebar.workspaces.session.row.action': { kind: 'list'; scope: 'root'; owner: SessionRowOwnerProps }
++    /** Leading status accessory for one real Workspace row. */
++    'sidebar.workspaces.workspace.row.accessory': { kind: 'list'; scope: 'root'; owner: WorkspaceRowOwnerProps }
++    /** Hover action buttons at the end of one real Workspace row. */
++    'sidebar.workspaces.workspace.row.action': { kind: 'list'; scope: 'root'; owner: WorkspaceRowOwnerProps }
+   }
+ }
+ 
+@@ -402,6 +414,7 @@ export type WorkspaceBrowserProps =
+   PropsRuntime<'sidebar.workspaces'>
+   & PropsRenderSlots<
+     'sidebar.workspaces.directoryFlow' | 'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'
++    | 'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action'
+   >
+   & PropsStore<WorkspaceViewStoreHandle>
+   & Omit<WorkspaceBrowserInjected, 'hooks'>
+diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
+index 35aa8b1..3a1adab 100644
+--- a/packages/client/ui-workspace/src/client/index.ts
++++ b/packages/client/ui-workspace/src/client/index.ts
+@@ -256,6 +256,8 @@ export function apply(ctx: Context): void {
+           kind: 'list', scope: 'root', inject: { hooks: { menuOpenState: menuOpenStateFactory } },
+         },
+         'sidebar.workspaces.session.row.action': { kind: 'list', scope: 'root' },
++        'sidebar.workspaces.workspace.row.accessory': { kind: 'list', scope: 'root' },
++        'sidebar.workspaces.workspace.row.action': { kind: 'list', scope: 'root' },
+       },
+       store: viewStore,
+       inject: browserInjected,
+diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+index a3cfa70..b40b8ee 100644
+--- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
++++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+@@ -201,7 +201,7 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
+  * @param props.t - the browser root's locale seat.
+  * @returns the row element.
+  */
+-export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, t }: {
++export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, t, renderSlot }: {
+   group: GroupNode
+   containsCurrentDescendant?: boolean
+   onToggle: () => void
+@@ -213,7 +213,7 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
+   /** Host account home; POSIX home-rooted hover paths display as `~`. */
+   home?: string | undefined
+   t: RowTranslate
+-}) {
++} & PropsRenderSlots<'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action'>) {
+   const row = group
+   // The ungrouped bucket has no workspace title: its label is dictionary copy.
+   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
+@@ -248,8 +248,10 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
+       </span>
+       <span className={css.projectText}>
+         <span className={css.title}>{label}</span>
++        {row.workspaceId !== undefined && renderSlot('sidebar.workspaces.workspace.row.accessory', { workspaceId: row.workspaceId, displayTitle: label })}
+       </span>
+       <span className={css.rowActions}>
++        {row.workspaceId !== undefined && renderSlot('sidebar.workspaces.workspace.row.action', { workspaceId: row.workspaceId, displayTitle: label })}
+         {actions !== undefined && (
+           <Menu
+             open={menuOpen}
+@@ -519,7 +521,7 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }:
+  * @param props.now - epoch ms for relative-time formatting.
+  * @param props.onOpen - open a session by id.
+  * @param props.onRenameRequest - open the rename dialog from a title double-click (id + current title).
+- * @param props.renderSlot - render the row's `sidebar.workspaces.session.menu.item` and `sidebar.workspaces.session.row.action` lists.
++ * @param props.renderSlot - render the row's action and accessory lists.
+  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
+  * @param props.drag - optional row-drag target wiring; blank rows cannot start a drag.
+  * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
+@@ -542,7 +544,7 @@ export function SessionNodeItem({
+   /** The row is rendered without a parent Workspace header. */
+   flat?: boolean | undefined
+   t: RowTranslate
+-} & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'>) {
++} & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action' | 'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action'>) {
+   const row = node
+   const title = displayTitle(node, t)
+   const selected = node.id === currentId
+diff --git a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
+index a421d6b..eae02b9 100644
+--- a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
++++ b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
+@@ -218,7 +218,7 @@ type SessionTreeProps = Pick<
+   WorkspaceBrowserProps,
+   'useSessionStatus' | 'startSession' | 'open'
+   | 'insertWorkspaceBefore' | 't' | 'usePanelInfo'
+-> & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'> & {
++> & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action' | 'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action'> & {
+   /** Always-mounted Session list snapshot. */
+   list: SessionListState
+   /** Host account home for POSIX hover-path abbreviation. */
+@@ -470,6 +470,7 @@ function SessionTree({
+           containsCurrentDescendant={currentAncestors.has(group.key)}
+           home={home}
+           t={t}
++          renderSlot={renderSlot}
+           onToggle={() => {
+             if (group.expanded) {
+               setSessionLimits(limits => ({ ...limits, [group.key]: COLLAPSED_SESSION_LIMIT }))
+diff --git a/packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx
+new file mode 100644
+index 0000000..6c9ac69
+--- /dev/null
++++ b/packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx
+@@ -0,0 +1,57 @@
++// @vitest-environment jsdom
++import { render, screen } from '@testing-library/react'
++import { describe, expect, it, vi } from 'vitest'
++import { ProjectRowItem } from '../src/client/rows/Rows.tsx'
++
++const t = (key: string) => key
++
++function workspaceGroup() {
++  return {
++    key: 'workspace-a',
++    workspaceId: 'workspace-a',
++    label: 'Workspace A',
++    expanded: false,
++    containsCurrent: false,
++    createdAt: 1,
++    cwd: '/tmp/workspace-a',
++  } as never
++}
++
++describe('Workspace row extension slots', () => {
++  it('renders accessories and actions with the owning Workspace identity', () => {
++    const renderSlot = vi.fn((name: string, owner: { workspaceId: string }) => (
++      <span data-testid={name.endsWith('accessory') ? 'workspace-accessory' : 'workspace-action'}>
++        {owner.workspaceId}
++      </span>
++    ))
++
++    render(<ProjectRowItem
++      group={workspaceGroup()}
++      onToggle={vi.fn()}
++      onCreate={vi.fn()}
++      t={t}
++      renderSlot={renderSlot as never}
++    />)
++
++    expect(screen.getByTestId('workspace-accessory').textContent).toBe('workspace-a')
++    expect(screen.getByTestId('workspace-action').textContent).toBe('workspace-a')
++    expect(renderSlot).toHaveBeenCalledWith('sidebar.workspaces.workspace.row.accessory', {
++      workspaceId: 'workspace-a', displayTitle: 'Workspace A',
++    })
++    expect(renderSlot).toHaveBeenCalledWith('sidebar.workspaces.workspace.row.action', {
++      workspaceId: 'workspace-a', displayTitle: 'Workspace A',
++    })
++  })
++
++  it('does not expose Workspace actions on the ungrouped bucket', () => {
++    const renderSlot = vi.fn(() => null)
++    render(<ProjectRowItem
++      group={{ ...workspaceGroup(), workspaceId: undefined } as never}
++      onToggle={vi.fn()}
++      onCreate={vi.fn()}
++      t={t}
++      renderSlot={renderSlot as never}
++    />)
++    expect(renderSlot).not.toHaveBeenCalled()
++  })
++})

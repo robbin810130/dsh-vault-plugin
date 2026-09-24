@@ -1601,6 +1601,66 @@ window.__ModuleLoader__.load({
 			});
 		}
 		//#endregion
+		//#region src/client/components/ProtectedLockIcon.tsx
+		function ProtectedLockIcon({ className }) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+				"aria-hidden": "true",
+				className,
+				viewBox: "0 0 16 16",
+				fill: "none",
+				focusable: "false",
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+						d: "M5 7V5.75a3 3 0 0 1 6 0V7",
+						stroke: "currentColor",
+						strokeWidth: "1.5",
+						strokeLinecap: "round"
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("rect", {
+						x: "3.25",
+						y: "6.25",
+						width: "9.5",
+						height: "7.5",
+						rx: "2",
+						fill: "currentColor"
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+						d: "M8 8.75v2",
+						stroke: "var(--dsw-alias-bg-layer-2, #2b2b2b)",
+						strokeWidth: "1.5",
+						strokeLinecap: "round"
+					})
+				]
+			});
+		}
+		//#endregion
+		//#region src/client/rows/VaultRowAccessory.tsx
+		function VaultRowAccessory({ locked: lockedProp, kind: kindProp, inherited: inheritedProp, workspaceId, sessionId, store: storeProp }) {
+			const store = useVaultStore(storeProp);
+			useVaultSnapshot(store);
+			const state = resolveRowLockState(store, kindProp ?? (sessionId !== void 0 ? "session" : workspaceId !== void 0 ? "workspace" : void 0), workspaceId, sessionId);
+			const locked = lockedProp ?? state.locked;
+			const inherited = inheritedProp ?? state.inherited;
+			if (!locked) return null;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				className: `dsh-vault-row-accessory ${inherited ? "dsh-vault-row-accessory-inherited" : "dsh-vault-row-accessory-locked"}`,
+				role: "status",
+				"aria-live": "polite",
+				"aria-label": inherited ? "继承项目保护" : "已上锁，受保护",
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ProtectedLockIcon, { className: "dsh-vault-protected-lock-icon" }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: "dsh-vault-row-accessory-text",
+						children: inherited ? "继承项目保护" : "已上锁"
+					}),
+					!inherited && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: "dsh-vault-row-accessory-muted",
+						children: "受保护"
+					})
+				]
+			});
+		}
+		//#endregion
 		//#region src/client/settings/GroupCredentials.tsx
 		function GroupCredentials({ mode, groupId, groupName, store, onClose }) {
 			const [credential, setCredential] = (0, react.useState)("");
@@ -2408,6 +2468,18 @@ window.__ModuleLoader__.load({
 					order: 400,
 					inject: () => ({ store })
 				}, VaultRowAction));
+				const disposeWorkspaceAccessory = ctx.slots.inject("sidebar.workspaces.workspace.row.accessory", () => ctx.slots.register({
+					name: "sidebar.workspaces.workspace.row.accessory",
+					id: "dsh-vault-workspace-accessory",
+					order: 400,
+					inject: () => ({ store })
+				}, VaultRowAccessory));
+				const disposeWorkspaceAction = ctx.slots.inject("sidebar.workspaces.workspace.row.action", () => ctx.slots.register({
+					name: "sidebar.workspaces.workspace.row.action",
+					id: "dsh-vault-workspace-action",
+					order: 400,
+					inject: () => ({ store })
+				}, VaultRowAction));
 				const disposeSettings = ctx.configForms.whileServed(["dsh-vault"], () => ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
 					name: "settings.plugins.tab",
 					id: "dsh-vault",
@@ -2423,6 +2495,8 @@ window.__ModuleLoader__.load({
 					disposeAccess();
 					disposeUnlock();
 					disposeSessionAction();
+					disposeWorkspaceAccessory();
+					disposeWorkspaceAction();
 					disposeSettings();
 					recoveryDeliveryFor(store).dispose();
 					unlock.detach();

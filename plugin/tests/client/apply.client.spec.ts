@@ -6,6 +6,8 @@ import { apply } from '../../src/client/index.js'
 const LIST_SLOTS = new Set([
   'shell.overlay',
   'sidebar.workspaces.session.row.action',
+  'sidebar.workspaces.workspace.row.action',
+  'sidebar.workspaces.workspace.row.accessory',
   'settings.plugins.tab',
 ])
 
@@ -52,6 +54,8 @@ describe('Vault client composition', () => {
       .toEqual([
         ['shell.overlay', 'dsh-vault-unlock'],
         ['sidebar.workspaces.session.row.action', 'dsh-vault-session-action'],
+        ['sidebar.workspaces.workspace.row.accessory', 'dsh-vault-workspace-accessory'],
+        ['sidebar.workspaces.workspace.row.action', 'dsh-vault-workspace-action'],
         ['settings.plugins.tab', 'dsh-vault'],
       ])
     await expect(openingGate?.('locked-session')).rejects.toThrow('Vault protection loading')
