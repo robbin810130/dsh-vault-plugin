@@ -96,8 +96,39 @@ index ef3012c..0cd530b 100644
 --- a/packages/api/session-controller/tests/sessions-service.client.spec.ts
 +++ b/packages/api/session-controller/tests/sessions-service.client.spec.ts
 @@ -725,6 +725,32 @@ describe('borrow-only bindings', () => {
-  })
-})
+   })
+ })
+ 
++describe('opening access gate', () => {
++  it('blocks the first history request when an opening gate denies a session', async ({ bench }) => {
++    const b = bench()
++    await feedList(b, [{ id: 'private' }])
++    const dispose = b.svc.openingAccess.register(async (sessionId) => {
++      if (sessionId === sid('private')) throw new Error('Vault group locked')
++    })
++
++    using reference = b.svc.retain(sid('private'), { source: 'mainView' })
++    await expect(reference.ready).rejects.toThrow('Vault group locked')
++    expect(b.mock.log.requests(FOLLOW)).toHaveLength(0)
++    dispose()
++  })
++
++  it('fails closed when an opening gate rejects unexpectedly', async ({ bench }) => {
++    const b = bench()
++    await feedList(b, [{ id: 'private' }])
++    const dispose = b.svc.openingAccess.register(async () => { throw new Error('access provider failed') })
++
++    using reference = b.svc.retain(sid('private'), { source: 'mainView' })
++    await expect(reference.ready).rejects.toThrow('access provider failed')
++    expect(b.mock.log.requests(FOLLOW)).toHaveLength(0)
++    dispose()
++  })
++})
++
+ describe('catalog-addressed navigation', () => {
+   it('retains a projected child independently of its parent and shares its history generation', async ({ bench }) => {
+     const b = bench()
+
 diff --git a/packages/client/tsdown.client.ts b/packages/client/tsdown.client.ts
 index 99e647d..40fa2a5 100644
 --- a/packages/client/tsdown.client.ts
