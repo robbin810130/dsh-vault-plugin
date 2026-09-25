@@ -128,7 +128,6 @@ index ef3012c..0cd530b 100644
  describe('catalog-addressed navigation', () => {
    it('retains a projected child independently of its parent and shares its history generation', async ({ bench }) => {
      const b = bench()
-
 diff --git a/packages/client/tsdown.client.ts b/packages/client/tsdown.client.ts
 index 99e647d..40fa2a5 100644
 --- a/packages/client/tsdown.client.ts
@@ -147,12 +146,262 @@ index 99e647d..40fa2a5 100644
            code: source,
            cssModules: { pattern: '[hash]_[local]' },
            minify: true,
-
+diff --git a/packages/client/ui-conversation/src/client/apply.ts b/packages/client/ui-conversation/src/client/apply.ts
+index f4a5ff4..f9c8f1d 100644
+--- a/packages/client/ui-conversation/src/client/apply.ts
++++ b/packages/client/ui-conversation/src/client/apply.ts
+@@ -272,6 +272,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
+     locale: NS,
+     children: {
+       'conversation.session': { kind: 'single', scope: 'session' },
++      'conversation.session.guard': { kind: 'list', scope: 'session' },
+       'conversation.composer': { kind: 'chain', scope: 'session' },
+       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
+       'conversation.input.dock': { kind: 'list', scope: 'session' },
+@@ -362,6 +363,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
+     locale: NS,
+     children: {
+       'conversation.session.header.lineage': { kind: 'single', scope: 'session' },
++      'conversation.session.header.title': { kind: 'chain', scope: 'session' },
+       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
+       'conversation.session.header.corner': { kind: 'single', scope: 'session' },
+diff --git a/packages/client/ui-conversation/src/client/contract/slots.ts b/packages/client/ui-conversation/src/client/contract/slots.ts
+index 001becd..7a74dfd 100644
+--- a/packages/client/ui-conversation/src/client/contract/slots.ts
++++ b/packages/client/ui-conversation/src/client/contract/slots.ts
+@@ -135,6 +135,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+       scope: 'session'
+       owner: { view?: string }
+     }
++    /** Lock screen over an active protected Session body. */
++    'conversation.session.guard': {
++      kind: 'list'
++      scope: 'session'
++      owner: { sessionId: SessionId; workspaceId?: WorkspaceId }
++    }
+     /** Resident navigation container, including when no Session is selected. */
+     'conversation.header': { kind: 'single'; scope: 'session-maybe' }
+     /** Strict per-Session title, actions, and View navigation. */
+@@ -152,6 +158,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+       scope: 'session'
+       owner: ConversationHeaderLineageOwnerProps
+     }
++    /** Selector-routed replacement for one visible Session breadcrumb title. */
++    'conversation.session.header.title': {
++      kind: 'chain'
++      scope: 'session'
++      owner: ConversationHeaderLineageOwnerProps
++    }
+     /** Title-adjacent Session actions in ascending order. */
+     'conversation.session.header.actions': {
+       kind: 'list'
+@@ -498,6 +510,7 @@ export type ConversationSessionHeaderSlotProps =
+   PropsRuntime<'conversation.session.header'>
+   & PropsRenderSlots<
+     'conversation.session.header.lineage'
++    | 'conversation.session.header.title'
+     | 'conversation.session.header.actions'
+     | 'conversation.session.header.utilities'
+     | 'conversation.session.header.corner'
+diff --git a/packages/client/ui-conversation/src/client/skeleton/ConversationContent.tsx b/packages/client/ui-conversation/src/client/skeleton/ConversationContent.tsx
+index adace1c..ad01dca 100644
+--- a/packages/client/ui-conversation/src/client/skeleton/ConversationContent.tsx
++++ b/packages/client/ui-conversation/src/client/skeleton/ConversationContent.tsx
+@@ -191,6 +191,7 @@ export function ConversationContent(props: ConversationContentProps) {
+         {composerSeat}
+       </div>
+       <WidthControls container={body} phase={phase} />
++      {sessionId === undefined ? null : renderSlot('conversation.session.guard', { sessionId, ...(sessionWorkspace?.workspaceId === undefined ? {} : { workspaceId: sessionWorkspace.workspaceId }) })}
+     </div>
+   )
+ }
+diff --git a/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx b/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
+index d17f52e..3e6eabc 100644
+--- a/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
++++ b/packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx
+@@ -57,7 +57,7 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
+  */
+ export function ConversationSessionHeader({
+   sessionId, hideChrome, useSessions, useConversationViews, useStore,
+-  renderSlot, open, selectView, t,
++  renderSlot, renderSlotChain, open, selectView, t,
+ }: ConversationSessionHeaderProps) {
+   const tabs = useConversationViews(value => value)
+   const selectedId = useStore(s => s.view)
+@@ -80,7 +80,7 @@ export function ConversationSessionHeader({
+                   const title = last
+                     ? (
+                       <span className={clsx(css.crumb, summary.subagent && css.crumbSubagent, css.crumbCurrent)}>
+-                        {summary.displayTitle}
++                        {renderSlotChain('conversation.session.header.title', { lineageSessionId: summary.id, displayTitle: summary.displayTitle }, { fallback: summary.displayTitle })}
+                       </span>
+                     )
+                     : (
+@@ -89,7 +89,7 @@ export function ConversationSessionHeader({
+                         className={clsx(css.crumb, summary.subagent && css.crumbSubagent)}
+                         onClick={() => { open(summary.id) }}
+                       >
+-                        {summary.displayTitle}
++                        {renderSlotChain('conversation.session.header.title', { lineageSessionId: summary.id, displayTitle: summary.displayTitle, openTitle: () => { open(summary.id) } }, { fallback: summary.displayTitle })}
+                       </button>
+                     )
+                   const lineage = last || summary.subagent
+diff --git a/packages/client/ui-layout/src/client/AppFrame.tsx b/packages/client/ui-layout/src/client/AppFrame.tsx
+index e9ed81a..3d824e3 100644
+--- a/packages/client/ui-layout/src/client/AppFrame.tsx
++++ b/packages/client/ui-layout/src/client/AppFrame.tsx
+@@ -27,7 +27,7 @@ import css from './AppFrame.module.css'
+ /** Full composed props: runtime share + child-slot render share + store share. */
+ export type AppFrameProps =
+   & PropsRuntime<'root'>
+-  & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay' | 'shell.leading'>
++  & PropsRenderSlots<'sidebar' | 'main' | 'rightbar' | 'shell.overlay' | 'shell.leading' | 'shell.document.title'>
+   & PropsStore<ReturnType<typeof createLayoutStore>>
+   & PropsLocale<'common'>
+ 
+@@ -142,6 +142,7 @@ export function AppFrame({
+   usePanelInfo,
+   actions,
+   renderSlot,
++  renderSlotChain,
+   t,
+ }: AppFrameProps) {
+   const layoutInfo = useStore(state => state.layoutInfo)
+@@ -299,6 +300,7 @@ export function AppFrame({
+         productTitle={productTitle}
+         useSessions={useSessions}
+         usePanelInfo={usePanelInfo}
++        renderSlotChain={renderSlotChain}
+       />
+       <div className={css.sidebarCol}>
+         {sidebar}
+diff --git a/packages/client/ui-layout/src/client/DocumentTitle.tsx b/packages/client/ui-layout/src/client/DocumentTitle.tsx
+index 0ff98cb..af0938a 100644
+--- a/packages/client/ui-layout/src/client/DocumentTitle.tsx
++++ b/packages/client/ui-layout/src/client/DocumentTitle.tsx
+@@ -1,29 +1,39 @@
+ /** Browser title selection follows the active main panel without subscribing the frame. */
+ import { useEffect } from 'react'
+-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
++import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+ 
+ /** Props for the browser title projection. */
+-export type DocumentTitleProps = Pick<PropsRuntime<'root'>, 'useSessions' | 'usePanelInfo'> & {
++export type DocumentTitleProps = Pick<PropsRuntime<'root'>, 'useSessions' | 'usePanelInfo'> & PropsRenderSlots<'shell.document.title'> & {
+   /** Build-configured or localized product title. */
+   productTitle: string
+ }
+ 
++function DefaultDocumentTitle({ title, productTitle }: { title: string | undefined; productTitle: string }) {
++  useEffect(() => {
++    document.title = title === undefined ? productTitle : `${title} — ${productTitle}`
++    return () => { document.title = productTitle }
++  }, [productTitle, title])
++  return null
++}
++
+ /**
+  * Project the selected durable session title into the browser title and
+  * restore the build-selected product title when unmounted.
+  * @param props - Selected session title projection.
+  * @returns No rendered content.
+  */
+-export function DocumentTitle({ useSessions, usePanelInfo, productTitle }: DocumentTitleProps): null {
++export function DocumentTitle({ useSessions, usePanelInfo, productTitle, renderSlotChain }: DocumentTitleProps) {
+   const showSessionTitle = usePanelInfo(info => info.activePanelId === null)
+-  const title = useSessions((state) => {
++  const selected = useSessions((state) => {
+     const current = Object.values(state.byId)
+       .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+-    return !showSessionTitle || current === undefined ? undefined : state.byId[current]?.title
++    return !showSessionTitle || current === undefined
++      ? undefined
++      : state.byId[current]
+   })
+-  useEffect(() => {
+-    document.title = title === undefined ? productTitle : `${title} — ${productTitle}`
+-    return () => { document.title = productTitle }
+-  }, [productTitle, title])
+-  return null
++  return renderSlotChain('shell.document.title', {
++    productTitle,
++    ...(selected?.id === undefined ? {} : { sessionId: selected.id }),
++    ...(selected?.title === undefined ? {} : { displayTitle: selected.title }),
++  }, { fallback: <DefaultDocumentTitle title={selected?.title} productTitle={productTitle} /> })
+ }
+diff --git a/packages/client/ui-layout/src/client/index.ts b/packages/client/ui-layout/src/client/index.ts
+index 045fcb8..34c1468 100644
+--- a/packages/client/ui-layout/src/client/index.ts
++++ b/packages/client/ui-layout/src/client/index.ts
+@@ -89,6 +89,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+      * `id` is added beside the shipped entries instead of replacing them.
+      */
+     'shell.overlay': { kind: 'list'; scope: 'root' }
++    /** Replaces the browser document title for the active main Session. */
++    'shell.document.title': { kind: 'chain'; scope: 'root'; owner: { sessionId?: string; displayTitle?: string; productTitle: string } }
+     /**
+      * Window-chrome seat at the frame's top-left, over every main panel.
+      * Mounted only while the sidebar column is fully hidden (macOS desktop
+@@ -166,6 +168,7 @@ export function apply(ctx: ClientContext): void {
+         'main': { kind: 'keyed', scope: 'root' },
+         'rightbar': { kind: 'single', scope: 'root' },
+         'shell.overlay': { kind: 'list', scope: 'root' },
++        'shell.document.title': { kind: 'chain', scope: 'root' },
+         'shell.leading': { kind: 'single', scope: 'root' },
+       },
+       store,
+diff --git a/packages/client/ui-layout/tests/app-frame.client.spec.tsx b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
+index 7e334af..6287fa6 100644
+--- a/packages/client/ui-layout/tests/app-frame.client.spec.tsx
++++ b/packages/client/ui-layout/tests/app-frame.client.spec.tsx
+@@ -68,6 +68,7 @@ function mountFrame(windowWidth = frameWidth) {
+     slotCalls.push({ key, props: owner, options })
+     return <div data-testid={`${key}-content`} data-entry-key={options?.entryKey} />
+   }
++  const renderSlotChain: AppFrameProps['renderSlotChain'] = (_key, _owner, options) => options?.fallback ?? null
+   const useSessions: AppFrameProps['useSessions'] = sel => sel({
+     ids: selectedSession === undefined ? [] : [selectedSession],
+     byId: selectedSession === undefined ? {} : {
+@@ -93,6 +94,7 @@ function mountFrame(windowWidth = frameWidth) {
+       useStore={useStore}
+       actions={instance.actions}
+       renderSlot={renderSlot}
++      renderSlotChain={renderSlotChain}
+       useSessions={useSessions}
+       usePanelInfo={usePanelInfo}
+       useSessionStatus={useSessionStatus}
+diff --git a/packages/client/ui-layout/tests/document-title.client.spec.tsx b/packages/client/ui-layout/tests/document-title.client.spec.tsx
+index 0b39340..e09cc23 100644
+--- a/packages/client/ui-layout/tests/document-title.client.spec.tsx
++++ b/packages/client/ui-layout/tests/document-title.client.spec.tsx
+@@ -5,7 +5,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+ import type { SessionId } from '@deepseek-ai/dsh-session/types'
+-import { DocumentTitle } from '../src/client/DocumentTitle.tsx'
++import { DocumentTitle, type DocumentTitleProps } from '../src/client/DocumentTitle.tsx'
+ import type { MainPanelId, PanelInfo } from '../src/client/service.ts'
+ 
+ let originalTitle: string
+@@ -25,7 +25,11 @@ function titleSources() {
+   const panelInfo = createSnapshotStore<PanelInfo>({ activePanelId: null })
+   return {
+     sessionId, sessions, panelInfo,
+-    props: { useSessions: bindSnapshotSelector(sessions), usePanelInfo: bindSnapshotSelector(panelInfo) },
++    props: {
++      useSessions: bindSnapshotSelector(sessions),
++      usePanelInfo: bindSnapshotSelector(panelInfo),
++      renderSlotChain: ((_key, _owner, options) => options?.fallback ?? null) as DocumentTitleProps['renderSlotChain'],
++    },
+   }
+ }
+ 
 diff --git a/packages/client/ui-workspace/src/client/contract/slots.ts b/packages/client/ui-workspace/src/client/contract/slots.ts
-index 6469d28..72ecc24 100644
+index 6469d28..b771fc1 100644
 --- a/packages/client/ui-workspace/src/client/contract/slots.ts
 +++ b/packages/client/ui-workspace/src/client/contract/slots.ts
-@@ -64,6 +64,14 @@ export interface DirectoryFlowOwnerProps {
+@@ -64,6 +64,27 @@ export interface DirectoryFlowOwnerProps {
    onError: (message: string) => void
  }
  
@@ -164,10 +413,23 @@ index 6469d28..72ecc24 100644
 +  displayTitle: string
 +}
 +
++/** Title replacement for one Workspace header. */
++export interface WorkspaceTitleOwnerProps {
++  workspaceId: WorkspaceId
++  displayTitle: string
++}
++
++/** Title replacement for one Session row. */
++export interface SessionTitleOwnerProps {
++  sessionId: SessionId
++  workspaceId?: WorkspaceId
++  displayTitle: string
++}
++
  /** Owner share of one Session row action occurrence: the row the action belongs to. */
  export interface SessionRowOwnerProps {
    /** Session the row shows. */
-@@ -146,6 +154,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+@@ -146,6 +167,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       * handling to keep the row from opening.
       */
      'sidebar.workspaces.session.row.action': { kind: 'list'; scope: 'root'; owner: SessionRowOwnerProps }
@@ -175,10 +437,12 @@ index 6469d28..72ecc24 100644
 +    'sidebar.workspaces.workspace.row.accessory': { kind: 'list'; scope: 'root'; owner: WorkspaceRowOwnerProps }
 +    /** Hover action buttons at the end of one real Workspace row. */
 +    'sidebar.workspaces.workspace.row.action': { kind: 'list'; scope: 'root'; owner: WorkspaceRowOwnerProps }
++    'sidebar.workspaces.workspace.row.title': { kind: 'chain'; scope: 'root'; owner: WorkspaceTitleOwnerProps }
++    'sidebar.workspaces.session.row.title': { kind: 'chain'; scope: 'root'; owner: SessionTitleOwnerProps }
    }
  }
  
-@@ -402,6 +414,7 @@ export type WorkspaceBrowserProps =
+@@ -402,6 +429,7 @@ export type WorkspaceBrowserProps =
    PropsRuntime<'sidebar.workspaces'>
    & PropsRenderSlots<
      'sidebar.workspaces.directoryFlow' | 'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'
@@ -187,20 +451,22 @@ index 6469d28..72ecc24 100644
    & PropsStore<WorkspaceViewStoreHandle>
    & Omit<WorkspaceBrowserInjected, 'hooks'>
 diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
-index 35aa8b1..3a1adab 100644
+index 35aa8b1..29c8eec 100644
 --- a/packages/client/ui-workspace/src/client/index.ts
 +++ b/packages/client/ui-workspace/src/client/index.ts
-@@ -256,6 +256,8 @@ export function apply(ctx: Context): void {
+@@ -256,6 +256,10 @@ export function apply(ctx: Context): void {
            kind: 'list', scope: 'root', inject: { hooks: { menuOpenState: menuOpenStateFactory } },
          },
          'sidebar.workspaces.session.row.action': { kind: 'list', scope: 'root' },
 +        'sidebar.workspaces.workspace.row.accessory': { kind: 'list', scope: 'root' },
 +        'sidebar.workspaces.workspace.row.action': { kind: 'list', scope: 'root' },
++        'sidebar.workspaces.workspace.row.title': { kind: 'chain', scope: 'root' },
++        'sidebar.workspaces.session.row.title': { kind: 'chain', scope: 'root' },
        },
        store: viewStore,
        inject: browserInjected,
 diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
-index a3cfa70..b40b8ee 100644
+index a3cfa70..edde9c4 100644
 --- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
 @@ -201,7 +201,7 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
@@ -208,7 +474,7 @@ index a3cfa70..b40b8ee 100644
   * @returns the row element.
   */
 -export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, t }: {
-+export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, t, renderSlot }: {
++export function ProjectRowItem({ group, containsCurrentDescendant = false, onToggle, onCreate, actions, drag, home, t, renderSlot, renderSlotChain }: {
    group: GroupNode
    containsCurrentDescendant?: boolean
    onToggle: () => void
@@ -217,22 +483,52 @@ index a3cfa70..b40b8ee 100644
    home?: string | undefined
    t: RowTranslate
 -}) {
-+} & PropsRenderSlots<'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action'>) {
++} & PropsRenderSlots<'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action' | 'sidebar.workspaces.workspace.row.title'>) {
    const row = group
    // The ungrouped bucket has no workspace title: its label is dictionary copy.
    const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
-@@ -248,8 +248,10 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
+@@ -247,9 +247,13 @@ export function ProjectRowItem({ group, containsCurrentDescendant = false, onTog
+         <IconTriangleRightFillRegular className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
        </span>
        <span className={css.projectText}>
-         <span className={css.title}>{label}</span>
-+        {row.workspaceId !== undefined && renderSlot('sidebar.workspaces.workspace.row.accessory', { workspaceId: row.workspaceId, displayTitle: label })}
+-        <span className={css.title}>{label}</span>
++        {row.workspaceId === undefined
++          ? <span className={css.title}>{label}</span>
++          : renderSlotChain('sidebar.workspaces.workspace.row.title', { workspaceId: row.workspaceId, displayTitle: label }, { fallback: <span className={css.title}>{label}</span> })}
        </span>
++      {row.workspaceId !== undefined && renderSlot('sidebar.workspaces.workspace.row.accessory', { workspaceId: row.workspaceId, displayTitle: label })}
        <span className={css.rowActions}>
 +        {row.workspaceId !== undefined && renderSlot('sidebar.workspaces.workspace.row.action', { workspaceId: row.workspaceId, displayTitle: label })}
          {actions !== undefined && (
            <Menu
              open={menuOpen}
-@@ -519,7 +521,7 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }:
+@@ -456,13 +460,14 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
+  * @param props.t - Workspace-browser translation seat.
+  * @returns the result row.
+  */
+-export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: {
++export function SearchResultItem({ result, currentId, onOpen, onUnarchive, workspaceId, renderSlotChain, t }: {
+   result: SearchResultNode
+   currentId: string | undefined
+   onOpen: (id: SearchResultNode['id']) => void
+   onUnarchive: (id: SearchResultNode['id']) => void
++  workspaceId?: string | undefined
+   t: RowTranslate
+-}) {
++} & PropsRenderSlots<'sidebar.workspaces.session.row.title'>) {
+   const selected = result.id === currentId
+   const statuses = sessionStatuses(result, t)
+   const primaryStatus = statuses[0]
+@@ -483,7 +488,7 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }:
+             <SessionStatusDots statuses={statuses} />
+           )}
+         </span>
+-        <span className={css.searchResultTitle}>{result.title}</span>
++        <span className={css.searchResultTitle}>{renderSlotChain('sidebar.workspaces.session.row.title', { sessionId: result.id, ...(workspaceId === undefined ? {} : { workspaceId }), displayTitle: result.title }, { fallback: result.title })}</span>
+         {result.hasActiveSchedule && <ActiveScheduleIndicator t={t} search />}
+         {result.archived && (
+           <span className={css.rowActions}>
+@@ -519,7 +524,7 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }:
   * @param props.now - epoch ms for relative-time formatting.
   * @param props.onOpen - open a session by id.
   * @param props.onRenameRequest - open the rename dialog from a title double-click (id + current title).
@@ -241,17 +537,51 @@ index a3cfa70..b40b8ee 100644
   * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
   * @param props.drag - optional row-drag target wiring; blank rows cannot start a drag.
   * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
-@@ -542,7 +544,7 @@ export function SessionNodeItem({
+@@ -527,7 +532,7 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }:
+  * @returns the session row.
+  */
+ export function SessionNodeItem({
+-  node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, flat = false, t,
++  node, currentId, now, onOpen, onRenameRequest, renderSlot, renderSlotChain, workspaceId, onReveal, drag, flat = false, t,
+ }: {
+   node: SessionNode
+   currentId: string | undefined
+@@ -535,6 +540,7 @@ export function SessionNodeItem({
+   onOpen: (id: SessionNode['id']) => void
+   /** Open the rename dialog from a title double-click (id + current title). */
+   onRenameRequest: (id: SessionNode['id'], currentTitle: string) => void
++  workspaceId?: string | undefined
+   /** Scroll this row into view after search navigation, then acknowledge it. */
+   onReveal?: (() => void) | undefined
+   /** Present on reorderable-list rows so every row can remain a drop target. */
+@@ -542,7 +548,7 @@ export function SessionNodeItem({
    /** The row is rendered without a parent Workspace header. */
    flat?: boolean | undefined
    t: RowTranslate
 -} & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'>) {
-+} & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action' | 'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action'>) {
++} & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action' | 'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action' | 'sidebar.workspaces.session.row.title'>) {
    const row = node
    const title = displayTitle(node, t)
    const selected = node.id === currentId
+@@ -616,14 +622,8 @@ export function SessionNodeItem({
+           {!row.archived && showStatus && <SessionStatusDots statuses={statuses} />}
+         </span>
+       )}
+-      <span
+-        ref={titleRef}
+-        className={css.title}
+-        onDoubleClick={row.blank
+-          ? undefined
+-          : (e) => { e.stopPropagation(); onRenameRequest(node.id, row.title) }}
+-      >
+-        {title}
++      <span ref={titleRef} className={css.title} onDoubleClick={row.blank ? undefined : (e) => { e.stopPropagation(); onRenameRequest(node.id, row.title) }}>
++        {renderSlotChain('sidebar.workspaces.session.row.title', { sessionId: node.id, ...(workspaceId === undefined ? {} : { workspaceId }), displayTitle: title }, { fallback: title })}
+       </span>
+       {row.hasActiveSchedule && <ActiveScheduleIndicator t={t} />}
+       {/* A blank New Session row is a provisional placeholder: nothing has
 diff --git a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
-index a421d6b..eae02b9 100644
+index a421d6b..0f3facb 100644
 --- a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
 +++ b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx
 @@ -218,7 +218,7 @@ type SessionTreeProps = Pick<
@@ -259,24 +589,198 @@ index a421d6b..eae02b9 100644
    'useSessionStatus' | 'startSession' | 'open'
    | 'insertWorkspaceBefore' | 't' | 'usePanelInfo'
 -> & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action'> & {
-+> & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action' | 'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action'> & {
++> & PropsRenderSlots<'sidebar.workspaces.session.menu.item' | 'sidebar.workspaces.session.row.action' | 'sidebar.workspaces.workspace.row.accessory' | 'sidebar.workspaces.workspace.row.action' | 'sidebar.workspaces.workspace.row.title' | 'sidebar.workspaces.session.row.title'> & {
    /** Always-mounted Session list snapshot. */
    list: SessionListState
    /** Host account home for POSIX hover-path abbreviation. */
-@@ -470,6 +470,7 @@ function SessionTree({
+@@ -259,7 +259,7 @@ function SessionTree({
+   rowState,
+   workspaceReady, animationResetKey, usePanelInfo,
+   onRenameRequest, onDeleteRequest, onSessionRenameRequest,
+-  renderSlot,
++  renderSlot, renderSlotChain,
+   insertWorkspaceBefore,
+   nestWorkspaces, groupExpansion, setGroupExpanded,
+   setSessionOrder, home, t,
+@@ -470,6 +470,8 @@ function SessionTree({
            containsCurrentDescendant={currentAncestors.has(group.key)}
            home={home}
            t={t}
 +          renderSlot={renderSlot}
++          renderSlotChain={renderSlotChain}
            onToggle={() => {
              if (group.expanded) {
                setSessionLimits(limits => ({ ...limits, [group.key]: COLLAPSED_SESSION_LIMIT }))
+@@ -541,6 +543,8 @@ function SessionTree({
+               onOpen={open}
+               onRenameRequest={onSessionRenameRequest}
+               renderSlot={renderSlot}
++              renderSlotChain={renderSlotChain}
++              workspaceId={group.workspaceId}
+               onReveal={node.id === revealSessionId && group.key === revealGroup
+                 ? () => { onSessionRevealed(node.id) }
+                 : undefined}
+@@ -599,7 +603,7 @@ function SessionTree({
+ /** The flat "In one list" body: every session is one draggable top-level row. */
+ function FlatList({
+   list, sessionIds, rowState, useSessionStatus, open, onSessionRenameRequest,
+-  renderSlot,
++  renderSlot, renderSlotChain, workspaces,
+   usePanelInfo, setSessionOrder, workspaceReady, animationResetKey,
+   revealSessionId, onSessionRevealed, t,
+ }: Pick<
+@@ -608,6 +612,7 @@ function FlatList({
+   | 'open'
+   | 'onSessionRenameRequest'
+   | 'renderSlot'
++  | 'renderSlotChain'
+   | 'usePanelInfo'
+   | 'setSessionOrder'
+   | 'workspaceReady'
+@@ -619,6 +624,7 @@ function FlatList({
+ > & {
+   list: SessionListState
+   sessionIds: readonly SessionId[]
++  workspaces: readonly WorkspaceView[]
+ }) {
+   const panelActive = usePanelInfo(info => info.activePanelId !== null)
+   const statuses = useSessionStatus(s => s)
+@@ -665,6 +671,8 @@ function FlatList({
+               onOpen={open}
+               onRenameRequest={onSessionRenameRequest}
+               renderSlot={renderSlot}
++              renderSlotChain={renderSlotChain}
++              workspaceId={workspaces.find(workspace => workspace.sessionIds.includes(node.id))?.workspaceId}
+               onReveal={node.id === revealSessionId
+                 ? () => { onSessionRevealed(node.id) }
+                 : undefined}
+@@ -721,7 +729,8 @@ function SearchResults({
+   resultLimit,
+   usePanelInfo,
+   t,
+-}: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo'> & {
++  renderSlotChain,
++}: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo'> & PropsRenderSlots<'sidebar.workspaces.session.row.title'> & {
+   workspaces: readonly WorkspaceView[]
+   archivedSessionIds: readonly SessionNode['id'][]
+   /** Search matches follow the archived filter selected for the list. */
+@@ -767,6 +776,8 @@ function SearchResults({
+               currentId={currentId}
+               onOpen={open}
+               onUnarchive={onUnarchive}
++              workspaceId={workspaces.find(workspace => workspace.sessionIds.includes(result.id))?.workspaceId}
++              renderSlotChain={renderSlotChain}
+               t={t}
+             />
+           ))}
+@@ -828,6 +839,7 @@ export function WorkspaceBrowser({
+   useDirectoryFlow,
+   useHostInfo,
+   renderSlot,
++  renderSlotChain,
+   t,
+ }: WorkspaceBrowserProps) {
+   const home = useHostInfo(info => info.home)
+@@ -1278,6 +1290,7 @@ export function WorkspaceBrowser({
+         {wide && (normalizedQuery !== ''
+           ? (
+             <SearchResults
++              renderSlotChain={renderSlotChain}
+               usePanelInfo={usePanelInfo}
+               useSessions={useSessions}
+               useSessionStatus={useSessionStatus}
+@@ -1298,6 +1311,7 @@ export function WorkspaceBrowser({
+                 usePanelInfo={usePanelInfo}
+                 list={list}
+                 sessionIds={orderedFlatSessionIds}
++                workspaces={orderedWorkspaces}
+                 rowState={rowState}
+                 workspaceReady={workspaceReady}
+                 animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+@@ -1305,6 +1319,7 @@ export function WorkspaceBrowser({
+                 open={guardedOpen}
+                 onSessionRenameRequest={requestSessionRename}
+                 renderSlot={renderSlot}
++                renderSlotChain={renderSlotChain}
+                 setSessionOrder={saveSessionOrder}
+                 revealSessionId={revealSessionId}
+                 onSessionRevealed={acknowledgeSessionReveal}
+@@ -1325,6 +1340,7 @@ export function WorkspaceBrowser({
+                 animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                 groupExpansion={groupExpansion}
+                 setGroupExpanded={actions.setGroupExpanded}
++                renderSlotChain={renderSlotChain}
+                 setSessionOrder={saveSessionOrder}
+                 rowState={rowState}
+                 startSession={startSession}
+diff --git a/packages/client/ui-workspace/tests/rows.client.spec.tsx b/packages/client/ui-workspace/tests/rows.client.spec.tsx
+index 290dc0c..4f5cde1 100644
+--- a/packages/client/ui-workspace/tests/rows.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/rows.client.spec.tsx
+@@ -12,7 +12,9 @@ import type { MenuOpenState, SessionRowOwnerProps } from '../src/client/contract
+ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+ import type { RowDragProps } from '../src/client/rows/Rows.tsx'
+ import {
+-  ProjectRowItem, SearchResultItem, SessionNodeItem as SessionNodeItemComponent,
++  ProjectRowItem as ProjectRowItemComponent,
++  SearchResultItem as SearchResultItemComponent,
++  SessionNodeItem as SessionNodeItemComponent,
+ } from '../src/client/rows/Rows.tsx'
+ import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
+ import { en, zh } from '../src/client/locales.ts'
+@@ -31,12 +33,30 @@ type RowRenderSlot = PropsRenderSlots<RowSlotName>['renderSlot']
+ type SessionNodeItemProps = ComponentProps<typeof SessionNodeItemComponent>
+ 
+ const renderNoRowEntries: RowRenderSlot = () => null
++type ProjectRowProps = ComponentProps<typeof ProjectRowItemComponent>
++type SearchResultProps = ComponentProps<typeof SearchResultItemComponent>
++type SessionTitleSlot = ComponentProps<typeof SessionNodeItemComponent>['renderSlotChain']
++const renderNoTitleEntries: SessionTitleSlot = (_name, _owner, options) => options?.fallback ?? null
++const renderNoWorkspaceEntries: NonNullable<ProjectRowProps['renderSlot']> = () => null
++
++function ProjectRowItem(props: Omit<ProjectRowProps, 'renderSlot' | 'renderSlotChain'> & {
++  renderSlot?: ProjectRowProps['renderSlot']
++  renderSlotChain?: ProjectRowProps['renderSlotChain']
++}) {
++  return <ProjectRowItemComponent {...props} renderSlot={props.renderSlot ?? renderNoWorkspaceEntries} renderSlotChain={props.renderSlotChain ?? renderNoTitleEntries as ProjectRowProps['renderSlotChain']} />
++}
++
++function SearchResultItem(props: Omit<SearchResultProps, 'renderSlotChain'> & {
++  renderSlotChain?: SearchResultProps['renderSlotChain']
++}) {
++  return <SearchResultItemComponent {...props} renderSlotChain={props.renderSlotChain ?? renderNoTitleEntries as SearchResultProps['renderSlotChain']} />
++}
+ 
+ // Direct row specs use the real required Slot share, empty unless the case supplies entries.
+-function SessionNodeItem({ renderSlot = renderNoRowEntries, onRenameRequest = () => {}, ...props }: Omit<
+-  SessionNodeItemProps, 'renderSlot' | 'onRenameRequest'
+-> & Partial<Pick<SessionNodeItemProps, 'renderSlot' | 'onRenameRequest'>>) {
+-  return <SessionNodeItemComponent {...props} renderSlot={renderSlot} onRenameRequest={onRenameRequest} />
++function SessionNodeItem({ renderSlot = renderNoRowEntries, renderSlotChain = renderNoTitleEntries, onRenameRequest = () => {}, ...props }: Omit<
++  SessionNodeItemProps, 'renderSlot' | 'renderSlotChain' | 'onRenameRequest'
++> & Partial<Pick<SessionNodeItemProps, 'renderSlot' | 'renderSlotChain' | 'onRenameRequest'>>) {
++  return <SessionNodeItemComponent {...props} renderSlot={renderSlot} renderSlotChain={renderSlotChain} onRenameRequest={onRenameRequest} />
+ }
+ 
+ /** Half detection reads the row rect; jsdom rects are all-zero by default. */
+diff --git a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+index c4c55b6..7ad3aa4 100644
+--- a/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
++++ b/packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx
+@@ -127,6 +127,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
+     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
+     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
+     renderSlot: renderDirectoryFlowOnly,
++    renderSlotChain: (_name, _owner, options) => options?.fallback ?? null,
+     t,
+     ...overrides,
+   }
 diff --git a/packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx b/packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx
 new file mode 100644
-index 0000000..6c9ac69
+index 0000000..4cec01d
 --- /dev/null
 +++ b/packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,64 @@
 +// @vitest-environment jsdom
 +import { render, screen } from '@testing-library/react'
 +import { describe, expect, it, vi } from 'vitest'
@@ -303,6 +807,7 @@ index 0000000..6c9ac69
 +        {owner.workspaceId}
 +      </span>
 +    ))
++    const renderSlotChain = vi.fn((_name: string, _owner: unknown, options?: { fallback?: React.ReactNode }) => options?.fallback)
 +
 +    render(<ProjectRowItem
 +      group={workspaceGroup()}
@@ -310,16 +815,21 @@ index 0000000..6c9ac69
 +      onCreate={vi.fn()}
 +      t={t}
 +      renderSlot={renderSlot as never}
++      renderSlotChain={renderSlotChain as never}
 +    />)
 +
 +    expect(screen.getByTestId('workspace-accessory').textContent).toBe('workspace-a')
 +    expect(screen.getByTestId('workspace-action').textContent).toBe('workspace-a')
++    expect(screen.getByTestId('workspace-accessory').parentElement).toBe(screen.getByRole('treeitem'))
 +    expect(renderSlot).toHaveBeenCalledWith('sidebar.workspaces.workspace.row.accessory', {
 +      workspaceId: 'workspace-a', displayTitle: 'Workspace A',
 +    })
 +    expect(renderSlot).toHaveBeenCalledWith('sidebar.workspaces.workspace.row.action', {
 +      workspaceId: 'workspace-a', displayTitle: 'Workspace A',
 +    })
++    expect(renderSlotChain).toHaveBeenCalledWith('sidebar.workspaces.workspace.row.title', {
++      workspaceId: 'workspace-a', displayTitle: 'Workspace A',
++    }, { fallback: expect.anything() })
 +  })
 +
 +  it('does not expose Workspace actions on the ungrouped bucket', () => {
@@ -330,6 +840,7 @@ index 0000000..6c9ac69
 +      onCreate={vi.fn()}
 +      t={t}
 +      renderSlot={renderSlot as never}
++      renderSlotChain={vi.fn() as never}
 +    />)
 +    expect(renderSlot).not.toHaveBeenCalled()
 +  })

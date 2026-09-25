@@ -1,17 +1,17 @@
 {
-  "date": "2026-09-24T17:14:52.434Z",
+  "date": "2026-09-25T04:57:06.014Z",
   "version": "0.1.7-rc.1",
   "upstreamCommit": "46a7f68b0922371ce7144b668b90e377d8e799f4",
   "upstreamTree": "55a4a1b1e7df3324c3c2a7f6fa27e61fedbb7278",
-  "patchSHA256": "1bf0c901cd5f47cb65108b310adc62dbe26b389ec2b5f28ba5f0d257d1452897",
+  "patchSHA256": "990eec854d7c241bcb9e00fe4ae37c7e7eeba0a2964440ef7747d451879ee452",
   "bundles": {
     "packages/api/session-controller/lib/client.js": "a5fbc1af65e36e4327cd577189c506c9033a0bccc077e3f04101046df7f0d2ab",
     "packages/api/session-controller/lib/client.js.map": "4e8088cd3d75dc926c6cf17b76aefe8465e356e87f8cdf8e43e0d3c55fa1ed75",
-    "packages/client/ui-workspace/lib/client.js": "ddee12b735176b68787607e61b4d6a147b850349eab90193392b48faeeed2cf8",
-    "packages/client/ui-workspace/lib/client.js.map": "c82fc508e60b1886b194d25e1c73ed65794099d79af49db3808b1a31ecb93297",
-    "packages/client/ui-layout/lib/client.js": "7b5f72cb391b81856434372b43d77c095d03d424e508d0bf341efb542d4d603e",
-    "packages/client/ui-layout/lib/client.js.map": "1d6c3d06407ed98ee5c1cc6db284d91125931455b9058e2225f1d1768f730c8f",
-    "packages/client/ui-conversation/lib/client.js": "b8f67a57945a9490eb4037575bf91d89036f1f5917903ae796b4a0dee26cf97a",
-    "packages/client/ui-conversation/lib/client.js.map": "3b424fadf0dc47d57da07a84ec90e49e4d01575838f074aa6274443b29bde442"
+    "packages/client/ui-workspace/lib/client.js": "389bc2882fb7a8d3aacf03b95802c19ec62a782db2257759f3bd2fbd99388622",
+    "packages/client/ui-workspace/lib/client.js.map": "430cb274a93aa7a759fb78d1243ed13cf3d20f0e99e5cd9f1c64c9385da1e6bb",
+    "packages/client/ui-layout/lib/client.js": "a08193b4f73efcbb7291c9c1dad05e407817ad16ca171e1a493ef8ca285dd1c2",
+    "packages/client/ui-layout/lib/client.js.map": "8bcc0998512870b6d01817918471b43936ef9490136fcdbc9e66e4a4963da2fc",
+    "packages/client/ui-conversation/lib/client.js": "dbd889d381911c22cfe0c928ea1ee7f9e031093d547e04a36496221b8bd3ea41",
+    "packages/client/ui-conversation/lib/client.js.map": "71d3e214fbf0f115e4e2aeda81f7bab0dc12df1c96a830c9ab7a89da479e9877"
   }
 }

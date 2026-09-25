@@ -3,7 +3,7 @@
   "tag": "dsh-v0.1.7-rc.1",
   "upstreamCommit": "46a7f68b0922371ce7144b668b90e377d8e799f4",
   "upstreamTree": "55a4a1b1e7df3324c3c2a7f6fa27e61fedbb7278",
-  "patchSHA256": "1bf0c901cd5f47cb65108b310adc62dbe26b389ec2b5f28ba5f0d257d1452897",
+  "patchSHA256": "990eec854d7c241bcb9e00fe4ae37c7e7eeba0a2964440ef7747d451879ee452",
   "files": {
     "packages/api/session-controller/src/client/contract/sessions.ts": "082745c4204535e99dd7ce1111834df67e0f73b8cbd5ddeec41ca6dddfc2b6de",
     "packages/api/session-controller/src/client/index.ts": "d90c6dcb93af854c6789240556e0f483be142e9bfadbf1b50eeb10bd7cf09c53",
@@ -13,6 +13,13 @@
     "packages/client/ui-workspace/src/client/contract/slots.ts": "f955bc55a1381c8931a21f61591ff7935a98d00b18981230cf94a07338d1fc41",
     "packages/client/ui-workspace/src/client/rows/Rows.tsx": "2b2f59907bbaf167d96db1af267ac5778a35313d0a8f4199c9666e93485b2a53",
     "packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.tsx": "613f5346b11930820a783e2fc4e12c0f90c6a723681ebe2a8d4fb38e2305816e",
-    "packages/client/ui-workspace/src/client/index.ts": "47270afa9844b80b819c0c41a9cb5dde71268607c9b8b199072bb1aff412a424"
+    "packages/client/ui-workspace/src/client/index.ts": "47270afa9844b80b819c0c41a9cb5dde71268607c9b8b199072bb1aff412a424",
+    "packages/client/ui-conversation/src/client/apply.ts": "7cd8e1b64ef4dfd0b5abe227afd882b353cfba00accfcc1f3532c6893992eecb",
+    "packages/client/ui-conversation/src/client/contract/slots.ts": "73c91b28beb3e7e6958a0eadfab23f9653d0cbb064fcec1efadbe927664813dd",
+    "packages/client/ui-conversation/src/client/skeleton/ConversationContent.tsx": "298791db22f928fc43cc75768cbf25c9f89a641f6ae7f381eb9d3ad29d2f4397",
+    "packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx": "02f6dde7fce49979c8a724a4f875cfa54d3427caba197ea5c42c5ef42310acb2",
+    "packages/client/ui-layout/src/client/AppFrame.tsx": "1716bbb1f45cd76f0e1dfc593dfdb9d921ac232b09f84f3a476e160958ea7462",
+    "packages/client/ui-layout/src/client/DocumentTitle.tsx": "b2bef9a37e736e49ff4dab129fcd46b47aa6cf63c930ebf68d7e4ab2300bee53",
+    "packages/client/ui-layout/src/client/index.ts": "19445ee9e9eddca305cbaece26a3c9cefb1e8618d7275c791b5646ef09e700e6"
   }
 }

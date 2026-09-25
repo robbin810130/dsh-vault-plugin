@@ -40,7 +40,7 @@ try {
   await run('git', ['apply', patchPath], source)
   await cp(builderPath, join(source, 'build-vault-client.mts'))
   await run('pnpm', ['install', '--frozen-lockfile'], source)
-  await run('pnpm', ['exec', 'vitest', 'run', 'packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx'], source)
+  await run('pnpm', ['exec', 'vitest', 'run', 'packages/client/ui-workspace/tests/workspace-row-actions.client.spec.tsx', 'packages/client/ui-workspace/tests/workspace-browser.client.spec.tsx', 'packages/client/ui-workspace/tests/rows.client.spec.tsx'], source)
   await run('pnpm', ['run', 'build:lib:host'], source)
   await run('pnpm', ['exec', 'tsx', 'build-vault-client.mts'], source)
 

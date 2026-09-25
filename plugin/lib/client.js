@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
 		let react_dom = require("react-dom");
 		let react_jsx_runtime = require("react/jsx-runtime");
 		//#region \0dsh-vault-css:/Users/Robbin/.codex/worktrees/vault-017-compat/DSH 插件/plugin/src/client/styles.css.mjs
-		const css = ".dsh-vault{color:inherit}.dsh-vault-settings-card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);max-width:760px;color:var(--dsw-alias-label-primary);border-radius:12px;list-style:none;transition:border-color .16s,background .16s}.dsh-vault-settings-card:hover{border-color:var(--dsw-alias-label-dimmed)}.dsh-vault-settings-card-open{border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-bg-layer-2)}.dsh-vault-settings-card-heading{flex-direction:column;gap:2px;min-width:0;display:flex}.dsh-vault-settings-card-heading strong{font-size:15px;font-weight:600;line-height:1.5}.dsh-vault-settings-card-heading small{color:var(--dsw-alias-label-tertiary);font-size:13px;font-weight:400;line-height:1.5}.dsh-vault-settings-card h2,.dsh-vault-settings-panel h3{margin:0;font-size:13px;font-weight:600;line-height:1.5}.dsh-vault-settings-card-header{appearance:none;width:100%;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}.dsh-vault-settings-card-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}.dsh-vault-settings-card-heading{flex:1}.dsh-vault-settings-card-chevron{width:7px;height:7px;color:var(--dsw-alias-label-tertiary);border-bottom:1.5px solid;border-right:1.5px solid;flex:none;margin:0 5px 3px 0;transition:transform .12s;transform:rotate(45deg)}.dsh-vault-settings-card-open .dsh-vault-settings-card-chevron{margin-bottom:-3px;transform:rotate(225deg)}.dsh-vault-settings-card-body{border-top:1px solid var(--dsw-alias-border-l2);min-width:0;margin:0 16px;padding-bottom:8px}.dsh-vault-settings-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);align-items:flex-end;gap:22px;margin-top:2px;display:flex}.dsh-vault-settings-tabs button{color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:0;padding:7px 1px 9px;font-size:13px;line-height:20px;position:relative}.dsh-vault-settings-tabs button:hover,.dsh-vault-settings-tabs button[aria-selected=true]{color:var(--dsw-alias-label-primary)}.dsh-vault-settings-tabs button[aria-selected=true]:after,.dsh-vault-settings-tabs button:focus-visible:after{content:\"\";background:var(--dsw-alias-label-primary);border-radius:2px 2px 0 0;height:2px;position:absolute;bottom:-1px;left:0;right:0}.dsh-vault-settings-panel{min-width:0}.dsh-vault-field{flex-direction:column;gap:6px;padding:12px 0;display:flex}.dsh-vault-field+.dsh-vault-field{border-top:1px solid var(--dsw-alias-border-l2)}.dsh-vault-field>span,.dsh-vault-checkbox{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dsh-vault-field select,.dsh-vault-field input[type=number],.dsh-vault-field input[type=text],.dsh-vault-field input[type=password]{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);width:100%;height:34px;color:var(--dsw-alias-label-primary);font:inherit;border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dsh-vault-field select:focus-visible,.dsh-vault-field input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dsh-vault-checkbox{align-items:center;gap:8px;padding:6px 0;display:flex}.dsh-vault-checkbox input{accent-color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory,.dsh-vault-row-action,.dsh-vault-row-menu,.dsh-vault-dialog,.dsh-vault-locked-conversation{color:inherit;font:inherit}.dsh-vault-row-accessory{align-items:center;gap:.35rem;min-height:44px;display:inline-flex}.dsh-vault-row-accessory-locked{color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory-inherited{color:var(--dsw-alias-label-secondary)}.dsh-vault-row-accessory-text,.dsh-vault-row-accessory-muted{display:none}.dsh-vault-lock-icon,.dsh-vault-protected-lock-icon,.dsh-vault-dialog-icon,.dsh-vault-locked-conversation-icon{flex:none;width:16px;height:16px}.dsh-vault-protected-lock-icon{color:var(--dsw-alias-label-secondary)}.dsh-vault-row-accessory-locked .dsh-vault-protected-lock-icon{color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory-inherited .dsh-vault-protected-lock-icon{color:var(--dsw-alias-label-tertiary)}.dsh-vault-row-action{align-items:center;display:inline-flex;position:relative}.dsh-vault-row-action-button,.dsh-vault-button,.dsh-vault-row-menu-item{border:1px solid var(--dsw-alias-border-l2);min-height:34px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:8px;padding:0 12px;font-size:13px}.dsh-vault-row-action-button{background:0 0;border-color:#0000;width:34px;padding:0}.dsh-vault-row-action-button:hover:not(:disabled){background:var(--dsw-alias-bg-module-platform);border-color:#0000}.dsh-vault-button:hover:not(:disabled),.dsh-vault-row-menu-item:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dsh-vault-button-primary{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);border-color:#0000}.dsh-vault-button-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.dsh-vault-row-menu{z-index:10;gap:.25rem;display:grid;position:absolute;top:100%;right:0}.dsh-vault-dialog-backdrop{z-index:2147483000;box-sizing:border-box;background:#0000008f;background:color-mix(in srgb, var(--dsw-alias-bg-base) 64%, transparent);place-items:center;padding:16px;display:grid;position:fixed;inset:0}.dsh-vault-dialog{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);width:min(420px,100%);max-width:100%;color:var(--dsw-alias-label-primary);box-shadow:0 18px 52px #0000006b;box-shadow:0 18px 52px color-mix(in srgb, var(--dsw-alias-bg-base) 42%, transparent);border-radius:12px;gap:.75rem;padding:20px;display:grid}.dsh-vault-dialog h2{color:var(--dsw-alias-label-primary);margin:0;font-size:18px;font-weight:600;line-height:1.4}.dsh-vault-dialog>p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:13px;line-height:1.5}.dsh-vault-quick-lock-dialog .dsh-vault-field input{box-sizing:border-box;width:100%}.dsh-vault-quick-lock-error{border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, var(--dsw-alias-border-l2));background:color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);border-radius:10px;gap:.25rem;margin:0;padding:.75rem .875rem;font-size:13px;line-height:1.5;display:grid}.dsh-vault-quick-lock-error>strong{font-weight:600}.dsh-vault-quick-lock-error>span{color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-primary))}.dsh-vault-field{gap:.35rem;display:grid}.dsh-vault-field input{min-height:34px}.dsh-vault-settings-heading{justify-content:space-between;align-items:center;gap:12px;padding:12px 0;display:flex}.dsh-vault-settings-heading-actions-only{justify-content:flex-end}.dsh-vault-settings-disclosure,.dsh-vault-settings-warning{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dsh-vault-group-list{gap:8px;margin:0;padding:0;list-style:none;display:grid}.dsh-vault-group-list>li{flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;padding:8px 0;display:flex}.dsh-vault-group-list>li>strong{min-width:0;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.dsh-vault-group-list>li>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dsh-vault-group-list>li>.dsh-vault-dialog-actions{margin-left:auto}.dsh-vault-dialog-actions{justify-content:flex-end;gap:.5rem;display:flex}.dsh-vault-locked-conversation{text-align:center;align-content:center;justify-items:center;gap:.75rem;max-width:28rem;min-height:100%;margin:0 auto;padding:3rem 2rem;display:grid}.dsh-vault-locked-conversation-icon{width:48px;height:48px;color:var(--dsw-alias-brand-primary);opacity:.9;margin-bottom:.5rem}.dsh-vault-locked-conversation-title{margin:0;font-size:1.5rem;font-weight:600}.dsh-vault-locked-conversation-copy{color:var(--dsw-alias-label-secondary);margin:0}";
+		const css = ".dsh-vault{color:inherit}.dsh-vault-settings-card{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);max-width:760px;color:var(--dsw-alias-label-primary);border-radius:12px;list-style:none;transition:border-color .16s,background .16s}.dsh-vault-settings-card:hover{border-color:var(--dsw-alias-label-dimmed)}.dsh-vault-settings-card-open{border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-bg-layer-2)}.dsh-vault-settings-card-heading{flex-direction:column;gap:2px;min-width:0;display:flex}.dsh-vault-settings-card-heading strong{font-size:15px;font-weight:600;line-height:1.5}.dsh-vault-settings-card-heading small{color:var(--dsw-alias-label-tertiary);font-size:13px;font-weight:400;line-height:1.5}.dsh-vault-settings-card h2,.dsh-vault-settings-panel h3{margin:0;font-size:13px;font-weight:600;line-height:1.5}.dsh-vault-settings-card-header{appearance:none;width:100%;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}.dsh-vault-settings-card-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}.dsh-vault-settings-card-heading{flex:1}.dsh-vault-settings-card-chevron{width:7px;height:7px;color:var(--dsw-alias-label-tertiary);border-bottom:1.5px solid;border-right:1.5px solid;flex:none;margin:0 5px 3px 0;transition:transform .12s;transform:rotate(45deg)}.dsh-vault-settings-card-open .dsh-vault-settings-card-chevron{margin-bottom:-3px;transform:rotate(225deg)}.dsh-vault-settings-card-body{border-top:1px solid var(--dsw-alias-border-l2);min-width:0;margin:0 16px;padding-bottom:8px}.dsh-vault-settings-tabs{border-bottom:1px solid var(--dsw-alias-border-l2);align-items:flex-end;gap:22px;margin-top:2px;display:flex}.dsh-vault-settings-tabs button{color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer;background:0 0;border:0;padding:7px 1px 9px;font-size:13px;line-height:20px;position:relative}.dsh-vault-settings-tabs button:hover,.dsh-vault-settings-tabs button[aria-selected=true]{color:var(--dsw-alias-label-primary)}.dsh-vault-settings-tabs button[aria-selected=true]:after,.dsh-vault-settings-tabs button:focus-visible:after{content:\"\";background:var(--dsw-alias-label-primary);border-radius:2px 2px 0 0;height:2px;position:absolute;bottom:-1px;left:0;right:0}.dsh-vault-settings-panel{min-width:0}.dsh-vault-field{flex-direction:column;gap:6px;padding:12px 0;display:flex}.dsh-vault-field+.dsh-vault-field{border-top:1px solid var(--dsw-alias-border-l2)}.dsh-vault-field>span,.dsh-vault-checkbox{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dsh-vault-field select,.dsh-vault-field input[type=number],.dsh-vault-field input[type=text],.dsh-vault-field input[type=password]{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);width:100%;height:34px;color:var(--dsw-alias-label-primary);font:inherit;border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dsh-vault-field select:focus-visible,.dsh-vault-field input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dsh-vault-checkbox{align-items:center;gap:8px;padding:6px 0;display:flex}.dsh-vault-checkbox input{accent-color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory,.dsh-vault-row-action,.dsh-vault-row-menu,.dsh-vault-dialog,.dsh-vault-locked-conversation{color:inherit;font:inherit}.dsh-vault-session-guard{z-index:40;background:var(--dsw-alias-bg-base,#18191c);place-items:center;display:grid;position:absolute;inset:0;overflow:auto}.dsh-vault-row-accessory{align-items:center;gap:.35rem;min-height:20px;display:inline-flex}.dsh-vault-row-accessory-locked{color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory-inherited{color:var(--dsw-alias-label-secondary)}.dsh-vault-row-accessory-text,.dsh-vault-row-accessory-muted{display:none}.dsh-vault-lock-icon,.dsh-vault-protected-lock-icon,.dsh-vault-dialog-icon,.dsh-vault-locked-conversation-icon{flex:none;width:16px;height:16px}.dsh-vault-protected-lock-icon{color:var(--dsw-alias-label-secondary)}.dsh-vault-row-accessory-locked .dsh-vault-protected-lock-icon{color:var(--dsw-alias-brand-primary)}.dsh-vault-row-accessory-inherited .dsh-vault-protected-lock-icon{color:var(--dsw-alias-label-tertiary)}.dsh-vault-row-action{align-items:center;display:inline-flex;position:relative}.dsh-vault-row-action-button,.dsh-vault-button,.dsh-vault-row-menu-item{border:1px solid var(--dsw-alias-border-l2);min-height:34px;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer;background:0 0;border-radius:8px;padding:0 12px;font-size:13px}.dsh-vault-row-action-button{background:0 0;border-color:#0000;width:34px;padding:0}.dsh-vault-row-action-button:hover:not(:disabled){background:var(--dsw-alias-bg-module-platform);border-color:#0000}.dsh-vault-button:hover:not(:disabled),.dsh-vault-row-menu-item:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dsh-vault-button-primary{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);border-color:#0000}.dsh-vault-button-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.dsh-vault-row-menu{z-index:10;gap:.25rem;display:grid;position:absolute;top:100%;right:0}.dsh-vault-dialog-backdrop{z-index:2147483000;box-sizing:border-box;background:#0000008f;background:color-mix(in srgb, var(--dsw-alias-bg-base) 64%, transparent);place-items:center;padding:16px;display:grid;position:fixed;inset:0}.dsh-vault-dialog{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);width:min(420px,100%);max-width:100%;color:var(--dsw-alias-label-primary);box-shadow:0 18px 52px #0000006b;box-shadow:0 18px 52px color-mix(in srgb, var(--dsw-alias-bg-base) 42%, transparent);border-radius:12px;gap:.75rem;padding:20px;display:grid}.dsh-vault-dialog h2{color:var(--dsw-alias-label-primary);margin:0;font-size:18px;font-weight:600;line-height:1.4}.dsh-vault-dialog>p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:13px;line-height:1.5}.dsh-vault-quick-lock-dialog .dsh-vault-field input{box-sizing:border-box;width:100%}.dsh-vault-quick-lock-error{border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 70%, var(--dsw-alias-border-l2));background:color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);border-radius:10px;gap:.25rem;margin:0;padding:.75rem .875rem;font-size:13px;line-height:1.5;display:grid}.dsh-vault-quick-lock-error>strong{font-weight:600}.dsh-vault-quick-lock-error>span{color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-primary))}.dsh-vault-field{gap:.35rem;display:grid}.dsh-vault-field input{min-height:34px}.dsh-vault-settings-heading{justify-content:space-between;align-items:center;gap:12px;padding:12px 0;display:flex}.dsh-vault-settings-heading-actions-only{justify-content:flex-end}.dsh-vault-settings-disclosure,.dsh-vault-settings-warning{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dsh-vault-group-list{gap:8px;margin:0;padding:0;list-style:none;display:grid}.dsh-vault-group-list>li{flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;padding:8px 0;display:flex}.dsh-vault-group-list>li>strong{min-width:0;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}.dsh-vault-group-list>li>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.dsh-vault-group-list>li>.dsh-vault-dialog-actions{margin-left:auto}.dsh-vault-dialog-actions{justify-content:flex-end;gap:.5rem;display:flex}.dsh-vault-locked-conversation{text-align:center;align-content:center;justify-items:center;gap:.75rem;max-width:28rem;min-height:100%;margin:0 auto;padding:3rem 2rem;display:grid}.dsh-vault-locked-conversation-icon{width:48px;height:48px;color:var(--dsw-alias-brand-primary);opacity:.9;margin-bottom:.5rem}.dsh-vault-locked-conversation-title{margin:0;font-size:1.5rem;font-weight:600}.dsh-vault-locked-conversation-copy{color:var(--dsw-alias-label-secondary);margin:0}";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin=\"dsh-vault-plugin\"]") === null) {
 			const tag = document.createElement("style");
 			tag.setAttribute("data-plugin", "dsh-vault-plugin");
@@ -416,6 +416,52 @@ window.__ModuleLoader__.load({
 		}
 		function workspaceIdForSession(sessionId) {
 			return sessionWorkspaceIds.get(sessionId);
+		}
+		function conceal(kind, t) {
+			const label = t(kind);
+			return {
+				label,
+				ariaLabel: label,
+				concealed: true
+			};
+		}
+		function visible(store, type, id, workspaceId) {
+			const resolution = resolveVaultTarget(store.getSnapshot(), type === "workspace" ? {
+				type,
+				id
+			} : {
+				type,
+				id,
+				...workspaceId === void 0 ? {} : { workspaceId }
+			});
+			return resolution.kind === "plain" || resolution.kind === "protected" && store.getSnapshot().host === "ready" && store.hasUnlockedGroup(resolution.groupId);
+		}
+		function createVaultRowDecorator(store, t) {
+			return {
+				workspace: (id, base) => {
+					const snapshot = store.getSnapshot();
+					if (snapshot.host !== "ready") return conceal("workspace", t);
+					const policy = snapshot.policy;
+					if (visible(store, "workspace", id) || policy.lockedNameVisibility !== "all-hidden") return base;
+					return conceal("workspace", t);
+				},
+				session: (id, base, ...context) => {
+					const workspaceId = context[0];
+					const authoritative = context.length > 0;
+					rememberWorkspaceIdForSession(id, authoritative ? workspaceId ?? null : void 0);
+					const snapshot = store.getSnapshot();
+					if (snapshot.host !== "ready") return conceal("session", t);
+					const parent = authoritative ? workspaceId ?? void 0 : workspaceIdForSession(id);
+					const resolution = resolveVaultTarget(snapshot, {
+						type: "session",
+						id,
+						...parent === void 0 ? {} : { workspaceId: parent }
+					}, { workspaceAbsent: workspaceId === null });
+					if (resolution.kind === "plain" || resolution.kind === "protected" && snapshot.host === "ready" && store.hasUnlockedGroup(resolution.groupId)) return base;
+					if (snapshot.policy.lockedNameVisibility === "all-visible") return base;
+					return conceal("session", t);
+				}
+			};
 		}
 		//#endregion
 		//#region src/client/access/provider.ts
@@ -1545,7 +1591,11 @@ window.__ModuleLoader__.load({
 							})
 						] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", { children: "设置密码并上锁" }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: "保存后将立即锁定当前对话。" }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", { children: [
+								"保存后将立即锁定当前",
+								target?.type === "workspace" ? "工作区" : "对话",
+								"。"
+							] }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
 								className: "dsh-vault-field",
 								htmlFor: "dsh-vault-quick-password",
@@ -1658,6 +1708,158 @@ window.__ModuleLoader__.load({
 						children: "受保护"
 					})
 				]
+			});
+		}
+		//#endregion
+		//#region src/client/rows/VaultRowTitle.tsx
+		function Title({ label, concealed }) {
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				"aria-label": label,
+				"data-vault-concealed": concealed || void 0,
+				children: label
+			});
+		}
+		function VaultWorkspaceRowTitle({ workspaceId, displayTitle, store }) {
+			useVaultSnapshot(store);
+			const view = store === void 0 ? void 0 : createVaultRowDecorator(store, () => "受保护工作区").workspace?.(workspaceId, {
+				label: displayTitle,
+				ariaLabel: displayTitle,
+				concealed: false
+			});
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Title, {
+				label: view?.label ?? "受保护工作区",
+				concealed: view?.concealed ?? true
+			});
+		}
+		function VaultSessionRowTitle({ sessionId, workspaceId, displayTitle, store }) {
+			useVaultSnapshot(store);
+			const view = store === void 0 ? void 0 : createVaultRowDecorator(store, () => "受保护对话").session?.(sessionId, {
+				label: displayTitle,
+				ariaLabel: displayTitle,
+				concealed: false
+			}, workspaceId);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Title, {
+				label: view?.label ?? "受保护对话",
+				concealed: view?.concealed ?? true
+			});
+		}
+		function VaultBreadcrumbTitle({ lineageSessionId, displayTitle, workspaceId: currentWorkspaceId, currentSessionId, store }) {
+			useVaultSnapshot(store);
+			const workspaceId = lineageSessionId === currentSessionId ? currentWorkspaceId : void 0;
+			const view = store === void 0 ? void 0 : createVaultRowDecorator(store, () => "受保护对话").session?.(lineageSessionId, {
+				label: displayTitle,
+				ariaLabel: displayTitle,
+				concealed: false
+			}, workspaceId);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: view?.label ?? "受保护对话" });
+		}
+		//#endregion
+		//#region src/client/rows/VaultDocumentTitle.tsx
+		function VaultDocumentTitle({ sessionId, displayTitle, productTitle, workspaceForSession, store }) {
+			const snapshot = useVaultSnapshot(store);
+			const workspaceId = sessionId === void 0 ? void 0 : workspaceForSession?.(sessionId);
+			const presentation = sessionId === void 0 || displayTitle === void 0 || store === void 0 ? void 0 : createVaultRowDecorator(store, () => "受保护对话").session?.(sessionId, {
+				label: displayTitle,
+				ariaLabel: displayTitle,
+				concealed: false
+			}, workspaceId);
+			const concealed = sessionId !== void 0 && (snapshot?.host !== "ready" || presentation?.concealed !== false);
+			const title = sessionId === void 0 ? productTitle : `${concealed ? "受保护对话" : displayTitle ?? "受保护对话"} — ${productTitle}`;
+			(0, react.useEffect)(() => {
+				document.title = title;
+			}, [title]);
+			return null;
+		}
+		//#endregion
+		//#region src/client/unlock/LockedConversation.tsx
+		function LockedConversation(props) {
+			const { sessionId, store: storeProp, children } = props;
+			const store = useVaultStore(storeProp);
+			const snapshot = useVaultSnapshot(store);
+			const knownWorkspaceId = workspaceIdForSession(sessionId);
+			const promptedTarget = snapshot?.prompt?.target.type === "session" && snapshot.prompt.target.id === sessionId ? snapshot.prompt.target : void 0;
+			const lastPromptedTarget = (0, react.useRef)();
+			if (promptedTarget !== void 0) lastPromptedTarget.current = promptedTarget;
+			const rememberedWorkspaceId = lastPromptedTarget.current?.id === sessionId ? lastPromptedTarget.current.workspaceId : void 0;
+			const authoritative = Object.prototype.hasOwnProperty.call(props, "workspaceId");
+			const workspaceId = authoritative ? props.workspaceId ?? void 0 : knownWorkspaceId ?? rememberedWorkspaceId;
+			const target = (!authoritative ? promptedTarget : void 0) ?? {
+				type: "session",
+				id: sessionId,
+				...workspaceId === void 0 ? {} : { workspaceId }
+			};
+			const resolution = snapshot === void 0 ? {
+				kind: "blocked",
+				reason: "Vault group locked"
+			} : resolveVaultTarget(snapshot, target, { workspaceAbsent: authoritative && props.workspaceId === null });
+			if (!(resolution.kind !== "plain" && (snapshot?.host !== "ready" || resolution.kind !== "protected" || !store?.hasUnlockedGroup(resolution.groupId)))) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children });
+			const requestUnlock = () => {
+				if (store === void 0 || snapshot?.host !== "ready" || resolution.kind !== "protected") return;
+				store.requestUnlock(resolution.groupId, target);
+			};
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: "dsh-vault-locked-conversation",
+				role: "dialog",
+				"aria-modal": "true",
+				"aria-label": "受保护",
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(LockIcon, { className: "dsh-vault-locked-conversation-icon" }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "dsh-vault-locked-conversation-title",
+						children: "已上锁"
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "dsh-vault-locked-conversation-copy",
+						children: "需要解锁才能查看内容"
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "dsh-vault-button dsh-vault-button-primary",
+						disabled: store === void 0 || snapshot?.host !== "ready" || resolution.kind !== "protected",
+						onClick: requestUnlock,
+						children: "解锁"
+					})
+				]
+			});
+		}
+		//#endregion
+		//#region src/client/unlock/VaultSessionGuard.tsx
+		function VaultSessionGuard({ sessionId, workspaceId, workspaceLookup, store }) {
+			const guard = (0, react.useRef)(null);
+			const snapshot = useVaultSnapshot(store);
+			const resolvedWorkspaceId = workspaceId ?? workspaceLookup;
+			const resolution = snapshot === void 0 ? {
+				kind: "blocked",
+				reason: "Vault state unavailable"
+			} : resolveVaultTarget(snapshot, {
+				type: "session",
+				id: sessionId,
+				...resolvedWorkspaceId === void 0 ? {} : { workspaceId: resolvedWorkspaceId }
+			});
+			const locked = resolution.kind !== "plain" && (snapshot?.host !== "ready" || resolution.kind !== "protected" || store?.hasUnlockedGroup(resolution.groupId) !== true);
+			(0, react.useLayoutEffect)(() => {
+				if (!locked) return;
+				const root = guard.current?.parentElement;
+				if (root === null || root === void 0) return;
+				const previous = /* @__PURE__ */ new Map();
+				for (const child of root.children) {
+					if (!(child instanceof HTMLElement) || child === guard.current) continue;
+					previous.set(child, child.inert);
+					child.inert = true;
+				}
+				return () => {
+					for (const [child, wasInert] of previous) child.inert = wasInert;
+				};
+			}, [locked]);
+			if (!locked) return null;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				ref: guard,
+				className: "dsh-vault-session-guard",
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LockedConversation, {
+					sessionId,
+					...resolvedWorkspaceId === void 0 ? {} : { workspaceId: resolvedWorkspaceId },
+					...store === void 0 ? {} : { store }
+				})
 			});
 		}
 		//#endregion
@@ -2480,6 +2682,46 @@ window.__ModuleLoader__.load({
 					order: 400,
 					inject: () => ({ store })
 				}, VaultRowAction));
+				const disposeWorkspaceTitle = ctx.slots.inject("sidebar.workspaces.workspace.row.title", () => ctx.slots.register({
+					name: "sidebar.workspaces.workspace.row.title",
+					id: "dsh-vault-workspace-title",
+					select: () => ({}),
+					inject: () => ({ store })
+				}, VaultWorkspaceRowTitle));
+				const disposeSessionTitle = ctx.slots.inject("sidebar.workspaces.session.row.title", () => ctx.slots.register({
+					name: "sidebar.workspaces.session.row.title",
+					id: "dsh-vault-session-title",
+					select: () => ({}),
+					inject: () => ({ store })
+				}, VaultSessionRowTitle));
+				const disposeBreadcrumbTitle = ctx.slots.inject("conversation.session.header.title", () => ctx.slots.register({
+					name: "conversation.session.header.title",
+					id: "dsh-vault-breadcrumb-title",
+					select: () => ({}),
+					inject: (sessionId) => ({
+						store,
+						currentSessionId: sessionId,
+						workspaceId: ctx.workspaces.list.getSnapshot().items.find((workspace) => workspace.sessionIds.some((id) => String(id) === sessionId))?.workspaceId
+					})
+				}, VaultBreadcrumbTitle));
+				const disposeSessionGuard = ctx.slots.inject("conversation.session.guard", () => ctx.slots.register({
+					name: "conversation.session.guard",
+					id: "dsh-vault-session-guard",
+					order: 900,
+					inject: (sessionId) => ({
+						store,
+						workspaceLookup: ctx.workspaces.list.getSnapshot().items.find((workspace) => workspace.sessionIds.some((id) => String(id) === sessionId))?.workspaceId
+					})
+				}, VaultSessionGuard));
+				const disposeDocumentTitle = ctx.slots.inject("shell.document.title", () => ctx.slots.register({
+					name: "shell.document.title",
+					id: "dsh-vault-document-title",
+					select: () => ({}),
+					inject: () => ({
+						store,
+						workspaceForSession: (sessionId) => ctx.workspaces.list.getSnapshot().items.find((workspace) => workspace.sessionIds.some((id) => String(id) === sessionId))?.workspaceId
+					})
+				}, VaultDocumentTitle));
 				const disposeSettings = ctx.configForms.whileServed(["dsh-vault"], () => ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
 					name: "settings.plugins.tab",
 					id: "dsh-vault",
@@ -2497,6 +2739,11 @@ window.__ModuleLoader__.load({
 					disposeSessionAction();
 					disposeWorkspaceAccessory();
 					disposeWorkspaceAction();
+					disposeWorkspaceTitle();
+					disposeSessionTitle();
+					disposeBreadcrumbTitle();
+					disposeSessionGuard();
+					disposeDocumentTitle();
 					disposeSettings();
 					recoveryDeliveryFor(store).dispose();
 					unlock.detach();

@@ -10,6 +10,9 @@ import { VaultRowAction } from '../../src/client/rows/VaultRowAction.js'
 import { GroupWizard } from '../../src/client/settings/GroupWizard.js'
 import { GroupCredentials } from '../../src/client/settings/GroupCredentials.js'
 import { VaultOverlays } from '../../src/client/dialogs/VaultOverlays.js'
+import { VaultSessionGuard } from '../../src/client/unlock/VaultSessionGuard.js'
+import { VaultDocumentTitle } from '../../src/client/rows/VaultDocumentTitle.js'
+import { resolveVaultTarget } from '../../src/client/access/resolution.js'
 import { recoveryDeliveryFor } from '../../src/client/dialogs/recovery-delivery.js'
 import { GroupsPanel } from '../../src/client/settings/GroupsPanel.js'
 import { VaultSettingsCard } from '../../src/client/settings/VaultSettingsCard.js'
@@ -84,6 +87,39 @@ async function mountSettings(source = server(), scope?: { set(field: string, val
   fireEvent.click(screen.getByRole('button', { name: '展开设置: 保险箱' }))
   return { store, view }
 }
+
+describe('active protected Conversation guard', () => {
+  it('covers the currently open locked Conversation and restores it only after unlock', async () => {
+    const source = server({
+      ...snapshot(),
+      groups: [group('protected', 'Workspace lock')],
+      bindings: [{ targetType: 'workspace', targetId: 'workspace-a', mode: 'direct', passwordGroupId: 'protected', createdAt: '2026-09-25', updatedAt: '2026-09-25' }],
+    })
+    const store = createVaultClientStore(createVaultApiClient(source.fetcher))
+    await store.refresh()
+    expect(source.requests.map(request => request.action)).toContain('snapshot')
+    expect(store.getSnapshot().host).toBe('ready')
+    expect(resolveVaultTarget(store.getSnapshot(), { type: 'session', id: 'session-a', workspaceId: 'workspace-a' })).toEqual({ kind: 'protected', groupId: 'protected' })
+    render(<div data-conversation-content>
+      <article data-testid="private-body">{SECRET}</article>
+      <VaultSessionGuard sessionId="session-a" workspaceId="workspace-a" store={store} />
+      <VaultDocumentTitle sessionId="session-a" workspaceForSession={() => 'workspace-a'} displayTitle={SECRET} productTitle="DSH" store={store} />
+      <VaultOverlays store={store} />
+    </div>)
+
+    expect(screen.getByRole('dialog', { name: '受保护' })).toBeVisible()
+    expect(document.title).toBe('受保护对话 — DSH')
+    expect(screen.getByTestId('private-body')).toHaveProperty('inert', true)
+    fireEvent.click(screen.getAllByRole('button', { name: '解锁' }).at(-1)!)
+    const password = await screen.findByLabelText('密码')
+    fireEvent.change(password, { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('dialog', { name: '已上锁' }).querySelector('button[type="submit"]')!)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByTestId('private-body')).not.toHaveAttribute('inert')
+    expect(document.title).toBe(`${SECRET} — DSH`)
+    expect(source.requests.some(request => request.action === 'unlock')).toBe(true)
+  })
+})
 
 describe('F02 stable recovery-key delivery', () => {
   it.each(['workspace', 'session'] as const)('keeps %s key visible after lock and row removal until explicit acknowledgement', async kind => {

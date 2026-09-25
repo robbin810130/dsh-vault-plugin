@@ -8,6 +8,11 @@ const LIST_SLOTS = new Set([
   'sidebar.workspaces.session.row.action',
   'sidebar.workspaces.workspace.row.action',
   'sidebar.workspaces.workspace.row.accessory',
+  'sidebar.workspaces.workspace.row.title',
+  'sidebar.workspaces.session.row.title',
+  'conversation.session.header.title',
+  'conversation.session.guard',
+  'shell.document.title',
   'settings.plugins.tab',
 ])
 
@@ -56,6 +61,11 @@ describe('Vault client composition', () => {
         ['sidebar.workspaces.session.row.action', 'dsh-vault-session-action'],
         ['sidebar.workspaces.workspace.row.accessory', 'dsh-vault-workspace-accessory'],
         ['sidebar.workspaces.workspace.row.action', 'dsh-vault-workspace-action'],
+        ['sidebar.workspaces.workspace.row.title', 'dsh-vault-workspace-title'],
+        ['sidebar.workspaces.session.row.title', 'dsh-vault-session-title'],
+        ['conversation.session.header.title', 'dsh-vault-breadcrumb-title'],
+        ['conversation.session.guard', 'dsh-vault-session-guard'],
+        ['shell.document.title', 'dsh-vault-document-title'],
         ['settings.plugins.tab', 'dsh-vault'],
       ])
     await expect(openingGate?.('locked-session')).rejects.toThrow('Vault protection loading')

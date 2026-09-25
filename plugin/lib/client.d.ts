@@ -8,6 +8,53 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
     };
   }
 }
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    'sidebar.workspaces.workspace.row.title': {
+      kind: 'chain';
+      scope: 'root';
+      owner: {
+        workspaceId: string;
+        displayTitle: string;
+      };
+    };
+    'sidebar.workspaces.session.row.title': {
+      kind: 'chain';
+      scope: 'root';
+      owner: {
+        sessionId: string;
+        workspaceId?: string;
+        displayTitle: string;
+      };
+    };
+    'conversation.session.header.title': {
+      kind: 'chain';
+      scope: 'session';
+      owner: {
+        lineageSessionId: string;
+        displayTitle: string;
+        openTitle?: () => void;
+      };
+    };
+    'conversation.session.guard': {
+      kind: 'list';
+      scope: 'session';
+      owner: {
+        sessionId: string;
+        workspaceId?: string;
+      };
+    };
+    'shell.document.title': {
+      kind: 'chain';
+      scope: 'root';
+      owner: {
+        sessionId?: string;
+        displayTitle?: string;
+        productTitle: string;
+      };
+    };
+  }
+}
 interface ClientContext extends Context {
   readonly slots: {
     inject(name: string, factory: () => unknown): () => void;

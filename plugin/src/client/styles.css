@@ -201,11 +201,21 @@
   font: inherit;
 }
 
+.dsh-vault-session-guard {
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: var(--dsw-alias-bg-base, #18191c);
+}
+
 .dsh-vault-row-accessory {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  min-height: 44px;
+  min-height: 20px;
 }
 
 .dsh-vault-row-accessory-locked {

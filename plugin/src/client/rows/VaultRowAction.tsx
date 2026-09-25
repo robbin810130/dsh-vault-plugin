@@ -159,7 +159,7 @@ export function VaultRowAction({ locked: lockedProp, kind: kindProp, workspaceId
           <div className="dsh-vault-quick-lock-error" role="status"><strong>为避免重复创建保护</strong><span>请在工作区级别管理保护。</span></div>
           <div className="dsh-vault-dialog-actions"><button type="button" className="dsh-vault-button dsh-vault-button-primary" onClick={() => setDialogOpen(null)}>知道了</button></div>
         </> : <>
-          <h2>设置密码并上锁</h2><p>保存后将立即锁定当前对话。</p>
+          <h2>设置密码并上锁</h2><p>保存后将立即锁定当前{target?.type === 'workspace' ? '工作区' : '对话'}。</p>
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-password"><span>密码</span><input id="dsh-vault-quick-password" type="password" minLength={passwordPolicy.minLength} value={password} onChange={event => setPassword(event.currentTarget.value)} /></label>
           {password.length > 0 && passwordPolicyError(password, passwordPolicy) !== undefined && <p className="dsh-vault-settings-warning" role="note">{passwordPolicyError(password, passwordPolicy)}</p>}
           <label className="dsh-vault-field" htmlFor="dsh-vault-quick-confirm"><span>确认密码</span><input id="dsh-vault-quick-confirm" type="password" value={confirmation} onChange={event => { setConfirmation(event.currentTarget.value); if (error?.title === '两次密码不一致') setError(null) }} /></label>

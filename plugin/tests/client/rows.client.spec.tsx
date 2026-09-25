@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VaultRowAccessory } from '../../src/client/rows/VaultRowAccessory.js'
 import { VaultRowAction } from '../../src/client/rows/VaultRowAction.js'
+import { VaultSessionRowTitle } from '../../src/client/rows/VaultRowTitle.js'
 import { createVaultRowDecorator, rememberWorkspaceIdForSession } from '../../src/client/rows/presentation.js'
 import type { VaultClientStore } from '../../src/client/store.js'
 
@@ -92,6 +93,18 @@ describe('Vault row affordances', () => {
     expect(decorator.session?.('session-a', base)).toEqual(base)
   })
 
+  it('conceals an inherited session title when its Workspace is locked', () => {
+    const store = {
+      getSnapshot: fixed({ host: 'ready', groups: [{ id: 'group-a' }], bindings: [{ targetType: 'workspace', targetId: 'workspace-a', mode: 'direct', passwordGroupId: 'group-a' }], policy: { lockedNameVisibility: 'workspace-visible-session-hidden' } }),
+      hasUnlockedGroup: () => false,
+      subscribe: () => () => undefined,
+    } as unknown as VaultClientStore
+    render(<VaultSessionRowTitle sessionId="session-a" workspaceId="workspace-a" displayTitle="秘密会话名" store={store} />)
+    expect(screen.getByText('受保护对话')).toBeVisible()
+    expect(screen.queryByText('秘密会话名')).toBeNull()
+    expect(screen.getByLabelText('受保护对话')).toHaveAttribute('data-vault-concealed', 'true')
+  })
+
   it('opens the password dialog even before a password group exists', () => {
     const store = {
       getSnapshot: fixed({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
@@ -115,6 +128,7 @@ describe('Vault row affordances', () => {
     } as unknown as VaultClientStore
     render(<VaultRowAction kind="session" sessionId="session-a" workspaceId="workspace-a" presentation={{ label: '我的对话' }} store={store} />)
     fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+    expect(screen.getByText('保存后将立即锁定当前对话。')).toBeVisible()
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
     fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'correct horse' } })
     fireEvent.click(screen.getByRole('button', { name: '保存并上锁' }))
@@ -159,6 +173,28 @@ describe('Vault row affordances', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '上锁' }))
     expect(screen.getByRole('dialog', { name: '设置密码并上锁' })).toBeVisible()
+  })
+
+  it('describes and binds a workspace lock to the workspace', async () => {
+    const createGroup = vi.fn(async () => ({ ok: true, value: { snapshot: {}, recoveryKey: 'recovery-key' } }))
+    const store = {
+      getSnapshot: fixed({ host: 'ready', groups: [], bindings: [], policy: {} as never, unlockedGroupIds: new Set<string>(), prompt: null }),
+      hasUnlockedGroup: () => false,
+      createGroup,
+    } as unknown as VaultClientStore
+    render(<VaultRowAction kind="workspace" workspaceId="workspace-a" store={store} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '上锁' }))
+
+    expect(screen.getByText('保存后将立即锁定当前工作区。')).toBeVisible()
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct horse' } })
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存并上锁' }))
+    await vi.waitFor(() => expect(createGroup).toHaveBeenCalledWith(expect.objectContaining({
+      name: '工作区保护',
+      password: 'correct horse',
+      bindings: [expect.objectContaining({ targetType: 'workspace', targetId: 'workspace-a', mode: 'direct' })],
+    })))
   })
 
   it('shows confirmation mismatch inline when saving', () => {

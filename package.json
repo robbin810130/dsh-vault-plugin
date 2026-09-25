@@ -1,6 +1,6 @@
 {
   "name": "dsh-vault-plugin",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "DSH \u4fdd\u9669\u7bb1\u63d2\u4ef6\uff1a\u9879\u76ee\u4e0e\u5bf9\u8bdd\u7684\u524d\u53f0\u9690\u79c1\u9501",
   "type": "module",
   "bin": {

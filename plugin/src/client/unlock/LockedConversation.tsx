@@ -45,7 +45,7 @@ export function LockedConversation(props: LockedConversationProps) {
   }
 
   return (
-    <section className="dsh-vault-locked-conversation" aria-label="受保护">
+    <section className="dsh-vault-locked-conversation" role="dialog" aria-modal="true" aria-label="受保护">
       <LockIcon className="dsh-vault-locked-conversation-icon" />
       <p className="dsh-vault-locked-conversation-title">已上锁</p>
       <p className="dsh-vault-locked-conversation-copy">需要解锁才能查看内容</p>

@@ -10,7 +10,7 @@ DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，
 
 ## DSH 0.1.7-rc.1 本机兼容修复
 
-版本限定补丁、构建入口和验证/回滚说明见 [兼容说明](compat/dsh-v0.1.7-rc.1/README.md)。补丁为 Workspace 行提供 Vault accessory/action 扩展槽；GitHub Release 随附专用补丁。
+版本限定补丁、构建入口和验证/回滚说明见 [兼容说明](compat/dsh-v0.1.7-rc.1/README.md)。补丁为 Workspace 与 Session 行、对话标题、浏览器标题和受保护会话遮罩提供所需插槽；GitHub Release 随附补丁及匹配的 DSH 客户端 bundle。
 
 ## 从旧 scoped 包迁移
 
@@ -20,7 +20,7 @@ DSH Web profile 的隐私锁：在侧边栏直接锁定 Workspace 或 Session，
 
 ```bash
 dsh plugin --profile web remove @robbin810130/dsh-vault-plugin
-dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.9
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.10
 ```
 
 确认 profile 仅有一个新包及一个 bundle 后再启动。保留原节点 ID、设置和状态/备份目录；Vault 密码、策略和绑定不重置。安装失败时保持停服并还原 profile 备份，不删除 Vault 数据。Vault 一键安装器不自动移除旧包。如果当前安装的是旧版 scoped 包，先按上面流程迁移。DSH `0.1.7-rc.1` 的 Workspace 行扩展属于宿主客户端兼容包；只在 DSH 界面里重装 Vault 插件不会更新宿主客户端，兼容说明中列有配套补丁与客户端 bundle。
@@ -52,7 +52,7 @@ dsh plugin --profile web add <downloaded-package>
 也可以直接使用 DSH 原生安装命令安装 GitHub 仓库：
 
 ```bash
-dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.9
+dsh plugin --profile web add github:robbin810130/dsh-vault-plugin#v0.2.10
 ```
 
 ## 功能概览
@@ -133,7 +133,9 @@ node --test tests/install-script.test.mjs tests/scripts/package-release.test.mjs
 
 - `dsh-vault-plugin.tgz`
 - `dsh-vault-plugin.tgz.sha256`
-- `dsh-vault-plugin-dsh-v0.1.2-rc.1.patch`
+- DSH 0.1.2、0.1.5、0.1.7 的版本限定补丁
+- DSH 0.1.5、0.1.7 兼容包及 DSH 0.1.7 客户端 bundle
+- `compatibility.sha256`
 
 ## 项目文档
 
