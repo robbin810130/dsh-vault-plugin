@@ -46,7 +46,11 @@ export async function normalizeBundleSourcePaths(root, sourceRoot, bundlePaths) 
     const absolutePath = resolve(resolvedRoot, relativePath)
     if (!absolutePath.startsWith(`${resolvedRoot}/`)) throw new Error(`invalid DSH bundle path: ${relativePath}`)
     const content = await readFile(absolutePath, 'utf8')
-    const normalized = content.split(normalizedRoot).join('/dsh-source')
+    // macOS resolves /tmp through /private/tmp, so its file URL comments can
+    // retain an extra /private segment after the staging root is replaced.
+    // Canonicalize that platform-specific spelling as well so CI and local
+    // compatibility builds produce identical bundles.
+    const normalized = content.split(normalizedRoot).join('/dsh-source').replaceAll('/private/dsh-source', '/dsh-source')
     if (normalized !== content) {
       replacements += content.split(normalizedRoot).length - 1
       await writeFile(absolutePath, normalized)

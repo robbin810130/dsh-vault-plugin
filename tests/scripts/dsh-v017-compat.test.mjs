@@ -76,7 +76,10 @@ test('normalizes temporary source roots embedded in generated browser bundles', 
   roots.push(root)
   const bundle = 'client.js'
   const sourceRoot = '/tmp/dsh-v017-compat-random/source'
-  await writeFile(join(root, bundle), `//#region ${sourceRoot}/packages/client/ui-workspace/src/client/index.ts`)
+  await writeFile(join(root, bundle), `//#region ${sourceRoot}/packages/client/ui-workspace/src/client/index.ts\n//#region /private/dsh-source/packages/client/ui-workspace/src/client/rows/Rows.module.css.mjs`)
   await normalizeBundleSourcePaths(root, sourceRoot, [bundle])
-  assert.equal(await readFile(join(root, bundle), 'utf8'), '//#region /dsh-source/packages/client/ui-workspace/src/client/index.ts')
+  assert.equal(await readFile(join(root, bundle), 'utf8'), [
+    '//#region /dsh-source/packages/client/ui-workspace/src/client/index.ts',
+    '//#region /dsh-source/packages/client/ui-workspace/src/client/rows/Rows.module.css.mjs',
+  ].join('\n'))
 })

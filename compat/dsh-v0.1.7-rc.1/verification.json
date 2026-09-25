@@ -7,11 +7,11 @@
   "bundles": {
     "packages/api/session-controller/lib/client.js": "a5fbc1af65e36e4327cd577189c506c9033a0bccc077e3f04101046df7f0d2ab",
     "packages/api/session-controller/lib/client.js.map": "4e8088cd3d75dc926c6cf17b76aefe8465e356e87f8cdf8e43e0d3c55fa1ed75",
-    "packages/client/ui-workspace/lib/client.js": "389bc2882fb7a8d3aacf03b95802c19ec62a782db2257759f3bd2fbd99388622",
+    "packages/client/ui-workspace/lib/client.js": "77af1dfb2fc0f72f3f3cbacb611191410579d2902d9121b627dedaea3846e757",
     "packages/client/ui-workspace/lib/client.js.map": "430cb274a93aa7a759fb78d1243ed13cf3d20f0e99e5cd9f1c64c9385da1e6bb",
-    "packages/client/ui-layout/lib/client.js": "a08193b4f73efcbb7291c9c1dad05e407817ad16ca171e1a493ef8ca285dd1c2",
+    "packages/client/ui-layout/lib/client.js": "d726c712c5276a697f07b87e0cb0d25621afc37c44471967e0ec4e4f977e73f4",
     "packages/client/ui-layout/lib/client.js.map": "8bcc0998512870b6d01817918471b43936ef9490136fcdbc9e66e4a4963da2fc",
-    "packages/client/ui-conversation/lib/client.js": "dbd889d381911c22cfe0c928ea1ee7f9e031093d547e04a36496221b8bd3ea41",
+    "packages/client/ui-conversation/lib/client.js": "5df5af7890c98279c42860b4147f18e697f17b575cc421e9a7e3e54677430d42",
     "packages/client/ui-conversation/lib/client.js.map": "71d3e214fbf0f115e4e2aeda81f7bab0dc12df1c96a830c9ab7a89da479e9877"
   }
 }
